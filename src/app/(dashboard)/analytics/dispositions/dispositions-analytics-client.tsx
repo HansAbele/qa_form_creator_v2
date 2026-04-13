@@ -77,7 +77,7 @@ const passRateConfig = {
 interface DispositionData {
   id: string;
   name: string;
-  code: string;
+  code: string | null;
   categoryName: string | null;
   totalEvaluations: number;
   avgScore: number;

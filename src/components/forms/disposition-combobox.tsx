@@ -212,33 +212,35 @@ export function DispositionCombobox({
         Disposición <span className="text-destructive">*</span>
       </Label>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className={cn(
-              "w-full justify-between font-normal",
-              !value && "text-muted-foreground",
-              error && "border-destructive",
-            )}
-          >
-            {selectedDisposition ? (
-              <span className="truncate">
-                {selectedDisposition.code && (
-                  <span className="mr-1.5 font-mono text-xs text-muted-foreground">
-                    {selectedDisposition.code}
-                  </span>
-                )}
-                {selectedDisposition.name}
-              </span>
-            ) : (
-              "Seleccionar disposición..."
-            )}
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
+        <PopoverTrigger
+          render={
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              className={cn(
+                "w-full justify-between font-normal",
+                !value && "text-muted-foreground",
+                error && "border-destructive",
+              )}
+            />
+          }
+        >
+          {selectedDisposition ? (
+            <span className="truncate">
+              {selectedDisposition.code && (
+                <span className="mr-1.5 font-mono text-xs text-muted-foreground">
+                  {selectedDisposition.code}
+                </span>
+              )}
+              {selectedDisposition.name}
+            </span>
+          ) : (
+            "Seleccionar disposición..."
+          )}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </PopoverTrigger>
-        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <PopoverContent className="w-(--anchor-width) p-0" align="start">
           {/* Search input */}
           <div className="border-b p-2">
             <Input

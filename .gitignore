@@ -43,3 +43,7 @@ odoo.local.env
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# deploy temp dirs
+/_local_save/
+/_server_backup/

@@ -360,13 +360,6 @@ export function EvaluatorDetailClient({ data }: { data: EvaluatorDetailData }) {
                     data={data.agentsEvaluated.slice(0, 10)}
                     layout="vertical"
                     margin={{ left: 20, right: 12 }}
-                    onClick={(state) => {
-                      if (state?.activePayload?.[0]?.payload) {
-                        const agentId = (state.activePayload[0].payload as { id: string }).id;
-                        router.push(`/analytics/agents/${agentId}`);
-                      }
-                    }}
-                    style={{ cursor: "pointer" }}
                   >
                     <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
                     <XAxis
@@ -406,6 +399,10 @@ export function EvaluatorDetailClient({ data }: { data: EvaluatorDetailData }) {
                       fill="#8b5cf6"
                       radius={[0, 6, 6, 0]}
                       animationDuration={900}
+                      className="cursor-pointer"
+                      onClick={(data) => {
+                        if (data?.id) router.push(`/analytics/agents/${data.id}`);
+                      }}
                     />
                   </BarChart>
                 </ChartContainer>
