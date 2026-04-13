@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+tests
+.env
+.env.*
+!.env.production.example
+docker-compose*.yml
+.claude
+.vscode
+playwright-report
+test-results
