@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { QuestionRenderer } from "./question-renderer";
-import { DispositionCombobox } from "./disposition-combobox";
 import { getAgents } from "@/server/actions/agents";
 import { submitResponse } from "@/server/actions/responses";
 import type { QuestionType } from "@prisma/client";
@@ -42,7 +41,6 @@ export function FormViewer({ form }: FormViewerProps) {
   const router = useRouter();
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [agentId, setAgentId] = useState("");
-  const [dispositionId, setDispositionId] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -72,11 +70,6 @@ export function FormViewer({ form }: FormViewerProps) {
       return false;
     }
 
-    if (!dispositionId) {
-      toast.error("Selecciona una disposición");
-      return false;
-    }
-
     for (const q of form.questions) {
       if (q.required && !answers[q.id]?.trim()) {
         newErrors[q.id] = "Este campo es obligatorio";
@@ -95,7 +88,6 @@ export function FormViewer({ form }: FormViewerProps) {
       await submitResponse({
         formId: form.id,
         agentId,
-        dispositionId,
         answers: form.questions.map((q) => ({
           questionId: q.id,
           value: answers[q.id] ?? "",
@@ -143,12 +135,6 @@ export function FormViewer({ form }: FormViewerProps) {
             </SelectContent>
           </Select>
         </div>
-
-        <DispositionCombobox
-          campaignId={form.campaignId}
-          value={dispositionId}
-          onChange={setDispositionId}
-        />
 
         <Separator />
 

@@ -20,7 +20,7 @@ export default async function FormsPage() {
         responseCount: f._count.responses,
         createdAt: f.createdAt.toISOString(),
       }))}
-      isAdmin={true /* Both QA and ADMIN can manage forms */}
+      isAdmin={session.user.role === "ADMIN"}
     />
   );
 }

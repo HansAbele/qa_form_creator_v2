@@ -22,7 +22,6 @@ export async function getResponses(formId?: string) {
       form: { select: { title: true } },
       agent: { select: { name: true } },
       evaluator: { select: { name: true } },
-      disposition: { select: { id: true, name: true, code: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -43,7 +42,6 @@ export async function getResponseById(id: string) {
       form: { select: { title: true } },
       agent: { select: { name: true } },
       evaluator: { select: { name: true } },
-      disposition: { select: { id: true, name: true, code: true } },
       answers: {
         include: {
           question: { select: { label: true, type: true, options: true } },
@@ -63,7 +61,6 @@ export async function getResponseById(id: string) {
 export async function submitResponse(data: {
   formId: string;
   agentId: string;
-  dispositionId: string;
   answers: { questionId: string; value: string }[];
 }) {
   const session = await auth();
@@ -99,7 +96,6 @@ export async function submitResponse(data: {
         formId: data.formId,
         agentId: data.agentId,
         evaluatorId: session.user.id,
-        dispositionId: data.dispositionId,
         score,
         answers: {
           create: data.answers.map((a) => ({

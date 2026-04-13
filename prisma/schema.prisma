@@ -73,12 +73,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts              Account[]
-  sessions              Session[]
-  campaigns             UserCampaign[]
-  forms                 Form[]                @relation("FormCreator")
-  responses             Response[]            @relation("Evaluator")
-  dispositionsCreated   Disposition[]         @relation("DispositionCreator")
+  accounts  Account[]
+  sessions  Session[]
+  campaigns UserCampaign[]
+  forms     Form[]         @relation("FormCreator")
+  responses Response[]     @relation("Evaluator")
 }
 
 model Campaign {
@@ -89,12 +88,9 @@ model Campaign {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users                  UserCampaign[]
-  forms                  Form[]
-  agents                 Agent[]
-  teams                  Team[]
-  dispositionCategories  DispositionCategory[]
-  dispositions           Disposition[]
+  users  UserCampaign[]
+  forms  Form[]
+  agents Agent[]
 }
 
 model UserCampaign {
@@ -108,23 +104,6 @@ model UserCampaign {
   @@id([userId, campaignId])
 }
 
-// ─── Equipos ─────────────────────────────────────────
-
-model Team {
-  id         String   @id @default(cuid())
-  name       String
-  campaignId String
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  agents   Agent[]
-
-  @@unique([name, campaignId])
-  @@index([campaignId])
-}
-
 // ─── Agentes (no inician sesión) ─────────────────────
 
 model Agent {
@@ -132,16 +111,13 @@ model Agent {
   name       String
   agentCode  String?
   campaignId String
-  teamId     String?
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
 
   campaign  Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  team      Team?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
   responses Response[]
 
   @@unique([agentCode, campaignId])
-  @@index([teamId])
 }
 
 // ─── Formularios ─────────────────────────────────────
@@ -176,63 +152,24 @@ model Question {
   @@index([formId, order])
 }
 
-// ─── Disposiciones ───────────────────────────────────
-
-model DispositionCategory {
-  id         String   @id @default(cuid())
-  name       String
-  campaignId String
-  order      Int      @default(0)
-  createdAt  DateTime @default(now())
-
-  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  dispositions Disposition[]
-
-  @@unique([name, campaignId])
-  @@index([campaignId])
-}
-
-model Disposition {
-  id          String   @id @default(cuid())
-  name        String
-  code        String?
-  categoryId  String?
-  campaignId  String
-  active      Boolean  @default(true)
-  createdById String
-  createdAt   DateTime @default(now())
-
-  category  DispositionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  campaign  Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  createdBy User                 @relation("DispositionCreator", fields: [createdById], references: [id])
-  responses Response[]
-
-  @@unique([name, campaignId])
-  @@index([campaignId, active])
-  @@index([categoryId])
-}
-
 // ─── Evaluaciones ────────────────────────────────────
 
 model Response {
-  id            String   @id @default(cuid())
-  formId        String
-  agentId       String
-  evaluatorId   String
-  dispositionId String?
-  score         Decimal  @db.Decimal(5, 2)
-  createdAt     DateTime @default(now())
+  id          String   @id @default(cuid())
+  formId      String
+  agentId     String
+  evaluatorId String
+  score       Decimal  @db.Decimal(5, 2)
+  createdAt   DateTime @default(now())
 
-  form        Form         @relation(fields: [formId], references: [id])
-  agent       Agent        @relation(fields: [agentId], references: [id])
-  evaluator   User         @relation("Evaluator", fields: [evaluatorId], references: [id])
-  disposition Disposition? @relation(fields: [dispositionId], references: [id])
-  answers     Answer[]
+  form      Form     @relation(fields: [formId], references: [id])
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  evaluator User     @relation("Evaluator", fields: [evaluatorId], references: [id])
+  answers   Answer[]
 
   @@index([formId, createdAt])
   @@index([agentId])
   @@index([evaluatorId])
-  @@index([dispositionId])
   @@index([createdAt])
 }
 

@@ -15,8 +15,6 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  UsersRound,
-  Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -28,8 +26,6 @@ const navItems = [
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/kpis", label: "KPIs", icon: Target },
   { href: "/analytics/agents", label: "Agentes", icon: Users },
-  { href: "/analytics/teams", label: "Equipos", icon: UsersRound },
-  { href: "/analytics/dispositions", label: "Disposiciones", icon: Tag },
   { href: "/analytics/export", label: "Exportar", icon: Download },
   { href: "/settings", label: "Configuración", icon: Settings },
 ];
@@ -38,8 +34,6 @@ const adminItems = [
   { href: "/admin/users", label: "Usuarios", icon: UserCog },
   { href: "/admin/campaigns", label: "Campañas", icon: Building2 },
   { href: "/admin/agents", label: "Agentes", icon: Users },
-  { href: "/admin/teams", label: "Equipos", icon: UsersRound },
-  { href: "/admin/dispositions", label: "Disposiciones", icon: Tag },
 ];
 
 export function Sidebar() {

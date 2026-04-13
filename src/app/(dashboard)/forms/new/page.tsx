@@ -6,7 +6,7 @@ import { FormBuilder } from "@/components/forms/form-builder";
 export default async function NewFormPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  // Both QA and ADMIN can create forms
+  if (session.user.role !== "ADMIN") redirect("/");
 
   const campaigns = await getCampaigns();
 

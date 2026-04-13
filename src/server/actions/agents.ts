@@ -19,7 +19,6 @@ export async function getAgents(campaignId?: string) {
     where,
     include: {
       campaign: { select: { id: true, name: true } },
-      team: { select: { id: true, name: true } },
       _count: { select: { responses: true } },
     },
     orderBy: { name: "asc" },
@@ -32,10 +31,7 @@ export async function getAgentById(id: string) {
 
   const agent = await prisma.agent.findUnique({
     where: { id },
-    include: {
-      campaign: { select: { id: true, name: true } },
-      team: { select: { id: true, name: true } },
-    },
+    include: { campaign: { select: { id: true, name: true } } },
   });
 
   if (!agent) throw new Error("Agente no encontrado");
@@ -46,24 +42,15 @@ export async function createAgent(data: {
   name: string;
   agentCode?: string;
   campaignId: string;
-  teamId?: string;
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
-
-  // QA users can only create agents in their assigned campaigns
-  if (session.user.role !== "ADMIN") {
-    if (!session.user.campaignIds.includes(data.campaignId)) {
-      throw new Error("No autorizado para esta campaña");
-    }
-  }
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
   const agent = await prisma.agent.create({
     data: {
       name: data.name,
       agentCode: data.agentCode || null,
       campaignId: data.campaignId,
-      teamId: data.teamId || null,
     },
   });
 
@@ -73,17 +60,16 @@ export async function createAgent(data: {
 
 export async function updateAgent(
   id: string,
-  data: { name: string; agentCode?: string; teamId?: string | null; active: boolean },
+  data: { name: string; agentCode?: string; active: boolean },
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
   const agent = await prisma.agent.update({
     where: { id },
     data: {
       name: data.name,
       agentCode: data.agentCode || null,
-      teamId: data.teamId ?? null,
       active: data.active,
     },
   });
@@ -94,7 +80,7 @@ export async function updateAgent(
 
 export async function deleteAgent(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
   await prisma.agent.update({
     where: { id },

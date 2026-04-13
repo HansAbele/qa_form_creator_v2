@@ -66,9 +66,7 @@ export function Header() {
           <div className="flex items-center gap-3">
             <div className="text-right">
               <p className="text-sm font-medium text-foreground">{session.user.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {session.user.role === "ADMIN" ? "QA Manager" : "QA"}
-              </p>
+              <p className="text-xs text-muted-foreground">{session.user.role}</p>
             </div>
             <button
               type="button"

@@ -11,7 +11,7 @@ export default async function EditFormPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  // Both QA and ADMIN can edit forms
+  if (session.user.role !== "ADMIN") redirect("/");
 
   const { id } = await params;
   const [form, campaigns] = await Promise.all([getFormById(id), getCampaigns()]);
