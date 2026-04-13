@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Area,
   AreaChart,
@@ -23,8 +24,10 @@ import {
   ClipboardCheck,
   FileText,
   Sparkles,
+  Tag,
   TrendingUp,
   Users,
+  UsersRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,10 +43,12 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { Label } from "@/components/ui/label";
 import {
   getDashboardStats,
+  getDispositionAnalytics,
   getEvaluationsPerAgent,
   getEvaluatorActivity,
   getResponseTrends,
   getScoreDistribution,
+  getTeamPerformance,
   getTopBottomPerformers,
 } from "@/server/queries/analytics";
 import type { AppSettings } from "@/lib/settings";
@@ -69,6 +74,15 @@ const performerConfig = {
 
 const volumeConfig = {
   count: { label: "Evaluaciones", color: "#ff6600" },
+} satisfies ChartConfig;
+
+const teamConfig = {
+  avgScore: { label: "Score Promedio", color: "#8b5cf6" },
+} satisfies ChartConfig;
+
+const dispConfig = {
+  totalEvaluations: { label: "Evaluaciones", color: "#06b6d4" },
+  avgScore: { label: "Score Promedio", color: "#ff6600" },
 } satisfies ChartConfig;
 
 const BAR_COLORS = [
@@ -123,6 +137,7 @@ export function DashboardClient({
   userName: string;
   settings: AppSettings;
 }) {
+  const router = useRouter();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -158,12 +173,32 @@ export function DashboardClient({
   const [evalsPerAgent, setEvalsPerAgent] = useState<
     { name: string; count: number }[]
   >([]);
+  const [teamPerf, setTeamPerf] = useState<
+    {
+      id: string;
+      name: string;
+      campaignName: string;
+      agentCount: number;
+      totalEvaluations: number;
+      avgScore: number;
+      passRate: number;
+    }[]
+  >([]);
+  const [dispAnalytics, setDispAnalytics] = useState<
+    {
+      id: string;
+      name: string;
+      totalEvaluations: number;
+      avgScore: number;
+      passRate: number;
+    }[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, t, d, tb, ev, ea] = await Promise.all([
+      const [s, t, d, tb, ev, ea, tp, da] = await Promise.all([
         getDashboardStats(dateFrom || undefined, dateTo || undefined),
         getResponseTrends(dateFrom || undefined, dateTo || undefined),
         getScoreDistribution(
@@ -174,6 +209,12 @@ export function DashboardClient({
         getTopBottomPerformers(dateFrom || undefined, dateTo || undefined),
         getEvaluatorActivity(dateFrom || undefined, dateTo || undefined),
         getEvaluationsPerAgent(dateFrom || undefined, dateTo || undefined),
+        getTeamPerformance(dateFrom || undefined, dateTo || undefined),
+        getDispositionAnalytics(
+          undefined,
+          dateFrom || undefined,
+          dateTo || undefined,
+        ),
       ]);
       setStats(s);
       setTrends(t);
@@ -181,6 +222,8 @@ export function DashboardClient({
       setTopBottom(tb);
       setEvaluators(ev);
       setEvalsPerAgent(ea);
+      setTeamPerf(tp);
+      setDispAnalytics(da);
     } catch (e) {
       console.error(e);
     } finally {
@@ -575,8 +618,127 @@ export function DashboardClient({
         </div>
       </Section>
 
-      {/* ─── Row 3: Top 10 + Bottom 5 ──────────────────────────────────── */}
+      {/* ─── Row 3: Score por Equipo + Score por Disposición ──────────── */}
       <Section delay={0.2}>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Team Performance */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <UsersRound className="h-4 w-4 text-violet-500" />
+                Score por Equipo
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {teamPerf.length > 0 ? (
+                <ChartContainer config={teamConfig} className="h-[300px] w-full">
+                  <BarChart
+                    data={teamPerf}
+                    layout="vertical"
+                    margin={{ left: 20, right: 12 }}
+                  >
+                    <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis
+                      type="number"
+                      domain={[0, 100]}
+                      tickLine={false}
+                      axisLine={false}
+                      className="text-xs"
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      width={100}
+                      className="text-xs"
+                    />
+                    <ChartTooltip
+                      cursor={{ fill: "rgba(139,92,246,0.08)" }}
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
+                        />
+                      }
+                    />
+                    <Bar
+                      dataKey="avgScore"
+                      fill="#8b5cf6"
+                      radius={[0, 6, 6, 0]}
+                      animationDuration={900}
+                      className="cursor-pointer"
+                      onClick={(data) => {
+                        if (data?.id) router.push(`/analytics/teams/${data.id}`);
+                      }}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              ) : (
+                <EmptyState label="Sin equipos configurados" />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Disposition Analytics */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Tag className="h-4 w-4 text-cyan-500" />
+                Score por Disposición (Top 10)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {dispAnalytics.length > 0 ? (
+                <ChartContainer config={dispConfig} className="h-[300px] w-full">
+                  <BarChart
+                    data={dispAnalytics.slice(0, 10)}
+                    layout="vertical"
+                    margin={{ left: 20, right: 12 }}
+                  >
+                    <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis
+                      type="number"
+                      domain={[0, 100]}
+                      tickLine={false}
+                      axisLine={false}
+                      className="text-xs"
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      width={100}
+                      className="text-xs"
+                    />
+                    <ChartTooltip
+                      cursor={{ fill: "rgba(6,182,212,0.08)" }}
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
+                        />
+                      }
+                    />
+                    <Bar
+                      dataKey="avgScore"
+                      fill="#06b6d4"
+                      radius={[0, 6, 6, 0]}
+                      animationDuration={900}
+                      className="cursor-pointer"
+                      onClick={() => router.push("/analytics/dispositions")}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              ) : (
+                <EmptyState label="Sin disposiciones registradas" />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </Section>
+
+      {/* ─── Row 4: Top 10 + Bottom 5 (clickable drill-down) ─────────── */}
+      <Section delay={0.25}>
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
@@ -622,6 +784,10 @@ export function DashboardClient({
                       fill="#10b981"
                       radius={[0, 6, 6, 0]}
                       animationDuration={900}
+                      className="cursor-pointer"
+                      onClick={(data) => {
+                        if (data?.id) router.push(`/analytics/agents/${data.id}`);
+                      }}
                     />
                   </BarChart>
                 </ChartContainer>
@@ -675,6 +841,10 @@ export function DashboardClient({
                       fill="#f43f5e"
                       radius={[0, 6, 6, 0]}
                       animationDuration={900}
+                      className="cursor-pointer"
+                      onClick={(data) => {
+                        if (data?.id) router.push(`/analytics/agents/${data.id}`);
+                      }}
                     />
                   </BarChart>
                 </ChartContainer>
@@ -756,7 +926,8 @@ export function DashboardClient({
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="grid grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-muted/40"
+                        className="grid cursor-pointer grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-muted/40"
+                        onClick={() => router.push(`/analytics/evaluators/${ev.id}`)}
                       >
                         <span className="truncate font-medium">{ev.name}</span>
                         <span className="text-center tabular-nums">

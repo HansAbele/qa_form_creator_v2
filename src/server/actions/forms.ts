@@ -58,7 +58,14 @@ export async function createForm(data: {
   }[];
 }) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user) throw new Error("No autorizado");
+
+  // QA users can only create forms in their assigned campaigns
+  if (session.user.role !== "ADMIN") {
+    if (!session.user.campaignIds.includes(data.campaignId)) {
+      throw new Error("No autorizado para esta campaña");
+    }
+  }
 
   const form = await prisma.form.create({
     data: {
@@ -98,7 +105,14 @@ export async function updateForm(
   },
 ) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user) throw new Error("No autorizado");
+
+  // QA users can only edit forms in their assigned campaigns
+  if (session.user.role !== "ADMIN") {
+    if (!session.user.campaignIds.includes(data.campaignId)) {
+      throw new Error("No autorizado para esta campaña");
+    }
+  }
 
   const form = await prisma.$transaction(async (tx) => {
     // Delete existing questions
@@ -132,7 +146,7 @@ export async function updateForm(
 
 export async function deleteForm(id: string) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user) throw new Error("No autorizado");
 
   const responseCount = await prisma.response.count({ where: { formId: id } });
   if (responseCount > 0) {
