@@ -18,7 +18,6 @@ export default async function TeamsPage() {
     name: t.name,
     campaignId: t.campaignId,
     campaignName: t.campaign.name,
-    active: t.active,
     agentCount: t._count.agents,
   }));
 

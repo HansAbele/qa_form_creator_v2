@@ -20,7 +20,7 @@ All QA + ADMIN users are linked to every campaign.
 Agents are linked only to their own department/campaign.
 
 Idempotent: safe to run multiple times without duplicates.
-Initial password for all imported users: Qore.2026
+Initial password for all imported users: configured with QORE_INITIAL_PASSWORD
 
 Usage:
     pip install psycopg2-binary paramiko bcrypt
@@ -55,15 +55,15 @@ ODOO = dict(
     port=5432,
     dbname="dbodoo",
     user="wfm",
-    password="T3l3c0mwfm",
+    password=os.environ["ODOO_DB_PASSWORD"],
 )
 
 SSH_HOST     = "192.168.80.243"
 SSH_USER     = "root"
-SSH_PASS     = "T3l3c0m.2026"
+SSH_PASS     = os.environ["QORE_SSH_PASSWORD"]
 DB_CONTAINER = "qa_form_creator_db"
 
-DEFAULT_PW   = "Qore.2026"
+DEFAULT_PW   = os.environ["QORE_INITIAL_PASSWORD"]
 EMAIL_DOMAIN = "@tnoutsourcing.com"
 
 # job_title substrings that map to ADMIN role in Qore

@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { assertCampaignAccessForUser } from "@/server/queries/campaign-filter";
+import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import type { Prisma } from "@prisma/client";
 
 export async function getCampaigns() {
   const session = await auth();
@@ -12,6 +15,29 @@ export async function getCampaigns() {
     session.user.role === "ADMIN"
       ? {}
       : { users: { some: { userId: session.user.id } } };
+
+  return prisma.campaign.findMany({
+    where,
+    include: {
+      _count: { select: { users: true, forms: true, agents: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getCampaignsForPermission(permission: CampaignPermissionKey) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const userCampaignWhere: Prisma.UserCampaignWhereInput = {
+    userId: session.user.id,
+    [permission]: true,
+  };
+
+  const where: Prisma.CampaignWhereInput =
+    session.user.role === "ADMIN"
+      ? {}
+      : { users: { some: userCampaignWhere } };
 
   return prisma.campaign.findMany({
     where,
@@ -36,6 +62,7 @@ export async function getCampaignById(id: string) {
   });
 
   if (!campaign) throw new Error("Campaña no encontrada");
+  assertCampaignAccessForUser(session.user, campaign.id);
   return campaign;
 }
 

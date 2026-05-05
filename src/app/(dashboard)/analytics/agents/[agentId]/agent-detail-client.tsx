@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bar,
@@ -8,15 +9,12 @@ import {
   Cell,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   XAxis,
   YAxis,
 } from "recharts";
 import { motion } from "motion/react";
 import {
   ArrowLeft,
-  Award,
   BarChart3,
   ClipboardCheck,
   Hash,
@@ -33,7 +31,10 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -42,35 +43,54 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getAgentDetail } from "@/server/queries/analytics";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface AgentDetailData {
+interface ScoreTrendPoint {
+  date: string;
+  avgScore: number;
+}
+
+interface QuestionScore {
+  question: string;
+  avgScore: number;
+}
+
+interface DispositionBreakdown {
+  name: string;
+  count: number;
+  avgScore: number;
+}
+
+interface EvaluatorEntry {
   id: string;
+  name: string;
+  count: number;
+  avgScore: number;
+}
+
+interface RecentResponse {
+  id: string;
+  formTitle: string;
+  evaluatorName: string;
+  dispositionName: string | null;
+  score: number;
+  createdAt: string;
+}
+
+interface AgentDetailData {
   name: string;
   agentCode: string | null;
   campaignName: string;
-  campaignId: string;
   teamName: string | null;
-  teamId: string | null;
   totalEvaluations: number;
   avgScore: number;
-  passRate: number;
-  minScore: number | null;
-  maxScore: number | null;
-  passThreshold: number;
-  scoreTrend: { date: string; avgScore: number; count: number }[];
-  scoreByQuestion: { question: string; avgScore: number }[];
-  dispositionBreakdown: { name: string; count: number; avgScore: number }[];
-  evaluators: { id: string; name: string; count: number; avgScore: number }[];
-  recentResponses: {
-    id: string;
-    formTitle: string;
-    evaluatorName: string;
-    dispositionName: string | null;
-    score: number;
-    createdAt: string;
-  }[];
+  scoreTrend: ScoreTrendPoint[];
+  scoreByQuestion: QuestionScore[];
+  dispositionBreakdown: DispositionBreakdown[];
+  evaluators: EvaluatorEntry[];
+  recentResponses: RecentResponse[];
 }
 
 // ─── Chart configs ───────────────────────────────────────────────────────────
@@ -91,27 +111,44 @@ const evaluatorConfig = {
   count: { label: "Evaluaciones", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
-// ─── Colors ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const PIE_COLORS = ["#ff6600", "#1a2b45", "#10b981", "#8b5cf6", "#06b6d4", "#f59e0b", "#f43f5e", "#14b8a6"];
+function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
+  if (score >= 70) return "default";
+  if (score >= 50) return "secondary";
+  return "destructive";
+}
 
 function getQuestionBarColor(score: number): string {
-  if (score >= 80) return "#10b981";
-  if (score >= 60) return "#f59e0b";
+  if (score >= 70) return "#10b981";
+  if (score >= 50) return "#f59e0b";
   return "#f43f5e";
 }
 
-// ─── Section animation wrapper ───────────────────────────────────────────────
+// ─── Skeleton ────────────────────────────────────────────────────────────────
 
-function Section({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+function LoadingSkeleton() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
-    >
-      {children}
-    </motion.div>
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-8 w-20" />
+      </div>
+      <Skeleton className="h-24 w-full rounded-xl" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-28 rounded-xl" />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Skeleton className="h-[340px] rounded-xl" />
+        <Skeleton className="h-[340px] rounded-xl" />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Skeleton className="h-[340px] rounded-xl" />
+        <Skeleton className="h-[340px] rounded-xl" />
+      </div>
+      <Skeleton className="h-[300px] rounded-xl" />
+    </div>
   );
 }
 
@@ -125,8 +162,43 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function AgentDetailClient({ data }: { data: AgentDetailData }) {
+export function AgentDetailClient({ agentId }: { agentId: string }) {
   const router = useRouter();
+  const [data, setData] = useState<AgentDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await getAgentDetail(
+        agentId,
+        dateFrom || undefined,
+        dateTo || undefined,
+      );
+      setData(result);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [agentId, dateFrom, dateTo]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const setQuickRange = (days: number) => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    setDateFrom(from.toISOString().slice(0, 10));
+    setDateTo(to.toISOString().slice(0, 10));
+  };
+
+  if (loading && !data) return <LoadingSkeleton />;
+  if (!data) return <EmptyState label="Agente no encontrado" />;
 
   const scoreTrendSpark = data.scoreTrend.map((t) => ({ value: t.avgScore }));
 
@@ -175,25 +247,49 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
                 </div>
               </div>
 
-              {/* Min / Max inline */}
-              <div className="flex items-center gap-3 text-sm">
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Min</p>
-                  <p className="font-semibold tabular-nums">
-                    {data.minScore !== null ? `${data.minScore.toFixed(0)}%` : "--"}
-                  </p>
+              {/* Date range filters */}
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="flex gap-1">
+                  {[7, 30, 90].map((d) => (
+                    <Button
+                      key={d}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setQuickRange(d)}
+                    >
+                      {d}d
+                    </Button>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDateFrom("");
+                      setDateTo("");
+                    }}
+                  >
+                    Todo
+                  </Button>
                 </div>
-                <div className="h-8 w-px bg-border" />
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Max</p>
-                  <p className="font-semibold tabular-nums">
-                    {data.maxScore !== null ? `${data.maxScore.toFixed(0)}%` : "--"}
-                  </p>
-                </div>
-                <div className="h-8 w-px bg-border" />
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Umbral</p>
-                  <p className="font-semibold tabular-nums">{data.passThreshold}%</p>
+                <div className="flex items-end gap-2">
+                  <div>
+                    <Label className="text-xs">Desde</Label>
+                    <Input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="h-8 w-36"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Hasta</Label>
+                    <Input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="h-8 w-36"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -202,45 +298,32 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
       </motion.div>
 
       {/* ─── KPI Cards ─────────────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <KpiCard
+          label="Total Evaluaciones"
+          value={data.totalEvaluations}
+          icon={ClipboardCheck}
+          tone="orange"
+          trend={scoreTrendSpark}
+          index={0}
+        />
         <KpiCard
           label="Score Promedio"
           value={data.avgScore}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={data.avgScore >= data.passThreshold ? "emerald" : "amber"}
-          trend={scoreTrendSpark}
-          index={0}
-        />
-        <KpiCard
-          label={`Pass Rate (>=${data.passThreshold}%)`}
-          value={data.passRate}
-          suffix="%"
-          icon={Award}
-          tone={data.passRate >= 80 ? "emerald" : data.passRate >= 60 ? "amber" : "rose"}
+          tone={data.avgScore >= 70 ? "emerald" : data.avgScore >= 50 ? "amber" : "rose"}
           index={1}
-        />
-        <KpiCard
-          label="Evaluaciones"
-          value={data.totalEvaluations}
-          icon={ClipboardCheck}
-          tone="orange"
-          index={2}
-        />
-        <KpiCard
-          label="Rango de Score"
-          value={data.maxScore !== null && data.minScore !== null ? data.maxScore - data.minScore : 0}
-          decimals={1}
-          suffix=" pts"
-          icon={BarChart3}
-          tone="navy"
-          index={3}
         />
       </div>
 
       {/* ─── Score Trend + Score by Question ────────────────────────────── */}
-      <Section delay={0.1}>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08 }}
+      >
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Score Trend */}
           <Card>
@@ -255,7 +338,7 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
                 <ChartContainer config={trendConfig} className="h-[280px] w-full">
                   <LineChart data={data.scoreTrend}>
                     <defs>
-                      <linearGradient id="scoreTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="agentScoreTrendGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#1a2b45" stopOpacity={0.15} />
                         <stop offset="95%" stopColor="#1a2b45" stopOpacity={0} />
                       </linearGradient>
@@ -305,7 +388,7 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
             </CardContent>
           </Card>
 
-          {/* Score by Question */}
+          {/* Score by Question (horizontal bar, weakest first) */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -336,7 +419,9 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
                       axisLine={false}
                       width={120}
                       className="text-xs"
-                      tickFormatter={(v) => (String(v).length > 18 ? `${String(v).slice(0, 18)}...` : String(v))}
+                      tickFormatter={(v) =>
+                        String(v).length > 18 ? `${String(v).slice(0, 18)}...` : String(v)
+                      }
                     />
                     <ChartTooltip
                       cursor={{ fill: "rgba(255,102,0,0.08)" }}
@@ -359,12 +444,16 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
             </CardContent>
           </Card>
         </div>
-      </Section>
+      </motion.div>
 
-      {/* ─── Disposition Breakdown + Evaluators ────────────────────────── */}
-      <Section delay={0.2}>
+      {/* ─── Dispositions + Evaluators ────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 2 * 0.08 }}
+      >
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Disposition Breakdown */}
+          {/* Dispositions (horizontal bar) */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -374,62 +463,63 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
             </CardHeader>
             <CardContent>
               {data.dispositionBreakdown.length > 0 ? (
-                <div className="flex flex-col items-center">
-                  <ChartContainer
-                    config={dispositionConfig}
-                    className="mx-auto h-[250px] w-full max-w-[300px]"
+                <ChartContainer config={dispositionConfig} className="h-[280px] w-full">
+                  <BarChart
+                    data={data.dispositionBreakdown}
+                    layout="vertical"
+                    margin={{ left: 20, right: 12 }}
                   >
-                    <PieChart>
-                      <ChartTooltip
-                        cursor={false}
-                        content={
-                          <ChartTooltipContent
-                            formatter={(value, name) => [
-                              `${value} evaluaciones`,
-                              String(name),
-                            ]}
-                          />
-                        }
-                      />
-                      <Pie
-                        data={data.dispositionBreakdown}
-                        dataKey="count"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={55}
-                        outerRadius={90}
-                        strokeWidth={3}
-                        paddingAngle={2}
-                        animationDuration={900}
-                      >
-                        {data.dispositionBreakdown.map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ChartContainer>
-                  {/* Legend */}
-                  <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs">
-                    {data.dispositionBreakdown.map((d, i) => (
-                      <div key={d.name} className="flex items-center gap-1.5">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                    <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis
+                      type="number"
+                      allowDecimals={false}
+                      tickLine={false}
+                      axisLine={false}
+                      className="text-xs"
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      width={100}
+                      className="text-xs"
+                      tickFormatter={(v) =>
+                        String(v).length > 15 ? `${String(v).slice(0, 15)}...` : String(v)
+                      }
+                    />
+                    <ChartTooltip
+                      cursor={{ fill: "rgba(6,182,212,0.08)" }}
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value, _name, item) => {
+                            const payload = item?.payload as
+                              | { avgScore?: number }
+                              | undefined;
+                            const avg = payload?.avgScore;
+                            return [
+                              `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
+                              "Disposicion",
+                            ];
+                          }}
                         />
-                        <span className="text-muted-foreground">{d.name}</span>
-                        <span className="font-medium tabular-nums">{d.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                      }
+                    />
+                    <Bar
+                      dataKey="count"
+                      fill="#06b6d4"
+                      radius={[0, 6, 6, 0]}
+                      animationDuration={900}
+                    />
+                  </BarChart>
+                </ChartContainer>
               ) : (
                 <EmptyState label="Sin disposiciones registradas" />
               )}
             </CardContent>
           </Card>
 
-          {/* Evaluators */}
+          {/* Evaluators (horizontal bar) */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -465,14 +555,14 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
                       cursor={{ fill: "rgba(139,92,246,0.08)" }}
                       content={
                         <ChartTooltipContent
-                          formatter={(value, name, item) => {
+                          formatter={(value, _name, item) => {
                             const payload = item?.payload as
                               | { avgScore?: number }
                               | undefined;
                             const avg = payload?.avgScore;
                             return [
                               `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
-                              String(name),
+                              "Evaluador",
                             ];
                           }}
                         />
@@ -492,13 +582,17 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
             </CardContent>
           </Card>
         </div>
-      </Section>
+      </motion.div>
 
       {/* ─── Recent Evaluations Table ──────────────────────────────────── */}
-      <Section delay={0.3}>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 3 * 0.08 }}
+      >
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Evaluaciones Recientes</CardTitle>
+            <CardTitle className="text-base">Ultimas 10 Evaluaciones</CardTitle>
           </CardHeader>
           <CardContent>
             {data.recentResponses.length > 0 ? (
@@ -506,16 +600,24 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="text-center">Score</TableHead>
                       <TableHead>Formulario</TableHead>
                       <TableHead>Evaluador</TableHead>
                       <TableHead>Disposicion</TableHead>
-                      <TableHead className="text-center">Score</TableHead>
                       <TableHead className="text-right">Fecha</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data.recentResponses.map((r) => (
                       <TableRow key={r.id}>
+                        <TableCell className="text-center">
+                          <Badge
+                            variant={scoreBadgeVariant(r.score)}
+                            className="tabular-nums"
+                          >
+                            {r.score.toFixed(1)}%
+                          </Badge>
+                        </TableCell>
                         <TableCell className="max-w-[200px] truncate font-medium">
                           {r.formTitle}
                         </TableCell>
@@ -526,14 +628,6 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
                           ) : (
                             <span className="text-muted-foreground">--</span>
                           )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge
-                            variant={r.score >= data.passThreshold ? "default" : "destructive"}
-                            className="tabular-nums"
-                          >
-                            {r.score.toFixed(1)}%
-                          </Badge>
                         </TableCell>
                         <TableCell className="text-right text-sm text-muted-foreground">
                           {new Date(r.createdAt).toLocaleDateString("es-ES", {
@@ -552,7 +646,7 @@ export function AgentDetailClient({ data }: { data: AgentDetailData }) {
             )}
           </CardContent>
         </Card>
-      </Section>
+      </motion.div>
     </div>
   );
 }

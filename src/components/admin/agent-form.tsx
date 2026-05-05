@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -17,21 +17,38 @@ interface AgentFormProps {
     name: string;
     agentCode: string | null;
     campaignId: string;
+    teamId: string | null;
     active: boolean;
   };
   campaigns: { id: string; name: string }[];
+  teams: { id: string; name: string; campaignId: string }[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function AgentForm({ agent, campaigns, open, onOpenChange }: AgentFormProps) {
+const NONE = "__none__";
+
+export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: AgentFormProps) {
   const router = useRouter();
   const isEdit = !!agent;
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(agent?.name ?? "");
   const [agentCode, setAgentCode] = useState(agent?.agentCode ?? "");
   const [campaignId, setCampaignId] = useState(agent?.campaignId ?? "");
+  const [teamId, setTeamId] = useState(agent?.teamId ?? "");
   const [active, setActive] = useState(agent?.active ?? true);
+
+  const availableTeams = useMemo(
+    () => (campaignId ? teams.filter((t) => t.campaignId === campaignId) : []),
+    [teams, campaignId],
+  );
+
+  // Clear team selection if the picked team doesn't belong to the selected campaign
+  useEffect(() => {
+    if (teamId && !availableTeams.some((t) => t.id === teamId)) {
+      setTeamId("");
+    }
+  }, [availableTeams, teamId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +67,7 @@ export function AgentForm({ agent, campaigns, open, onOpenChange }: AgentFormPro
         await updateAgent(agent.id, {
           name: name.trim(),
           agentCode: agentCode.trim() || undefined,
+          teamId: teamId || undefined,
           active,
         });
         toast.success("Agente actualizado");
@@ -58,6 +76,7 @@ export function AgentForm({ agent, campaigns, open, onOpenChange }: AgentFormPro
           name: name.trim(),
           agentCode: agentCode.trim() || undefined,
           campaignId,
+          teamId: teamId || undefined,
         });
         toast.success("Agente creado");
       }
@@ -115,6 +134,40 @@ export function AgentForm({ agent, campaigns, open, onOpenChange }: AgentFormPro
               </Select>
             </div>
           )}
+          <div className="space-y-2">
+            <Label>Equipo (opcional)</Label>
+            <Select
+              value={teamId || NONE}
+              onValueChange={(v) => setTeamId(v === NONE || !v ? "" : v)}
+              disabled={!campaignId}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string | null) => {
+                    if (!campaignId) return "Selecciona una campaña primero";
+                    if (!value || value === NONE) return "Sin equipo";
+                    return (
+                      availableTeams.find((t) => t.id === value)?.name ??
+                      "Sin equipo"
+                    );
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Sin equipo</SelectItem>
+                {availableTeams.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {campaignId && availableTeams.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Esta campaña no tiene equipos. Créalos en Admin → Equipos.
+              </p>
+            )}
+          </div>
           {isEdit && (
             <div className="flex items-center gap-2">
               <Switch checked={active} onCheckedChange={(v) => setActive(Boolean(v))} />

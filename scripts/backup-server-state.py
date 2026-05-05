@@ -8,7 +8,7 @@ import stat
 
 SERVER = "192.168.80.243"
 USER = "root"
-PASSWORD = "T3l3c0m.2026"
+PASSWORD = os.environ["QORE_SSH_PASSWORD"]
 REMOTE_ROOT = "/opt/qa-form-creator"
 LOCAL_BACKUP = os.path.join(os.path.dirname(os.path.dirname(__file__)), "_server_backup")
 

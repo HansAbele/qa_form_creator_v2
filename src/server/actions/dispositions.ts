@@ -3,20 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { getCampaignFilter } from "@/server/queries/campaign-filter";
+import {
+  assertCampaignAccessForUser,
+  assertCampaignPermissionForUser,
+} from "@/server/queries/campaign-filter";
 
-// ─── Disposition Categories ─────────────────────────
+// ─── Categories ─────────────────────────────────────
 
 export async function getDispositionCategories(campaignId: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+  assertCampaignAccessForUser(session.user, campaignId);
 
   return prisma.dispositionCategory.findMany({
     where: { campaignId },
-    include: {
-      _count: { select: { dispositions: true } },
-    },
-    orderBy: { order: "asc" },
+    include: { _count: { select: { dispositions: true } } },
+    orderBy: { name: "asc" },
   });
 }
 
@@ -27,37 +29,31 @@ export async function createDispositionCategory(data: {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  // Get next order value
-  const maxOrder = await prisma.dispositionCategory.aggregate({
-    where: { campaignId: data.campaignId },
-    _max: { order: true },
-  });
+  await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
   const category = await prisma.dispositionCategory.create({
-    data: {
-      name: data.name.trim(),
-      campaignId: data.campaignId,
-      order: (maxOrder._max.order ?? -1) + 1,
-    },
+    data: { name: data.name.trim(), campaignId: data.campaignId },
   });
-
-  revalidatePath("/admin/dispositions");
+  revalidatePath("/admin/campaigns");
   return category;
 }
 
-export async function updateDispositionCategory(
-  id: string,
-  data: { name: string },
-) {
+export async function updateDispositionCategory(id: string, data: { name: string }) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+
+  const existing = await prisma.dispositionCategory.findUnique({
+    where: { id },
+    select: { campaignId: true },
+  });
+  if (!existing) throw new Error("Categoria no encontrada");
+  await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
 
   const category = await prisma.dispositionCategory.update({
     where: { id },
     data: { name: data.name.trim() },
   });
-
-  revalidatePath("/admin/dispositions");
+  revalidatePath("/admin/campaigns");
   return category;
 }
 
@@ -65,16 +61,21 @@ export async function deleteDispositionCategory(id: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  // Unlink dispositions from category (don't delete them)
+  const existing = await prisma.dispositionCategory.findUnique({
+    where: { id },
+    select: { campaignId: true },
+  });
+  if (!existing) throw new Error("Categoria no encontrada");
+  await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
+
   await prisma.$transaction([
     prisma.disposition.updateMany({
-      where: { categoryId: id },
+      where: { categoryId: id, campaignId: existing.campaignId },
       data: { categoryId: null },
     }),
     prisma.dispositionCategory.delete({ where: { id } }),
   ]);
-
-  revalidatePath("/admin/dispositions");
+  revalidatePath("/admin/campaigns");
 }
 
 // ─── Dispositions ───────────────────────────────────
@@ -82,6 +83,7 @@ export async function deleteDispositionCategory(id: string) {
 export async function getDispositions(campaignId: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+  assertCampaignAccessForUser(session.user, campaignId);
 
   return prisma.disposition.findMany({
     where: { campaignId },
@@ -90,61 +92,43 @@ export async function getDispositions(campaignId: string) {
       createdBy: { select: { name: true } },
       _count: { select: { responses: true } },
     },
-    orderBy: [{ category: { order: "asc" } }, { name: "asc" }],
+    orderBy: [{ category: { name: "asc" } }, { name: "asc" }],
   });
 }
 
-/**
- * Get active dispositions for a campaign — optimized for the combobox selector.
- * Returns grouped by category with usage count for "frecuentes" sorting.
- */
 export async function getDispositionsForSelector(campaignId: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+  assertCampaignAccessForUser(session.user, campaignId);
 
   const dispositions = await prisma.disposition.findMany({
     where: { campaignId, active: true },
     include: {
-      category: { select: { id: true, name: true, order: true } },
+      category: { select: { id: true, name: true } },
       _count: { select: { responses: true } },
     },
     orderBy: { name: "asc" },
   });
 
-  // Sort: most used first globally, then alphabetical within groups
-  const sorted = [...dispositions].sort(
-    (a, b) => b._count.responses - a._count.responses,
-  );
-
-  // Top 5 most used as "frecuentes"
+  const sorted = [...dispositions].sort((a, b) => b._count.responses - a._count.responses);
   const frequent = sorted.slice(0, 5).filter((d) => d._count.responses > 0);
 
-  // Group by category
-  const grouped: Record<
-    string,
-    { categoryName: string; categoryOrder: number; items: typeof dispositions }
-  > = {};
+  const grouped: Record<string, { categoryName: string; items: typeof dispositions }> = {};
   const uncategorized: typeof dispositions = [];
 
   for (const d of dispositions) {
     if (d.category) {
-      const key = d.category.id;
-      if (!grouped[key]) {
-        grouped[key] = {
-          categoryName: d.category.name,
-          categoryOrder: d.category.order,
-          items: [],
-        };
+      if (!grouped[d.category.id]) {
+        grouped[d.category.id] = { categoryName: d.category.name, items: [] };
       }
-      grouped[key].items.push(d);
+      grouped[d.category.id].items.push(d);
     } else {
       uncategorized.push(d);
     }
   }
 
-  // Sort groups by category order
-  const categories = Object.values(grouped).sort(
-    (a, b) => a.categoryOrder - b.categoryOrder,
+  const categories = Object.values(grouped).sort((a, b) =>
+    a.categoryName.localeCompare(b.categoryName),
   );
 
   return { frequent, categories, uncategorized, all: dispositions };
@@ -159,10 +143,15 @@ export async function createDisposition(data: {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  // Verify campaign access for QA users
-  if (session.user.role !== "ADMIN") {
-    if (!session.user.campaignIds.includes(data.campaignId)) {
-      throw new Error("No autorizado para esta campaña");
+  await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
+
+  if (data.categoryId) {
+    const category = await prisma.dispositionCategory.findUnique({
+      where: { id: data.categoryId },
+      select: { campaignId: true },
+    });
+    if (!category || category.campaignId !== data.campaignId) {
+      throw new Error("Categoria invalida para esta campana");
     }
   }
 
@@ -175,38 +164,27 @@ export async function createDisposition(data: {
       createdById: session.user.id,
     },
   });
-
-  revalidatePath("/admin/dispositions");
+  revalidatePath("/admin/campaigns");
   return disposition;
 }
 
-/**
- * Inline creation from the combobox — QA can create on the fly.
- * Includes fuzzy duplicate detection to prevent near-duplicates.
- */
 export async function createDispositionInline(data: {
   name: string;
   campaignId: string;
 }) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+  await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
   const trimmed = data.name.trim();
-  if (trimmed.length < 2) {
-    throw new Error("El nombre debe tener al menos 2 caracteres");
-  }
+  if (trimmed.length < 2) throw new Error("El nombre debe tener al menos 2 caracteres");
 
-  // Check exact duplicate
   const existing = await prisma.disposition.findUnique({
-    where: {
-      name_campaignId: { name: trimmed, campaignId: data.campaignId },
-    },
+    where: { name_campaignId: { name: trimmed, campaignId: data.campaignId } },
   });
-  if (existing) {
-    throw new Error(`Ya existe una disposición "${trimmed}" en esta campaña`);
-  }
+  if (existing) throw new Error(`Ya existe "${trimmed}" en esta campaña`);
 
-  // Check fuzzy duplicates (similar names)
+  // Fuzzy duplicate check
   const allInCampaign = await prisma.disposition.findMany({
     where: { campaignId: data.campaignId, active: true },
     select: { id: true, name: true },
@@ -215,37 +193,38 @@ export async function createDispositionInline(data: {
   const similar = allInCampaign.find(
     (d) => levenshteinDistance(d.name.toLowerCase(), trimmed.toLowerCase()) <= 2,
   );
+  if (similar) throw new Error(`SIMILAR:${similar.id}:${similar.name}`);
 
-  if (similar) {
-    throw new Error(
-      `SIMILAR:${similar.id}:${similar.name}`,
-    );
-  }
-
-  // Create without category (admin can organize later)
   const disposition = await prisma.disposition.create({
-    data: {
-      name: trimmed,
-      campaignId: data.campaignId,
-      createdById: session.user.id,
-    },
+    data: { name: trimmed, campaignId: data.campaignId, createdById: session.user.id },
   });
-
-  revalidatePath("/admin/dispositions");
+  revalidatePath("/admin/campaigns");
   return disposition;
 }
 
 export async function updateDisposition(
   id: string,
-  data: {
-    name: string;
-    code?: string;
-    categoryId?: string | null;
-    active: boolean;
-  },
+  data: { name: string; code?: string; categoryId?: string | null; active: boolean },
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+
+  const existing = await prisma.disposition.findUnique({
+    where: { id },
+    select: { campaignId: true },
+  });
+  if (!existing) throw new Error("Disposicion no encontrada");
+  await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
+
+  if (data.categoryId) {
+    const category = await prisma.dispositionCategory.findUnique({
+      where: { id: data.categoryId },
+      select: { campaignId: true },
+    });
+    if (!category || category.campaignId !== existing.campaignId) {
+      throw new Error("Categoria invalida para esta disposicion");
+    }
+  }
 
   const disposition = await prisma.disposition.update({
     where: { id },
@@ -256,8 +235,7 @@ export async function updateDisposition(
       active: data.active,
     },
   });
-
-  revalidatePath("/admin/dispositions");
+  revalidatePath("/admin/campaigns");
   return disposition;
 }
 
@@ -265,25 +243,21 @@ export async function deleteDisposition(id: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  // Check if used in responses
-  const usageCount = await prisma.response.count({
-    where: { dispositionId: id },
+  const existing = await prisma.disposition.findUnique({
+    where: { id },
+    select: { campaignId: true },
   });
+  if (!existing) throw new Error("Disposicion no encontrada");
+  await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
 
+  const usageCount = await prisma.response.count({ where: { dispositionId: id } });
   if (usageCount > 0) {
-    // Soft-delete: deactivate instead
-    await prisma.disposition.update({
-      where: { id },
-      data: { active: false },
-    });
+    await prisma.disposition.update({ where: { id }, data: { active: false } });
   } else {
     await prisma.disposition.delete({ where: { id } });
   }
-
-  revalidatePath("/admin/dispositions");
+  revalidatePath("/admin/campaigns");
 }
-
-// ─── Bulk import ────────────────────────────────────
 
 export async function bulkImportDispositions(data: {
   campaignId: string;
@@ -291,32 +265,30 @@ export async function bulkImportDispositions(data: {
   names: string[];
 }) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN")
-    throw new Error("No autorizado");
+  if (!session?.user) throw new Error("No autorizado");
+  await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
-  // Deduplicate and trim
-  const uniqueNames = [
-    ...new Set(data.names.map((n) => n.trim()).filter((n) => n.length > 0)),
-  ];
-
-  if (uniqueNames.length === 0) {
-    throw new Error("No se proporcionaron nombres válidos");
+  if (data.categoryId) {
+    const category = await prisma.dispositionCategory.findUnique({
+      where: { id: data.categoryId },
+      select: { campaignId: true },
+    });
+    if (!category || category.campaignId !== data.campaignId) {
+      throw new Error("Categoria invalida para esta campana");
+    }
   }
 
-  // Get existing names in campaign to skip duplicates
+  const uniqueNames = [...new Set(data.names.map((n) => n.trim()).filter((n) => n.length > 0))];
+  if (uniqueNames.length === 0) throw new Error("No se proporcionaron nombres válidos");
+
   const existing = await prisma.disposition.findMany({
     where: { campaignId: data.campaignId },
     select: { name: true },
   });
   const existingSet = new Set(existing.map((d) => d.name.toLowerCase()));
+  const toCreate = uniqueNames.filter((n) => !existingSet.has(n.toLowerCase()));
 
-  const toCreate = uniqueNames.filter(
-    (name) => !existingSet.has(name.toLowerCase()),
-  );
-
-  if (toCreate.length === 0) {
-    return { created: 0, skipped: uniqueNames.length };
-  }
+  if (toCreate.length === 0) return { created: 0, skipped: uniqueNames.length };
 
   await prisma.disposition.createMany({
     data: toCreate.map((name) => ({
@@ -327,27 +299,18 @@ export async function bulkImportDispositions(data: {
     })),
     skipDuplicates: true,
   });
-
-  revalidatePath("/admin/dispositions");
-
-  return {
-    created: toCreate.length,
-    skipped: uniqueNames.length - toCreate.length,
-  };
+  revalidatePath("/admin/campaigns");
+  return { created: toCreate.length, skipped: uniqueNames.length - toCreate.length };
 }
 
-// ─── Fuzzy matching utility ─────────────────────────
+// ─── Fuzzy matching ─────────────────────────────────
 
 function levenshteinDistance(a: string, b: string): number {
   const m = a.length;
   const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    Array(n + 1).fill(0),
-  );
-
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
   for (let i = 0; i <= m; i++) dp[i][0] = i;
   for (let j = 0; j <= n; j++) dp[0][j] = j;
-
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       dp[i][j] =
@@ -356,6 +319,5 @@ function levenshteinDistance(a: string, b: string): number {
           : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
     }
   }
-
   return dp[m][n];
 }

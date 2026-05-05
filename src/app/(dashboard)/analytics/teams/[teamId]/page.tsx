@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getTeamDetail } from "@/server/queries/analytics";
+import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { TeamDetailClient } from "./team-detail-client";
 
 export default async function TeamDetailPage({
@@ -10,9 +10,9 @@ export default async function TeamDetailPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  if (!(await hasAnyCampaignPermission("canViewKPIs"))) redirect("/settings");
 
   const { teamId } = await params;
-  const data = await getTeamDetail(teamId);
 
-  return <TeamDetailClient data={data} />;
+  return <TeamDetailClient teamId={teamId} />;
 }

@@ -1,8 +1,9 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getFormById } from "@/server/actions/forms";
-import { getCampaigns } from "@/server/actions/campaigns";
+import { getFormByIdForPermission } from "@/server/actions/forms";
+import { getCampaignsForPermission } from "@/server/actions/campaigns";
 import { FormBuilder } from "@/components/forms/form-builder";
+import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 
 export default async function EditFormPage({
   params,
@@ -11,10 +12,12 @@ export default async function EditFormPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (session.user.role !== "ADMIN") redirect("/");
-
+  if (!(await hasAnyCampaignPermission("canEditForms"))) redirect("/forms");
   const { id } = await params;
-  const [form, campaigns] = await Promise.all([getFormById(id), getCampaigns()]);
+  const [form, campaigns] = await Promise.all([
+    getFormByIdForPermission(id, "canEditForms"),
+    getCampaignsForPermission("canEditForms"),
+  ]);
 
   return (
     <div className="space-y-6">

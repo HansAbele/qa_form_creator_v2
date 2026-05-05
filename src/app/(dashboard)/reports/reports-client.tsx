@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getReportData } from "@/server/queries/analytics";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,13 +71,20 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
   };
 
   useEffect(() => {
-    handleSearch();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const loadReports = async () => {
+      setLoading(true);
+      try {
+        const data = await getReportData({});
+        setResponses(data);
+      } catch {
+        setResponses([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  // Reset form filter when campaign changes
-  useEffect(() => {
-    setFormId("");
-  }, [campaignId]);
+    void loadReports();
+  }, []);
 
   const totalResponses = responses.length;
   const avgScore =
@@ -96,7 +103,14 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
           <div className="flex flex-wrap items-end gap-4">
             <div className="space-y-1">
               <Label className="text-xs">Campaña</Label>
-              <Select value={campaignId || "all"} onValueChange={(v) => v && setCampaignId(v === "all" ? "" : v)}>
+              <Select
+                value={campaignId || "all"}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  setCampaignId(v === "all" ? "" : v);
+                  setFormId("");
+                }}
+              >
                 <SelectTrigger className="w-44">
                   <SelectValue placeholder="Todas">
                     {(value: string | null) => {

@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getAgentDetail } from "@/server/queries/analytics";
+import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { AgentDetailClient } from "./agent-detail-client";
 
 export default async function AgentDetailPage({
@@ -10,9 +10,9 @@ export default async function AgentDetailPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  if (!(await hasAnyCampaignPermission("canViewKPIs"))) redirect("/settings");
 
   const { agentId } = await params;
-  const data = await getAgentDetail(agentId);
 
-  return <AgentDetailClient data={data} />;
+  return <AgentDetailClient agentId={agentId} />;
 }

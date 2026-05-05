@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getFormById } from "@/server/actions/forms";
+import { getFormByIdForPermission } from "@/server/actions/forms";
+import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { FormViewer } from "@/components/forms/form-viewer";
 
 export default async function FormEvaluatePage({
@@ -10,9 +11,10 @@ export default async function FormEvaluatePage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  if (!(await hasAnyCampaignPermission("canEvaluate"))) redirect("/forms");
 
   const { id } = await params;
-  const form = await getFormById(id);
+  const form = await getFormByIdForPermission(id, "canEvaluate");
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

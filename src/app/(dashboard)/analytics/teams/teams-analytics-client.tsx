@@ -144,7 +144,8 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
                     animationDuration={900}
                     className="cursor-pointer"
                     onClick={(data) => {
-                      if (data?.id) router.push(`/analytics/teams/${data.id}`);
+                      const entry = data as unknown as { payload?: { id?: string } };
+                      if (entry?.payload?.id) router.push(`/analytics/teams/${entry.payload.id}`);
                     }}
                   >
                     {teams.map((_, i) => (
@@ -176,18 +177,17 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.04, duration: 0.3 }}
-                  className="grid w-full cursor-pointer grid-cols-5 items-center rounded-lg border border-border/60 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40"
+                  className="grid w-full cursor-pointer grid-cols-4 items-center rounded-lg border border-border/60 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40"
                   onClick={() => router.push(`/analytics/teams/${t.id}`)}
                 >
                   <span className="font-medium">{t.name}</span>
-                  <Badge variant="outline">{t.campaignName}</Badge>
                   <span className="text-center">{t.agentCount} agentes</span>
                   <div className="flex justify-center">
                     <Badge variant={t.avgScore >= settings.passThreshold ? "default" : "destructive"}>
                       {t.avgScore.toFixed(1)}%
                     </Badge>
                   </div>
-                  <span className="text-right text-muted-foreground">{t.totalEvaluations} evals</span>
+                  <span className="text-right text-muted-foreground">{t.evalCount} evals</span>
                 </motion.button>
               ))}
             </div>

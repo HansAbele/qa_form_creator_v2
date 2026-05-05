@@ -7,7 +7,7 @@ services:
     container_name: qa_form_creator_app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - DATABASE_URL=postgresql://qa_user:${DB_PASSWORD}@db:5432/qa_form_creator
       - AUTH_SECRET=${AUTH_SECRET}

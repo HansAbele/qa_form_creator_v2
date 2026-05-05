@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Area,
   AreaChart,
@@ -22,9 +23,13 @@ import {
   Calendar,
   ClipboardCheck,
   FileText,
+  Filter,
   Sparkles,
+  Tag,
   TrendingUp,
   Users,
+  UsersRound,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,9 +44,18 @@ import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   getDashboardStats,
+  getDashboardCampaignKpis,
+  getDashboardDispositionAnalytics,
+  getDashboardEvaluatorActivity,
   getEvaluationsPerAgent,
-  getEvaluatorActivity,
   getResponseTrends,
   getScoreDistribution,
   getTopBottomPerformers,
@@ -69,6 +83,14 @@ const performerConfig = {
 
 const volumeConfig = {
   count: { label: "Evaluaciones", color: "#ff6600" },
+} satisfies ChartConfig;
+
+const teamConfig = {
+  avgScore: { label: "Score Promedio", color: "#8b5cf6" },
+} satisfies ChartConfig;
+
+const dispChartConfig = {
+  totalEvaluations: { label: "Evaluaciones", color: "#06b6d4" },
 } satisfies ChartConfig;
 
 const BAR_COLORS = [
@@ -119,10 +141,15 @@ function Section({
 export function DashboardClient({
   userName,
   settings,
+  userRole,
+  campaigns,
 }: {
   userName: string;
   settings: AppSettings;
+  userRole: string;
+  campaigns: { id: string; name: string }[];
 }) {
+  const [campaignId, setCampaignId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -156,24 +183,33 @@ export function DashboardClient({
     }[]
   >([]);
   const [evalsPerAgent, setEvalsPerAgent] = useState<
-    { name: string; count: number }[]
+    { id: string; name: string; count: number }[]
+  >([]);
+  const [campaignPerf, setCampaignPerf] = useState<
+    { id: string; name: string; totalAgents: number; totalEvaluations: number; avgScore: number; passRate: number }[]
+  >([]);
+  const [dispAnalytics, setDispAnalytics] = useState<
+    { id: string; name: string; code: string | null; categoryName: string | null; totalEvaluations: number; avgScore: number; passRate: number }[]
   >([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, t, d, tb, ev, ea] = await Promise.all([
-        getDashboardStats(dateFrom || undefined, dateTo || undefined),
-        getResponseTrends(dateFrom || undefined, dateTo || undefined),
-        getScoreDistribution(
-          undefined,
-          dateFrom || undefined,
-          dateTo || undefined,
-        ),
-        getTopBottomPerformers(dateFrom || undefined, dateTo || undefined),
-        getEvaluatorActivity(dateFrom || undefined, dateTo || undefined),
-        getEvaluationsPerAgent(dateFrom || undefined, dateTo || undefined),
+      const cid = campaignId || undefined;
+      const df = dateFrom || undefined;
+      const dt = dateTo || undefined;
+
+      const [s, t, d, tb, ev, ea, tp, da] = await Promise.all([
+        getDashboardStats(cid, df, dt),
+        getResponseTrends(cid, df, dt),
+        getScoreDistribution(cid, df, dt),
+        getTopBottomPerformers(cid, df, dt),
+        getDashboardEvaluatorActivity(cid, df, dt),
+        getEvaluationsPerAgent(cid, df, dt),
+        getDashboardCampaignKpis(cid, df, dt),
+        getDashboardDispositionAnalytics(cid, df, dt),
       ]);
       setStats(s);
       setTrends(t);
@@ -181,12 +217,14 @@ export function DashboardClient({
       setTopBottom(tb);
       setEvaluators(ev);
       setEvalsPerAgent(ea);
+      setCampaignPerf(tp);
+      setDispAnalytics(da);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo]);
+  }, [campaignId, dateFrom, dateTo]);
 
   useEffect(() => {
     loadData();
@@ -244,6 +282,25 @@ export function DashboardClient({
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
+          {campaigns.length > 1 && (
+            <div className="space-y-1">
+              <Label className="text-xs">Campaña</Label>
+              <Select
+                value={campaignId || "all"}
+                onValueChange={(v) => setCampaignId(v === "all" || !v ? "" : v)}
+              >
+                <SelectTrigger className="h-8 w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {campaigns.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="flex gap-1">
             {[7, 30, 90].map((d) => (
               <Button
@@ -288,6 +345,31 @@ export function DashboardClient({
           </div>
         </div>
       </motion.div>
+
+      {/* ─── Active Campaign Filter Chip ────────────────────────────────── */}
+      {campaignId && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="flex items-center gap-2"
+        >
+          <button
+            type="button"
+            onClick={() => setCampaignId("")}
+            className="group inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-500/20 dark:text-violet-300"
+          >
+            <Filter className="h-3 w-3" />
+            <span>
+              Filtrando por:{" "}
+              <span className="font-semibold">
+                {campaigns.find((c) => c.id === campaignId)?.name ?? "Campaña"}
+              </span>
+            </span>
+            <X className="h-3 w-3 transition-transform group-hover:scale-125" />
+          </button>
+        </motion.div>
+      )}
 
       {/* ─── KPI Cards (animated, with sparklines) ─────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -488,8 +570,9 @@ export function DashboardClient({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
+              <CardTitle className="flex items-center gap-2 text-base">
                 Pass / Fail (≥{settings.passThreshold}%)
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para ver detalles</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -511,8 +594,27 @@ export function DashboardClient({
                         paddingAngle={2}
                         animationDuration={900}
                       >
-                        {passFail.map((entry, i) => (
-                          <Cell key={i} fill={entry.fill} />
+                        {passFail.map((entry) => (
+                          <Cell
+                            key={entry.name}
+                            cursor="pointer"
+                            fill={entry.fill}
+                            onClick={() => {
+                              const params = new URLSearchParams();
+                              if (entry.name === "Pass") {
+                                params.set("minScore", String(settings.passThreshold));
+                              } else {
+                                params.set(
+                                  "maxScore",
+                                  String(settings.passThreshold - 0.01),
+                                );
+                              }
+                              if (campaignId) params.set("campaignId", campaignId);
+                              if (dateFrom) params.set("dateFrom", dateFrom);
+                              if (dateTo) params.set("dateTo", dateTo);
+                              router.push(`/analytics/responses?${params}`);
+                            }}
+                          />
                         ))}
                         <RechartsLabel
                           content={({ viewBox }) => {
@@ -583,6 +685,7 @@ export function DashboardClient({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Award className="h-4 w-4 text-emerald-500" />
                 Top 10 Performers
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -622,7 +725,15 @@ export function DashboardClient({
                       fill="#10b981"
                       radius={[0, 6, 6, 0]}
                       animationDuration={900}
-                    />
+                    >
+                      {topBottom.top10.map((entry) => (
+                        <Cell
+                          key={entry.id}
+                          cursor="pointer"
+                          onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                        />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ChartContainer>
               ) : (
@@ -675,7 +786,15 @@ export function DashboardClient({
                       fill="#f43f5e"
                       radius={[0, 6, 6, 0]}
                       animationDuration={900}
-                    />
+                    >
+                      {topBottom.bottom5.map((entry) => (
+                        <Cell
+                          key={entry.id}
+                          cursor="pointer"
+                          onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                        />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ChartContainer>
               ) : (
@@ -686,27 +805,169 @@ export function DashboardClient({
         </div>
       </Section>
 
-      {/* ─── Row 4: Evaluations per Agent ──────────────────────────────── */}
+      {/* ─── Row 4: Team Performance + Disposition Analytics ──────────── */}
+      <Section delay={0.22}>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Team Performance */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <UsersRound className="h-4 w-4 text-violet-500" />
+                Rendimiento por Campaña
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para filtrar dashboard</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {campaignPerf.length > 0 ? (
+                <div className="space-y-0.5 pt-1">
+                  {[...campaignPerf]
+                    .sort((a, b) => {
+                      const aActive = a.totalEvaluations > 0;
+                      const bActive = b.totalEvaluations > 0;
+                      if (aActive && !bActive) return -1;
+                      if (!aActive && bActive) return 1;
+                      return b.avgScore - a.avgScore;
+                    })
+                    .map((entry) => {
+                      const hasData = entry.totalEvaluations > 0;
+                      const isSelected = campaignId === entry.id;
+                      return (
+                        <button
+                          type="button"
+                          key={entry.id}
+                          className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors ${
+                            isSelected
+                              ? "bg-violet-500/10 ring-1 ring-violet-500/30"
+                              : "hover:bg-muted/40"
+                          }`}
+                          onClick={() =>
+                            setCampaignId(isSelected ? "" : entry.id)
+                          }
+                          title={
+                            isSelected
+                              ? `Click para quitar filtro · ${entry.totalEvaluations} evaluaciones`
+                              : `${entry.name} · ${entry.totalEvaluations} evaluaciones`
+                          }
+                        >
+                          <span
+                            className={`w-[140px] shrink-0 truncate text-xs ${
+                              hasData ? "font-medium" : "text-muted-foreground/60"
+                            }`}
+                          >
+                            {entry.name}
+                          </span>
+                          <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted/60">
+                            {hasData && (
+                              <div
+                                className="h-full rounded-full bg-violet-500 transition-all"
+                                style={{ width: `${Math.min(100, entry.avgScore)}%` }}
+                              />
+                            )}
+                          </div>
+                          <span
+                            className={`w-14 shrink-0 text-right text-xs tabular-nums ${
+                              hasData
+                                ? "font-semibold"
+                                : "italic text-muted-foreground/60"
+                            }`}
+                          >
+                            {hasData ? `${entry.avgScore.toFixed(1)}%` : "—"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              ) : (
+                <EmptyState label="Sin campañas con evaluaciones" />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Disposition Analytics */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Tag className="h-4 w-4 text-cyan-500" />
+                Disposiciones Más Frecuentes
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {dispAnalytics.length > 0 ? (
+                <ChartContainer config={dispChartConfig} className="h-[300px] w-full">
+                  <BarChart data={dispAnalytics.slice(0, 10)} margin={{ bottom: 8 }}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis
+                      dataKey="name"
+                      angle={-25}
+                      textAnchor="end"
+                      height={90}
+                      interval={0}
+                      tickLine={false}
+                      axisLine={false}
+                      className="text-xs"
+                      tickFormatter={(v: string) =>
+                        v.length > 16 ? `${v.slice(0, 15)}…` : v
+                      }
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      className="text-xs"
+                    />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                    <Bar
+                      dataKey="totalEvaluations"
+                      radius={[6, 6, 0, 0]}
+                      animationDuration={900}
+                    >
+                      {dispAnalytics.slice(0, 10).map((entry, i) => (
+                        <Cell
+                          key={entry.id}
+                          cursor="pointer"
+                          fill={BAR_COLORS[i % BAR_COLORS.length]}
+                          onClick={() => router.push(`/analytics/dispositions/${entry.id}`)}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ChartContainer>
+              ) : (
+                <EmptyState label="Sin disposiciones con evaluaciones" />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </Section>
+
+      {/* ─── Row 5: Evaluations per Agent ──────────────────────────────── */}
       <Section delay={0.25}>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
+            <CardTitle className="flex items-center gap-2 text-base">
               Evaluaciones por Agente (Top 10 por volumen)
+              <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             {evalsPerAgent.length > 0 ? (
               <ChartContainer config={volumeConfig} className="h-[300px] w-full">
-                <BarChart data={evalsPerAgent}>
+                <BarChart data={evalsPerAgent} margin={{ bottom: 8 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
                   <XAxis
                     dataKey="name"
                     angle={-25}
                     textAnchor="end"
-                    height={70}
+                    height={90}
+                    interval={0}
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
+                    tickFormatter={(v: string) =>
+                      v.length > 16 ? `${v.slice(0, 15)}…` : v
+                    }
                   />
                   <YAxis
                     allowDecimals={false}
@@ -716,8 +977,13 @@ export function DashboardClient({
                   />
                   <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
                   <Bar dataKey="count" radius={[6, 6, 0, 0]} animationDuration={900}>
-                    {evalsPerAgent.map((_, i) => (
-                      <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                    {evalsPerAgent.map((entry, i) => (
+                      <Cell
+                        key={entry.id}
+                        cursor="pointer"
+                        fill={BAR_COLORS[i % BAR_COLORS.length]}
+                        onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                      />
                     ))}
                   </Bar>
                 </BarChart>
@@ -738,6 +1004,7 @@ export function DashboardClient({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-4 w-4 text-orange-500" />
                 Actividad de Evaluadores
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -756,7 +1023,8 @@ export function DashboardClient({
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="grid grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-muted/40"
+                        className="grid grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-muted/40 cursor-pointer"
+                        onClick={() => router.push(`/analytics/evaluators/${ev.id}`)}
                       >
                         <span className="truncate font-medium">{ev.name}</span>
                         <span className="text-center tabular-nums">
@@ -793,7 +1061,10 @@ export function DashboardClient({
           {/* Recent Evaluations */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Evaluaciones Recientes</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                Evaluaciones Recientes
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {stats.recentResponses.length > 0 ? (
@@ -805,7 +1076,8 @@ export function DashboardClient({
                         initial={{ opacity: 0, x: 8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="flex items-center justify-between rounded-lg border border-border/60 p-3 transition-colors hover:bg-muted/40"
+                        className="flex cursor-pointer items-center justify-between rounded-lg border border-border/60 p-3 transition-colors hover:bg-muted/40"
+                        onClick={() => router.push(`/analytics/responses/${r.id}`)}
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{r.agentName}</p>

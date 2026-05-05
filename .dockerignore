@@ -10,5 +10,6 @@ tests
 docker-compose*.yml
 .claude
 .vscode
+scripts
 playwright-report
 test-results

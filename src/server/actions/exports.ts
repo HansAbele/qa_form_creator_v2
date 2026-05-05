@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { getCampaignFilter } from "@/server/queries/campaign-filter";
+import { getCampaignFilterForPermission } from "@/server/queries/campaign-filter";
 
 interface ExportFilters {
   campaignId?: string;
@@ -16,13 +16,13 @@ async function getExportData(filters: ExportFilters) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilter();
+  const campaignFilter = await getCampaignFilterForPermission(
+    "canExport",
+    filters.campaignId,
+  );
 
   const where: Record<string, unknown> = {
-    form: {
-      ...campaignFilter,
-      ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
-    },
+    form: campaignFilter,
     ...(filters.formId ? { formId: filters.formId } : {}),
     ...(filters.agentId ? { agentId: filters.agentId } : {}),
   };
@@ -90,16 +90,17 @@ export async function exportToCsv(filters: ExportFilters): Promise<string> {
     ];
   });
 
-  const escape = (v: string) => {
+  const escapeCsvValue = (v: string) => {
     if (v.includes(",") || v.includes('"') || v.includes("\n")) {
       return `"${v.replace(/"/g, '""')}"`;
     }
     return v;
   };
 
-  const csv = [headers.map(escape).join(","), ...rows.map((r) => r.map(escape).join(","))].join(
-    "\n",
-  );
+  const csv = [
+    headers.map(escapeCsvValue).join(","),
+    ...rows.map((r) => r.map(escapeCsvValue).join(",")),
+  ].join("\n");
 
   return csv;
 }

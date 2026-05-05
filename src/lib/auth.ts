@@ -23,6 +23,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   trustHost: true,
-  useSecureCookies: false,
+  useSecureCookies: process.env.NODE_ENV === "production",
   ...authConfig,
 });

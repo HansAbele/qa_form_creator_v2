@@ -14,6 +14,12 @@ enum Role {
   QA
 }
 
+enum CampaignAccessLevel {
+  CAMPAIGN_ADMIN
+  EVALUATOR
+  SUPERVISOR
+}
+
 enum QuestionType {
   TEXT
   RATING
@@ -73,11 +79,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts  Account[]
-  sessions  Session[]
-  campaigns UserCampaign[]
-  forms     Form[]         @relation("FormCreator")
-  responses Response[]     @relation("Evaluator")
+  accounts             Account[]
+  sessions             Session[]
+  campaigns            UserCampaign[]
+  forms                Form[]         @relation("FormCreator")
+  responses            Response[]     @relation("Evaluator")
+  dispositionsCreated  Disposition[]  @relation("DispositionCreator")
 }
 
 model Campaign {
@@ -88,20 +95,85 @@ model Campaign {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users  UserCampaign[]
-  forms  Form[]
-  agents Agent[]
+  users                 UserCampaign[]
+  forms                 Form[]
+  agents                Agent[]
+  teams                 Team[]
+  dispositionCategories DispositionCategory[]
+  dispositions          Disposition[]
 }
 
 model UserCampaign {
-  userId     String
-  campaignId String
-  assignedAt DateTime @default(now())
+  userId                   String
+  campaignId               String
+  assignedAt               DateTime            @default(now())
+  roleInCampaign           CampaignAccessLevel @default(CAMPAIGN_ADMIN)
+  canViewDashboard         Boolean             @default(true)
+  canViewKPIs              Boolean             @default(true)
+  canViewForms             Boolean             @default(true)
+  canCreateForms           Boolean             @default(true)
+  canEditForms             Boolean             @default(true)
+  canPublishForms          Boolean             @default(true)
+  canEvaluate              Boolean             @default(true)
+  canEditEvaluations       Boolean             @default(true)
+  canViewReports           Boolean             @default(true)
+  canExport                Boolean             @default(true)
+  canManageAgents          Boolean             @default(true)
+  canManageDispositions    Boolean             @default(true)
+  canManageCampaignScoring Boolean             @default(false)
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@id([userId, campaignId])
+  @@index([campaignId])
+}
+
+// ─── Equipos ─────────────────────────────────────────
+
+model Team {
+  id         String   @id @default(cuid())
+  name       String
+  campaignId String
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  agents   Agent[]
+
+  @@unique([name, campaignId])
+}
+
+// ─── Disposiciones ───────────────────────────────────
+
+model DispositionCategory {
+  id         String   @id @default(cuid())
+  name       String
+  campaignId String
+  createdAt  DateTime @default(now())
+
+  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  dispositions Disposition[]
+
+  @@unique([name, campaignId])
+}
+
+model Disposition {
+  id          String   @id @default(cuid())
+  name        String
+  code        String?
+  categoryId  String?
+  campaignId  String
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  category  DispositionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  campaign  Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdBy User?                @relation("DispositionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  responses Response[]
+
+  @@unique([name, campaignId])
+  @@index([campaignId, active])
 }
 
 // ─── Agentes (no inician sesión) ─────────────────────
@@ -111,10 +183,12 @@ model Agent {
   name       String
   agentCode  String?
   campaignId String
+  teamId     String?
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
 
   campaign  Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  team      Team?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
   responses Response[]
 
   @@unique([agentCode, campaignId])
@@ -155,21 +229,24 @@ model Question {
 // ─── Evaluaciones ────────────────────────────────────
 
 model Response {
-  id          String   @id @default(cuid())
-  formId      String
-  agentId     String
-  evaluatorId String
-  score       Decimal  @db.Decimal(5, 2)
-  createdAt   DateTime @default(now())
+  id            String   @id @default(cuid())
+  formId        String
+  agentId       String
+  evaluatorId   String
+  dispositionId String?
+  score         Decimal  @db.Decimal(5, 2)
+  createdAt     DateTime @default(now())
 
-  form      Form     @relation(fields: [formId], references: [id])
-  agent     Agent    @relation(fields: [agentId], references: [id])
-  evaluator User     @relation("Evaluator", fields: [evaluatorId], references: [id])
-  answers   Answer[]
+  form        Form         @relation(fields: [formId], references: [id])
+  agent       Agent        @relation(fields: [agentId], references: [id])
+  evaluator   User         @relation("Evaluator", fields: [evaluatorId], references: [id])
+  disposition Disposition? @relation(fields: [dispositionId], references: [id])
+  answers     Answer[]
 
   @@index([formId, createdAt])
   @@index([agentId])
   @@index([evaluatorId])
+  @@index([dispositionId])
   @@index([createdAt])
 }
 

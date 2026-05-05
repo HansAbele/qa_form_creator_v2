@@ -1,7 +1,8 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   Bar,
   BarChart,
@@ -30,13 +31,18 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getTeamDetail } from "@/server/queries/analytics";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface AgentRank {
   id: string;
   name: string;
+  agentCode: string | null;
   totalEvaluations: number;
   avgScore: number;
   passRate: number;
@@ -45,19 +51,14 @@ interface AgentRank {
 interface ScoreTrendPoint {
   date: string;
   avgScore: number;
-  count: number;
 }
 
 interface TeamDetailData {
-  id: string;
   name: string;
   campaignName: string;
-  campaignId: string;
   agentCount: number;
   totalEvaluations: number;
   avgScore: number;
-  passRate: number;
-  passThreshold: number;
   agentRanking: AgentRank[];
   scoreTrend: ScoreTrendPoint[];
 }
@@ -68,7 +69,7 @@ const trendConfig = {
   avgScore: { label: "Score Promedio", color: "#ff6600" },
 } satisfies ChartConfig;
 
-const comparisonConfig = {
+const rankingConfig = {
   avgScore: { label: "Score Promedio", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
@@ -81,27 +82,42 @@ const MEDAL_BG = [
   "bg-amber-700/10 border-amber-700/30",
 ];
 
-// ─── Section animation wrapper ──────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function Section({
-  children,
-  delay = 0,
-}: {
-  children: React.ReactNode;
-  delay?: number;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
-    >
-      {children}
-    </motion.div>
-  );
+function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
+  if (score >= 70) return "default";
+  if (score >= 50) return "secondary";
+  return "destructive";
 }
 
-// ─── Empty state ─────────────────────────────────────────────────────────────
+function passRateBadgeColor(rate: number): string {
+  if (rate >= 80) return "text-emerald-600";
+  if (rate >= 50) return "text-amber-600";
+  return "text-rose-600";
+}
+
+// ─── Skeleton ────────────────────────────────────────────────────────────────
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-8 w-20" />
+      </div>
+      <Skeleton className="h-16 w-full rounded-xl" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-28 rounded-xl" />
+      </div>
+      <Skeleton className="h-[340px] rounded-xl" />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Skeleton className="h-[380px] rounded-xl" />
+        <Skeleton className="h-[380px] rounded-xl" />
+      </div>
+    </div>
+  );
+}
 
 function EmptyState({ label = "Sin datos" }: { label?: string }) {
   return (
@@ -111,12 +127,47 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
   );
 }
 
-// ─── Main component ──────────────────────────────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────────────
 
-export function TeamDetailClient({ data }: { data: TeamDetailData }) {
+export function TeamDetailClient({ teamId }: { teamId: string }) {
   const router = useRouter();
+  const [data, setData] = useState<TeamDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  const scoreTrend = data.scoreTrend.map((t) => ({ value: t.avgScore }));
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await getTeamDetail(
+        teamId,
+        dateFrom || undefined,
+        dateTo || undefined,
+      );
+      setData(result);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [teamId, dateFrom, dateTo]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const setQuickRange = (days: number) => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    setDateFrom(from.toISOString().slice(0, 10));
+    setDateTo(to.toISOString().slice(0, 10));
+  };
+
+  if (loading && !data) return <LoadingSkeleton />;
+  if (!data) return <EmptyState label="Equipo no encontrado" />;
+
+  const scoreTrendSpark = data.scoreTrend.map((t) => ({ value: t.avgScore }));
 
   return (
     <div className="space-y-6">
@@ -136,7 +187,7 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
           Volver
         </Button>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <UsersRound className="h-5 w-5 text-violet-500" />
@@ -151,55 +202,94 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
               </span>
             </p>
           </div>
-          <Badge variant="outline" className="self-start text-xs">
-            Umbral de aprobacion: {data.passThreshold}%
-          </Badge>
+
+          {/* Date range filters */}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex gap-1">
+              {[7, 30, 90].map((d) => (
+                <Button
+                  key={d}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuickRange(d)}
+                >
+                  {d}d
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+              >
+                Todo
+              </Button>
+            </div>
+            <div className="flex items-end gap-2">
+              <div>
+                <Label className="text-xs">Desde</Label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-8 w-36"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Hasta</Label>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-8 w-36"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </motion.div>
 
       {/* ─── KPI Cards ───────────────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <KpiCard
+          label="Agentes"
+          value={data.agentCount}
+          icon={Users}
+          tone="violet"
+          index={0}
+        />
+        <KpiCard
+          label="Evaluaciones"
+          value={data.totalEvaluations}
+          icon={ClipboardCheck}
+          tone="orange"
+          trend={scoreTrendSpark}
+          index={1}
+        />
         <KpiCard
           label="Score Promedio"
           value={data.avgScore}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={data.avgScore >= data.passThreshold ? "emerald" : "amber"}
-          trend={scoreTrend}
-          index={0}
-        />
-        <KpiCard
-          label="Tasa de Aprobacion"
-          value={data.passRate}
-          suffix="%"
-          icon={Award}
-          tone={data.passRate >= 80 ? "emerald" : data.passRate >= 50 ? "amber" : "rose"}
-          index={1}
-        />
-        <KpiCard
-          label="Total Evaluaciones"
-          value={data.totalEvaluations}
-          icon={ClipboardCheck}
-          tone="orange"
+          tone={data.avgScore >= 70 ? "emerald" : data.avgScore >= 50 ? "amber" : "rose"}
           index={2}
-        />
-        <KpiCard
-          label="Agentes"
-          value={data.agentCount}
-          icon={Users}
-          tone="violet"
-          index={3}
         />
       </div>
 
       {/* ─── Team Score Trend ────────────────────────────────────────────── */}
-      <Section delay={0.1}>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08 }}
+      >
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-4 w-4 text-orange-500" />
-              Tendencia de Score del Equipo
+              Score Trend del Equipo
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -207,7 +297,7 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
               <ChartContainer config={trendConfig} className="h-[300px] w-full">
                 <LineChart data={data.scoreTrend}>
                   <defs>
-                    <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="teamTrendGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#ff6600" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#ff6600" stopOpacity={0} />
                     </linearGradient>
@@ -260,12 +350,16 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
             )}
           </CardContent>
         </Card>
-      </Section>
+      </motion.div>
 
-      {/* ─── Agent Ranking + Agent Comparison ────────────────────────────── */}
-      <Section delay={0.2}>
+      {/* ─── Agent Ranking (table) + Agent Comparison (bar chart) ──────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 2 * 0.08 }}
+      >
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Agent Ranking */}
+          {/* Agent Ranking Table */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -302,9 +396,7 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
                         {/* Rank */}
                         <div className="flex items-center justify-center">
                           {i < 3 ? (
-                            <Medal
-                              className={`h-5 w-5 ${MEDAL_COLORS[i]}`}
-                            />
+                            <Medal className={`h-5 w-5 ${MEDAL_COLORS[i]}`} />
                           ) : (
                             <span className="text-xs text-muted-foreground">
                               {i + 1}
@@ -320,11 +412,7 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
                         {/* Score */}
                         <div className="flex justify-center">
                           <Badge
-                            variant={
-                              agent.avgScore >= data.passThreshold
-                                ? "default"
-                                : "destructive"
-                            }
+                            variant={scoreBadgeVariant(agent.avgScore)}
                             className="tabular-nums text-xs"
                           >
                             {agent.avgScore.toFixed(1)}%
@@ -332,7 +420,7 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
                         </div>
 
                         {/* Pass Rate */}
-                        <span className="text-center text-xs tabular-nums text-muted-foreground">
+                        <span className={`text-center text-xs tabular-nums ${passRateBadgeColor(agent.passRate)}`}>
                           {agent.passRate}%
                         </span>
 
@@ -350,18 +438,18 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
             </CardContent>
           </Card>
 
-          {/* Agent Comparison Bar Chart */}
+          {/* Ranking Bar Chart (horizontal, clickable) */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Award className="h-4 w-4 text-violet-500" />
-                Comparacion de Agentes
+                Ranking de Agentes
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.agentRanking.length > 0 ? (
                 <ChartContainer
-                  config={comparisonConfig}
+                  config={rankingConfig}
                   className="h-[300px] w-full"
                 >
                   <BarChart
@@ -425,7 +513,7 @@ export function TeamDetailClient({ data }: { data: TeamDetailData }) {
             </CardContent>
           </Card>
         </div>
-      </Section>
+      </motion.div>
     </div>
   );
 }

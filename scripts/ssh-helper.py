@@ -5,15 +5,21 @@ import paramiko
 import os
 import time
 
-HOST = "192.168.80.243"
-USER = "root"
-PASS = "T3l3c0m.2026"
+HOST = os.environ.get("QORE_SSH_HOST", "192.168.80.243")
+USER = os.environ.get("QORE_SSH_USER", "root")
+PASS = os.environ.get("QORE_SSH_PASSWORD")
+
+def require_password():
+    """Return the SSH password from the environment."""
+    if not PASS:
+        raise RuntimeError("Set QORE_SSH_PASSWORD before using scripts/ssh-helper.py")
+    return PASS
 
 def ssh_exec(cmd, timeout=600):
     """Execute a command via SSH and stream output."""
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(HOST, username=USER, password=PASS, timeout=10)
+    client.connect(HOST, username=USER, password=require_password(), timeout=10)
 
     stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
 
@@ -36,7 +42,7 @@ def scp_upload(local_path, remote_path):
     """Upload a file via SFTP."""
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(HOST, username=USER, password=PASS, timeout=10)
+    client.connect(HOST, username=USER, password=require_password(), timeout=10)
 
     transport = client.get_transport()
     sftp = paramiko.SFTPClient.from_transport(transport)

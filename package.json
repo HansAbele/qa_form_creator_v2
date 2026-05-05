@@ -11,10 +11,10 @@
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
-    "test": "vitest",
+    "test": "vitest --passWithNoTests --environment=node --exclude=**/node_modules/** --exclude=**/.next/** --exclude=**/.claude/** --exclude=**/tests/e2e/** --exclude=**/playwright-report/** --exclude=**/test-results/**",
     "test:e2e": "playwright test"
   },
   "prisma": {

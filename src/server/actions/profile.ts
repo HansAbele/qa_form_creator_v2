@@ -13,6 +13,7 @@ export interface ProfileInfo {
   role: "ADMIN" | "QA";
   hasPassword: boolean;
   campaignCount: number;
+  campaigns: { id: string; name: string }[];
   createdAt: string;
 }
 
@@ -30,6 +31,11 @@ export async function getMyProfile(): Promise<ProfileInfo> {
       role: true,
       password: true,
       createdAt: true,
+      campaigns: {
+        select: {
+          campaign: { select: { id: true, name: true } },
+        },
+      },
       _count: { select: { campaigns: true } },
     },
   });
@@ -43,6 +49,9 @@ export async function getMyProfile(): Promise<ProfileInfo> {
     role: user.role,
     hasPassword: !!user.password,
     campaignCount: user._count.campaigns,
+    campaigns: user.campaigns
+      .map(({ campaign }) => campaign)
+      .sort((a, b) => a.name.localeCompare(b.name)),
     createdAt: user.createdAt.toISOString(),
   };
 }

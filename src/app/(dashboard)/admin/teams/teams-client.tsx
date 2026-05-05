@@ -29,7 +29,6 @@ interface TeamItem {
   name: string;
   campaignId: string;
   campaignName: string;
-  active: boolean;
   agentCount: number;
 }
 
@@ -127,11 +126,6 @@ export function TeamsClient({ teams, campaigns }: TeamsClientProps) {
               </TableCell>
               <TableCell className="text-center">{t.agentCount}</TableCell>
               <TableCell>
-                <Badge variant={t.active ? "default" : "secondary"}>
-                  {t.active ? "Activo" : "Inactivo"}
-                </Badge>
-              </TableCell>
-              <TableCell>
                 <div className="flex gap-1">
                   <Button variant="ghost" size="icon-xs" onClick={() => handleEdit(t)}>
                     <Pencil className="h-3.5 w-3.5" />
@@ -164,7 +158,6 @@ export function TeamsClient({ teams, campaigns }: TeamsClientProps) {
                 id: editItem.id,
                 name: editItem.name,
                 campaignId: editItem.campaignId,
-                active: editItem.active,
               }
             : undefined
         }

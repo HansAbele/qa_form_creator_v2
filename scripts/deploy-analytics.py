@@ -25,7 +25,7 @@ import paramiko
 
 HOST        = "192.168.80.243"
 USER        = "root"
-PASS        = "T3l3c0m.2026"
+PASS        = os.environ["QORE_SSH_PASSWORD"]
 REMOTE_ROOT = "/opt/qa-form-creator"
 
 DB_CONTAINER = "qa_form_creator_db"

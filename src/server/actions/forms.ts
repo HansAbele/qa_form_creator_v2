@@ -3,19 +3,39 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { getCampaignFilter } from "@/server/queries/campaign-filter";
+import {
+  assertCampaignPermissionForUser,
+  getCampaignFilterForPermission,
+} from "@/server/queries/campaign-filter";
+import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
 import type { QuestionType } from "@prisma/client";
 
 export async function getForms() {
+  return getFormsForPermission("canViewForms");
+}
+
+export async function getFormsForPermission(permission: CampaignPermissionKey) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilter();
+  const campaignFilter = await getCampaignFilterForPermission(permission);
 
   return prisma.form.findMany({
     where: campaignFilter,
     include: {
-      campaign: { select: { name: true } },
+      campaign: {
+        select: {
+          name: true,
+          users: {
+            where: { userId: session.user.id },
+            select: {
+              canCreateForms: true,
+              canEditForms: true,
+              canEvaluate: true,
+            },
+          },
+        },
+      },
       _count: { select: { questions: true, responses: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -23,6 +43,13 @@ export async function getForms() {
 }
 
 export async function getFormById(id: string) {
+  return getFormByIdForPermission(id, "canViewForms");
+}
+
+export async function getFormByIdForPermission(
+  id: string,
+  permission: CampaignPermissionKey,
+) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -36,12 +63,7 @@ export async function getFormById(id: string) {
 
   if (!form) throw new Error("Formulario no encontrado");
 
-  // Verify campaign access for QA users
-  if (session.user.role !== "ADMIN") {
-    if (!session.user.campaignIds.includes(form.campaignId)) {
-      throw new Error("No autorizado para ver este formulario");
-    }
-  }
+  await assertCampaignPermissionForUser(session.user, form.campaignId, permission);
 
   return form;
 }
@@ -58,7 +80,9 @@ export async function createForm(data: {
   }[];
 }) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user) throw new Error("No autorizado");
+
+  await assertCampaignPermissionForUser(session.user, data.campaignId, "canCreateForms");
 
   const form = await prisma.form.create({
     data: {
@@ -98,7 +122,15 @@ export async function updateForm(
   },
 ) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user) throw new Error("No autorizado");
+
+  const existing = await prisma.form.findUnique({
+    where: { id },
+    select: { campaignId: true },
+  });
+  if (!existing) throw new Error("Formulario no encontrado");
+  await assertCampaignPermissionForUser(session.user, existing.campaignId, "canEditForms");
+  await assertCampaignPermissionForUser(session.user, data.campaignId, "canEditForms");
 
   const form = await prisma.$transaction(async (tx) => {
     // Delete existing questions
@@ -132,7 +164,14 @@ export async function updateForm(
 
 export async function deleteForm(id: string) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user) throw new Error("No autorizado");
+
+  const form = await prisma.form.findUnique({
+    where: { id },
+    select: { campaignId: true },
+  });
+  if (!form) throw new Error("Formulario no encontrado");
+  await assertCampaignPermissionForUser(session.user, form.campaignId, "canEditForms");
 
   const responseCount = await prisma.response.count({ where: { formId: id } });
   if (responseCount > 0) {

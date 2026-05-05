@@ -24,6 +24,8 @@ interface AgentItem {
   agentCode: string | null;
   campaignId: string;
   campaignName: string;
+  teamId: string | null;
+  teamName: string | null;
   active: boolean;
   responseCount: number;
 }
@@ -31,9 +33,10 @@ interface AgentItem {
 interface AgentsClientProps {
   agents: AgentItem[];
   campaigns: { id: string; name: string }[];
+  teams: { id: string; name: string; campaignId: string }[];
 }
 
-export function AgentsClient({ agents, campaigns }: AgentsClientProps) {
+export function AgentsClient({ agents, campaigns, teams }: AgentsClientProps) {
   const router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
   const [editItem, setEditItem] = useState<AgentItem | null>(null);
@@ -103,6 +106,7 @@ export function AgentsClient({ agents, campaigns }: AgentsClientProps) {
             <TableHead>Nombre</TableHead>
             <TableHead>Código</TableHead>
             <TableHead>Campaña</TableHead>
+            <TableHead>Equipo</TableHead>
             <TableHead className="text-center">Evaluaciones</TableHead>
             <TableHead>Estado</TableHead>
             <TableHead className="w-24">Acciones</TableHead>
@@ -117,6 +121,13 @@ export function AgentsClient({ agents, campaigns }: AgentsClientProps) {
               </TableCell>
               <TableCell>
                 <Badge variant="outline">{a.campaignName}</Badge>
+              </TableCell>
+              <TableCell className="text-muted-foreground">
+                {a.teamName ? (
+                  <Badge variant="secondary">{a.teamName}</Badge>
+                ) : (
+                  <span className="text-xs italic">—</span>
+                )}
               </TableCell>
               <TableCell className="text-center">{a.responseCount}</TableCell>
               <TableCell>
@@ -138,7 +149,7 @@ export function AgentsClient({ agents, campaigns }: AgentsClientProps) {
           ))}
           {filtered.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground">
+              <TableCell colSpan={7} className="text-center text-muted-foreground">
                 No hay agentes registrados
               </TableCell>
             </TableRow>
@@ -154,11 +165,13 @@ export function AgentsClient({ agents, campaigns }: AgentsClientProps) {
                 name: editItem.name,
                 agentCode: editItem.agentCode,
                 campaignId: editItem.campaignId,
+                teamId: editItem.teamId,
                 active: editItem.active,
               }
             : undefined
         }
         campaigns={campaigns}
+        teams={teams}
         open={formOpen}
         onOpenChange={(open) => {
           setFormOpen(open);

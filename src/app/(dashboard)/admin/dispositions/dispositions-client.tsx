@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Plus,
@@ -10,7 +9,6 @@ import {
   FolderPlus,
   Upload,
   Tag,
-  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +37,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { DispositionForm } from "@/components/admin/disposition-form";
 import {
   getDispositions,
@@ -85,8 +83,6 @@ export function DispositionsClient({
   initialCategories,
   campaigns,
 }: DispositionsClientProps) {
-  const router = useRouter();
-
   // Campaign filter
   const [selectedCampaign, setSelectedCampaign] = useState(
     campaigns[0]?.id ?? "",

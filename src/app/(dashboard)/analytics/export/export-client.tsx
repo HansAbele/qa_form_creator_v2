@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Download, FileSpreadsheet, FileJson, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,10 +25,6 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
   const filteredForms = campaignId
     ? forms.filter((f) => f.campaignId === campaignId)
     : forms;
-
-  useEffect(() => {
-    setFormId("");
-  }, [campaignId]);
 
   const getFilters = () => ({
     campaignId: campaignId || undefined,
@@ -129,7 +125,14 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1">
               <Label className="text-xs">Campaña</Label>
-              <Select value={campaignId || "all"} onValueChange={(v) => v && setCampaignId(v === "all" ? "" : v)}>
+              <Select
+                value={campaignId || "all"}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  setCampaignId(v === "all" ? "" : v);
+                  setFormId("");
+                }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Todas">
                     {(value: string | null) => {

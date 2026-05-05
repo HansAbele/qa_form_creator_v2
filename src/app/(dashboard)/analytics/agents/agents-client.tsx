@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel,
   flexRender, type ColumnDef, type SortingState,
@@ -58,14 +58,14 @@ export function AgentPerformanceClient({
     [filtered],
   );
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else if (next.size < 5) next.add(id);
       return next;
     });
-  };
+  }, []);
 
   const selectedAgents = useMemo(
     () => agents.filter((a) => selectedIds.has(a.id)),
@@ -191,7 +191,7 @@ export function AgentPerformanceClient({
         },
       },
     ],
-    [ranked, selectedIds, passThreshold],
+    [ranked, selectedIds, passThreshold, toggleSelect],
   );
 
   const table = useReactTable({

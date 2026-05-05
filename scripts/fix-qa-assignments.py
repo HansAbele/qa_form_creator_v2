@@ -16,16 +16,17 @@ Run after migrate-from-odoo.py to fix the cross-join over-assignment.
 """
 import sys
 import re
+import os
 import psycopg2
 import psycopg2.extras
 import paramiko
 
 ODOO = dict(host="192.168.80.240", port=5432,
-            dbname="dbodoo", user="wfm", password="T3l3c0mwfm")
+            dbname="dbodoo", user="wfm", password=os.environ["ODOO_DB_PASSWORD"])
 
 SSH_HOST     = "192.168.80.243"
 SSH_USER     = "root"
-SSH_PASS     = "T3l3c0m.2026"
+SSH_PASS     = os.environ["QORE_SSH_PASSWORD"]
 DB_CONTAINER = "qa_form_creator_db"
 DB_USER      = "qa_user"
 DB_NAME      = "qa_form_creator"

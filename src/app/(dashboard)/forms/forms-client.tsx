@@ -17,14 +17,16 @@ interface FormItem {
   questionCount: number;
   responseCount: number;
   createdAt: string;
+  canEvaluate: boolean;
+  canEdit: boolean;
 }
 
 interface FormsListClientProps {
   forms: FormItem[];
-  isAdmin: boolean;
+  canCreate: boolean;
 }
 
-export function FormsListClient({ forms, isAdmin }: FormsListClientProps) {
+export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
   const router = useRouter();
 
   const handleDelete = async (id: string, title: string) => {
@@ -42,7 +44,7 @@ export function FormsListClient({ forms, isAdmin }: FormsListClientProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Formularios</h1>
-        {isAdmin && (
+        {canCreate && (
           <Button render={<Link href="/forms/new" />}>
             <Plus className="mr-1 h-4 w-4" />
             Nuevo formulario
@@ -78,10 +80,12 @@ export function FormsListClient({ forms, isAdmin }: FormsListClientProps) {
                   <span>{form.responseCount} evaluaciones</span>
                 </div>
                 <div className="mt-4 flex gap-2">
-                  <Button render={<Link href={`/forms/${form.id}`} />} variant="outline" size="sm" className="flex-1">
-                    Evaluar
-                  </Button>
-                  {isAdmin && (
+                  {form.canEvaluate && (
+                    <Button render={<Link href={`/forms/${form.id}`} />} variant="outline" size="sm" className="flex-1">
+                      Evaluar
+                    </Button>
+                  )}
+                  {form.canEdit && (
                     <>
                       <Button render={<Link href={`/forms/${form.id}/edit`} />} variant="ghost" size="icon-sm">
                         <Pencil className="h-4 w-4" />

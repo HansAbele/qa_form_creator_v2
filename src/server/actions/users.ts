@@ -5,6 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { hash } from "bcryptjs";
 import type { Role } from "@prisma/client";
+import {
+  CAMPAIGN_PERMISSION_KEYS,
+  type CampaignAccessLevel,
+  type CampaignPermissionKey,
+} from "@/lib/campaign-permissions";
 
 export async function getUsers() {
   const session = await auth();
@@ -86,6 +91,7 @@ export async function createUser(data: {
   });
 
   revalidatePath("/admin/users");
+  revalidatePath("/settings");
   return user;
 }
 
@@ -120,11 +126,30 @@ export async function updateUser(
       data: updateData,
     });
 
-    await tx.userCampaign.deleteMany({ where: { userId: id } });
+    const nextCampaignIds = [...new Set(data.campaignIds)];
 
-    if (data.campaignIds.length > 0) {
+    if (nextCampaignIds.length === 0) {
+      await tx.userCampaign.deleteMany({ where: { userId: id } });
+    } else {
+      await tx.userCampaign.deleteMany({
+        where: { userId: id, campaignId: { notIn: nextCampaignIds } },
+      });
+    }
+
+    const existingAccess = await tx.userCampaign.findMany({
+      where: { userId: id },
+      select: { campaignId: true },
+    });
+    const existingCampaignIds = new Set(
+      existingAccess.map((access) => access.campaignId),
+    );
+    const campaignIdsToCreate = nextCampaignIds.filter(
+      (campaignId) => !existingCampaignIds.has(campaignId),
+    );
+
+    if (campaignIdsToCreate.length > 0) {
       await tx.userCampaign.createMany({
-        data: data.campaignIds.map((campaignId) => ({
+        data: campaignIdsToCreate.map((campaignId) => ({
           userId: id,
           campaignId,
         })),
@@ -135,7 +160,70 @@ export async function updateUser(
   });
 
   revalidatePath("/admin/users");
+  revalidatePath("/settings");
   return user;
+}
+
+export async function updateCampaignAccess(data: {
+  userId: string;
+  campaignId: string;
+  roleInCampaign: CampaignAccessLevel;
+  permissions: Partial<Record<CampaignPermissionKey, boolean>>;
+}) {
+  const session = await auth();
+  if (!session?.user || session.user.role !== "ADMIN") {
+    throw new Error("No autorizado");
+  }
+
+  const [user, campaign, existingAccess] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: data.userId },
+      select: { id: true, role: true },
+    }),
+    prisma.campaign.findUnique({
+      where: { id: data.campaignId },
+      select: { id: true },
+    }),
+    prisma.userCampaign.findUnique({
+      where: {
+        userId_campaignId: {
+          userId: data.userId,
+          campaignId: data.campaignId,
+        },
+      },
+    }),
+  ]);
+
+  if (!user) throw new Error("Usuario no encontrado");
+  if (!campaign) throw new Error("Campaña no encontrada");
+  if (user.role === "ADMIN") {
+    throw new Error("Los QA Manager tienen acceso global");
+  }
+  if (!existingAccess) {
+    throw new Error("El usuario no está asignado a esta campaña");
+  }
+
+  const permissionPatch = Object.fromEntries(
+    CAMPAIGN_PERMISSION_KEYS.map((key) => [key, Boolean(data.permissions[key])]),
+  ) as Record<CampaignPermissionKey, boolean>;
+
+  const access = await prisma.userCampaign.update({
+    where: {
+      userId_campaignId: {
+        userId: data.userId,
+        campaignId: data.campaignId,
+      },
+    },
+    data: {
+      roleInCampaign: data.roleInCampaign,
+      ...permissionPatch,
+    },
+    include: { campaign: { select: { id: true, name: true } } },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/admin/users");
+  return access;
 }
 
 export async function deleteUser(id: string) {
@@ -152,4 +240,5 @@ export async function deleteUser(id: string) {
   });
 
   revalidatePath("/admin/users");
+  revalidatePath("/settings");
 }

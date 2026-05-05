@@ -14,7 +14,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  ReferenceLine,
   XAxis,
   YAxis,
 } from "recharts";
@@ -46,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -55,21 +55,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getDispositionAnalytics } from "@/server/queries/analytics";
-import { getCampaigns } from "@/server/actions/campaigns";
-import type { AppSettings } from "@/lib/settings";
+import { getCampaignsForPermission } from "@/server/actions/campaigns";
 
 // ─── Chart configs ────────────────────────────────────────────────────────────
 
 const volumeConfig = {
   totalEvaluations: { label: "Evaluaciones", color: "#ff6600" },
-} satisfies ChartConfig;
-
-const scoreConfig = {
-  avgScore: { label: "Score Promedio", color: "#06b6d4" },
-} satisfies ChartConfig;
-
-const passRateConfig = {
-  passRate: { label: "Pass Rate", color: "#10b981" },
 } satisfies ChartConfig;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -84,43 +75,19 @@ interface DispositionData {
   passRate: number;
 }
 
-// ─── Animated section wrapper ─────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function Section({
-  children,
-  delay = 0,
-}: {
-  children: React.ReactNode;
-  delay?: number;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
-    >
-      {children}
-    </motion.div>
-  );
+function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
+  if (score >= 70) return "default";
+  if (score >= 50) return "secondary";
+  return "destructive";
 }
-
-function EmptyState({ label = "Sin datos" }: { label?: string }) {
-  return (
-    <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
-    </div>
-  );
-}
-
-// ─── Score color helper ───────────────────────────────────────────────────────
 
 function scoreColor(score: number): string {
-  if (score >= 80) return "#10b981";
-  if (score >= 60) return "#f59e0b";
+  if (score >= 70) return "#10b981";
+  if (score >= 50) return "#f59e0b";
   return "#f43f5e";
 }
-
-// ─── Bar colors ───────────────────────────────────────────────────────────────
 
 const BAR_COLORS = [
   "#ff6600",
@@ -131,13 +98,36 @@ const BAR_COLORS = [
   "#10b981",
 ];
 
+// ─── Animated section wrapper ─────────────────────────────────────────────────
+
+function EmptyState({ label = "Sin datos" }: { label?: string }) {
+  return (
+    <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-16 w-full rounded-xl" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-28 rounded-xl" />
+      </div>
+      <Skeleton className="h-[340px] rounded-xl" />
+      <Skeleton className="h-[400px] rounded-xl" />
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function DispositionsAnalyticsClient({
-  settings,
-}: {
-  settings: AppSettings;
-}) {
+export function DispositionsAnalyticsClient() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [campaignId, setCampaignId] = useState("all");
@@ -153,7 +143,7 @@ export function DispositionsAnalyticsClient({
   // ─── Load campaigns once ────────────────────────────────────────────────────
 
   useEffect(() => {
-    getCampaigns().then((cs) =>
+    getCampaignsForPermission("canViewKPIs").then((cs) =>
       setCampaigns(cs.map((c) => ({ id: c.id, name: c.name }))),
     );
   }, []);
@@ -193,39 +183,21 @@ export function DispositionsAnalyticsClient({
   // ─── KPI computations ──────────────────────────────────────────────────────
 
   const totalDispositions = data.length;
-  const totalEvaluations = data.reduce(
-    (sum, d) => sum + d.totalEvaluations,
-    0,
-  );
   const mostUsed = data.length > 0 ? data[0] : null; // already sorted desc by totalEvaluations
-  const globalAvgScore =
-    totalEvaluations > 0
-      ? data.reduce((sum, d) => sum + d.avgScore * d.totalEvaluations, 0) /
-        totalEvaluations
-      : 0;
-  const globalPassRate =
-    totalEvaluations > 0
-      ? data.reduce((sum, d) => sum + d.passRate * d.totalEvaluations, 0) /
-        totalEvaluations
-      : 0;
+  const bestScore =
+    data.length > 0
+      ? data.reduce((best, d) =>
+          d.avgScore > best.avgScore ? d : best,
+        )
+      : null;
 
-  // ─── Chart data ─────────────────────────────────────────────────────────────
+  // ─── Chart data (top 15 by volume) ──────────────────────────────────────────
 
   const volumeChartData = useMemo(
     () =>
       [...data]
         .sort((a, b) => b.totalEvaluations - a.totalEvaluations)
         .slice(0, 15),
-    [data],
-  );
-
-  const scoreChartData = useMemo(
-    () => [...data].sort((a, b) => b.avgScore - a.avgScore),
-    [data],
-  );
-
-  const passRateChartData = useMemo(
-    () => [...data].sort((a, b) => b.passRate - a.passRate),
     [data],
   );
 
@@ -248,15 +220,20 @@ export function DispositionsAnalyticsClient({
           </Button>
         ),
         cell: ({ row }) => (
-          <div>
-            <span className="font-medium">{row.original.name}</span>
-            {row.original.code && (
-              <span className="ml-1 text-xs text-muted-foreground">
-                ({row.original.code})
-              </span>
-            )}
-          </div>
+          <span className="font-medium">{row.original.name}</span>
         ),
+      },
+      {
+        accessorKey: "code",
+        header: "Codigo",
+        cell: ({ getValue }) => {
+          const v = getValue<string | null>();
+          return v ? (
+            <span className="text-xs text-muted-foreground">{v}</span>
+          ) : (
+            <span className="text-muted-foreground">--</span>
+          );
+        },
       },
       {
         accessorKey: "categoryName",
@@ -306,14 +283,10 @@ export function DispositionsAnalyticsClient({
           const score = getValue<number>();
           return (
             <div className="flex items-center gap-2">
-              <Badge
-                variant={
-                  score >= settings.passThreshold ? "default" : "destructive"
-                }
-              >
+              <Badge variant={scoreBadgeVariant(score)}>
                 {score.toFixed(1)}%
               </Badge>
-              <div className="hidden sm:block h-2 w-20 rounded-full bg-muted overflow-hidden">
+              <div className="hidden h-2 w-20 overflow-hidden rounded-full bg-muted sm:block">
                 <div
                   className="h-full rounded-full"
                   style={{
@@ -345,9 +318,9 @@ export function DispositionsAnalyticsClient({
           return (
             <span
               className={
-                rate >= settings.targetPassRate
-                  ? "text-emerald-600 font-medium"
-                  : rate >= settings.passThreshold
+                rate >= 80
+                  ? "font-medium text-emerald-600"
+                  : rate >= 50
                     ? "text-amber-600"
                     : "text-rose-600"
               }
@@ -358,7 +331,7 @@ export function DispositionsAnalyticsClient({
         },
       },
     ],
-    [settings.passThreshold, settings.targetPassRate],
+    [],
   );
 
   const table = useReactTable({
@@ -372,17 +345,7 @@ export function DispositionsAnalyticsClient({
 
   // ─── Loading state ──────────────────────────────────────────────────────────
 
-  if (loading && data.length === 0) {
-    return (
-      <div className="flex h-[50vh] items-center justify-center">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
-          className="h-8 w-8 rounded-full border-2 border-orange-500/30 border-t-orange-500"
-        />
-      </div>
-    );
-  }
+  if (loading && data.length === 0) return <LoadingSkeleton />;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -469,7 +432,7 @@ export function DispositionsAnalyticsClient({
       </motion.div>
 
       {/* ─── KPI Cards ─────────────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
           label="Total Disposiciones"
           value={totalDispositions}
@@ -478,7 +441,7 @@ export function DispositionsAnalyticsClient({
           index={0}
         />
         <KpiCard
-          label="Mas Utilizada"
+          label="Mas Usada"
           value={mostUsed?.totalEvaluations ?? 0}
           suffix={mostUsed ? ` - ${mostUsed.name}` : ""}
           icon={ClipboardCheck}
@@ -486,40 +449,27 @@ export function DispositionsAnalyticsClient({
           index={1}
         />
         <KpiCard
-          label="Score Promedio"
-          value={globalAvgScore}
+          label="Mejor Score"
+          value={bestScore?.avgScore ?? 0}
           decimals={1}
-          suffix="%"
-          icon={TrendingUp}
-          tone={
-            globalAvgScore >= settings.passThreshold ? "emerald" : "amber"
-          }
-          index={2}
-        />
-        <KpiCard
-          label={`Pass Rate (>=${settings.passThreshold}%)`}
-          value={globalPassRate}
-          decimals={1}
-          suffix="%"
+          suffix={bestScore ? `% - ${bestScore.name}` : "%"}
           icon={Award}
-          tone={
-            globalPassRate >= settings.targetPassRate
-              ? "emerald"
-              : globalPassRate >= settings.passThreshold
-                ? "amber"
-                : "rose"
-          }
-          index={3}
+          tone="emerald"
+          index={2}
         />
       </div>
 
-      {/* ─── Volume by Disposition ─────────────────────────────────────── */}
-      <Section delay={0.1}>
+      {/* ─── Volume by Disposition (Top 15 BarChart) ───────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08 }}
+      >
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <BarChart3 className="h-4 w-4 text-orange-500" />
-              Volumen por Disposicion
+              Top 15 Disposiciones por Volumen
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -542,6 +492,9 @@ export function DispositionsAnalyticsClient({
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
+                    tickFormatter={(v) =>
+                      String(v).length > 12 ? `${String(v).slice(0, 12)}...` : String(v)
+                    }
                   />
                   <YAxis
                     allowDecimals={false}
@@ -572,168 +525,14 @@ export function DispositionsAnalyticsClient({
             )}
           </CardContent>
         </Card>
-      </Section>
+      </motion.div>
 
-      {/* ─── Score + Pass Rate by Disposition ──────────────────────────── */}
-      <Section delay={0.15}>
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Score by Disposition */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <TrendingUp className="h-4 w-4 text-cyan-500" />
-                Score por Disposicion
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {scoreChartData.length > 0 ? (
-                <ChartContainer
-                  config={scoreConfig}
-                  className="h-[350px] w-full"
-                >
-                  <BarChart
-                    data={scoreChartData}
-                    layout="vertical"
-                    margin={{ left: 20, right: 12 }}
-                  >
-                    <CartesianGrid
-                      horizontal={false}
-                      strokeDasharray="3 3"
-                      className="stroke-border"
-                    />
-                    <XAxis
-                      type="number"
-                      domain={[0, 100]}
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      tickLine={false}
-                      axisLine={false}
-                      width={100}
-                      className="text-xs"
-                    />
-                    <ChartTooltip
-                      cursor={{ fill: "rgba(6,182,212,0.08)" }}
-                      content={
-                        <ChartTooltipContent
-                          formatter={(value) => [
-                            `${Number(value).toFixed(1)}%`,
-                            "Score",
-                          ]}
-                        />
-                      }
-                    />
-                    <Bar
-                      dataKey="avgScore"
-                      radius={[0, 6, 6, 0]}
-                      animationDuration={900}
-                    >
-                      {scoreChartData.map((d) => (
-                        <Cell key={d.id} fill={scoreColor(d.avgScore)} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ChartContainer>
-              ) : (
-                <EmptyState />
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Pass Rate by Disposition */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Award className="h-4 w-4 text-emerald-500" />
-                Pass Rate por Disposicion
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {passRateChartData.length > 0 ? (
-                <ChartContainer
-                  config={passRateConfig}
-                  className="h-[350px] w-full"
-                >
-                  <BarChart
-                    data={passRateChartData}
-                    layout="vertical"
-                    margin={{ left: 20, right: 12 }}
-                  >
-                    <CartesianGrid
-                      horizontal={false}
-                      strokeDasharray="3 3"
-                      className="stroke-border"
-                    />
-                    <XAxis
-                      type="number"
-                      domain={[0, 100]}
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      tickLine={false}
-                      axisLine={false}
-                      width={100}
-                      className="text-xs"
-                    />
-                    <ReferenceLine
-                      x={settings.passThreshold}
-                      stroke="#f43f5e"
-                      strokeDasharray="4 4"
-                      strokeWidth={1.5}
-                      label={{
-                        value: `${settings.passThreshold}%`,
-                        position: "top",
-                        fill: "#f43f5e",
-                        fontSize: 11,
-                      }}
-                    />
-                    <ChartTooltip
-                      cursor={{ fill: "rgba(16,185,129,0.08)" }}
-                      content={
-                        <ChartTooltipContent
-                          formatter={(value) => [
-                            `${Number(value).toFixed(0)}%`,
-                            "Pass Rate",
-                          ]}
-                        />
-                      }
-                    />
-                    <Bar
-                      dataKey="passRate"
-                      radius={[0, 6, 6, 0]}
-                      animationDuration={900}
-                    >
-                      {passRateChartData.map((d) => (
-                        <Cell
-                          key={d.id}
-                          fill={
-                            d.passRate >= settings.passThreshold
-                              ? "#10b981"
-                              : "#f43f5e"
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ChartContainer>
-              ) : (
-                <EmptyState />
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </Section>
-
-      {/* ─── Disposition Table ─────────────────────────────────────────── */}
-      <Section delay={0.2}>
+      {/* ─── Disposition Table (sortable, all dispositions) ────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 2 * 0.08 }}
+      >
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -793,14 +592,20 @@ export function DispositionsAnalyticsClient({
             )}
           </CardContent>
         </Card>
-      </Section>
+      </motion.div>
 
       {/* ─── Summary count ─────────────────────────────────────────────── */}
-      <p className="text-sm text-muted-foreground text-right">
-        {data.length} disposicion{data.length !== 1 ? "es" : ""} con
-        evaluaciones
-        {campaignId !== "all" && " en la campana seleccionada"}
-      </p>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 3 * 0.08 }}
+      >
+        <p className="text-right text-sm text-muted-foreground">
+          {data.length} disposicion{data.length !== 1 ? "es" : ""} con
+          evaluaciones
+          {campaignId !== "all" && " en la campana seleccionada"}
+        </p>
+      </motion.div>
     </div>
   );
 }

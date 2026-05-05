@@ -1,14 +1,14 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getCampaigns } from "@/server/actions/campaigns";
+import { getCampaignsForPermission } from "@/server/actions/campaigns";
 import { FormBuilder } from "@/components/forms/form-builder";
+import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 
 export default async function NewFormPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (session.user.role !== "ADMIN") redirect("/");
-
-  const campaigns = await getCampaigns();
+  if (!(await hasAnyCampaignPermission("canCreateForms"))) redirect("/forms");
+  const campaigns = await getCampaignsForPermission("canCreateForms");
 
   return (
     <div className="space-y-6">

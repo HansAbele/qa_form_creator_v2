@@ -50,9 +50,9 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
     setLoading(true);
     try {
       const [k, qs, ev] = await Promise.all([
-        getCampaignKpis(dateFrom || undefined, dateTo || undefined),
+        getCampaignKpis(undefined, dateFrom || undefined, dateTo || undefined),
         getScoreByQuestion(undefined, dateFrom || undefined, dateTo || undefined),
-        getEvaluatorActivity(dateFrom || undefined, dateTo || undefined),
+        getEvaluatorActivity(undefined, dateFrom || undefined, dateTo || undefined),
       ]);
       setKpis(k);
       setQuestionScores(qs);
@@ -182,17 +182,30 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
           <CardHeader><CardTitle className="text-base">Score Promedio por Campaña</CardTitle></CardHeader>
           <CardContent>
             {kpis.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={kpis} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis dataKey="name" type="category" width={120} className="text-xs" />
-                  <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
-                  <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
-                    {kpis.map((_, i) => (<Cell key={i} fill={COLORS[i % COLORS.length]} />))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              (() => {
+                const sorted = [...kpis].sort((a, b) => b.avgScore - a.avgScore);
+                return (
+                  <ResponsiveContainer width="100%" height={Math.max(320, sorted.length * 32)}>
+                    <BarChart data={sorted} layout="vertical" margin={{ right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis type="number" domain={[0, 100]} />
+                      <YAxis
+                        dataKey="name"
+                        type="category"
+                        width={160}
+                        className="text-xs"
+                        tickFormatter={(v: string) =>
+                          v.length > 20 ? `${v.slice(0, 18)}…` : v
+                        }
+                      />
+                      <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
+                      <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
+                        {sorted.map((_, i) => (<Cell key={i} fill={COLORS[i % COLORS.length]} />))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                );
+              })()
             ) : <div className="flex h-[300px] items-center justify-center text-muted-foreground">Sin datos</div>}
           </CardContent>
         </Card>

@@ -19,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { createTeam, updateTeam } from "@/server/actions/teams";
 
@@ -28,7 +27,6 @@ interface TeamFormProps {
     id: string;
     name: string;
     campaignId: string;
-    active: boolean;
   };
   campaigns: { id: string; name: string }[];
   open: boolean;
@@ -41,8 +39,6 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(team?.name ?? "");
   const [campaignId, setCampaignId] = useState(team?.campaignId ?? "");
-  const [active, setActive] = useState(team?.active ?? true);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -57,7 +53,7 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
     setSaving(true);
     try {
       if (isEdit) {
-        await updateTeam(team.id, { name: name.trim(), active });
+        await updateTeam(team.id, { name: name.trim() });
         toast.success("Equipo actualizado");
       } else {
         await createTeam({ name: name.trim(), campaignId });
@@ -108,12 +104,6 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-          )}
-          {isEdit && (
-            <div className="flex items-center gap-2">
-              <Switch checked={active} onCheckedChange={(v) => setActive(Boolean(v))} />
-              <Label>Activo</Label>
             </div>
           )}
           <DialogFooter>

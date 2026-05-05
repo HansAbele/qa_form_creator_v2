@@ -197,8 +197,8 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
-  --font-heading: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-montserrat, Montserrat), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-montserrat, Montserrat), ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {

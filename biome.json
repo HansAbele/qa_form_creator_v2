@@ -1,7 +1,12 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
-  "organizeImports": {
-    "enabled": true
+  "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
   },
   "linter": {
     "enabled": true,
@@ -10,7 +15,23 @@
       "correctness": {
         "noUnusedImports": "warn",
         "noUnusedVariables": "warn"
+      },
+      "a11y": {
+        "noLabelWithoutControl": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useSemanticElements": "warn"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "warn"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "warn"
       }
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   },
   "formatter": {
@@ -26,12 +47,17 @@
     }
   },
   "files": {
-    "ignore": [
-      "node_modules",
-      ".next",
-      "dist",
-      "prisma/migrations",
-      "pnpm-lock.yaml"
+    "includes": [
+      "**",
+      "!node_modules",
+      "!.next",
+      "!dist",
+      "!_server_backup",
+      "!prisma/migrations",
+      "!pnpm-lock.yaml",
+      "!.claude",
+      "!playwright-report",
+      "!test-results"
     ]
   }
 }
