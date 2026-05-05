@@ -30,19 +30,19 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env
-.env.local
-.env.production
-odoo.local.env
-*.local.env
+# env files — committed intentionally for machine transfer
+# .env
+# .env.local
+# .env.production
+# odoo.local.env
+# *.local.env
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+# next-env.d.ts  ← committed intentionally (needed for TS in new machine)
 
 # deploy temp dirs
 /_local_save/
