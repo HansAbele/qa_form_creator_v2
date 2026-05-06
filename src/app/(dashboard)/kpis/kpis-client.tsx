@@ -5,14 +5,27 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { AlertTriangle, CheckCircle2, TrendingDown, Activity } from "lucide-react";
+import { AlertTriangle, CheckCircle2, TrendingDown, Activity, ShieldAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { getCampaignKpis, getScoreByQuestion, getEvaluatorActivity } from "@/server/queries/analytics";
+import {
+  getCampaignKpis,
+  getScoreByQuestion,
+  getEvaluatorActivity,
+  getQACategoryMetrics,
+} from "@/server/queries/analytics";
 import type { AppSettings } from "@/lib/settings";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface CampaignKpi {
   id: string; name: string; totalForms: number; totalAgents: number;
@@ -27,6 +40,20 @@ interface QuestionScore {
 interface EvaluatorData {
   id: string; name: string; totalEvaluations: number;
   avgScore: number; stdDev: number;
+}
+
+interface QACategoryMetric {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  totalAnswers: number;
+  totalEvaluations: number;
+  avgScore: number;
+  failedAnswers: number;
+  failRate: number;
+  fatalFailCount: number;
+  commentCount: number;
 }
 
 // Brand-aligned palette: TNO orange + navy + supporting hues
@@ -44,19 +71,22 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
   const [kpis, setKpis] = useState<CampaignKpi[]>([]);
   const [questionScores, setQuestionScores] = useState<QuestionScore[]>([]);
   const [evaluators, setEvaluators] = useState<EvaluatorData[]>([]);
+  const [qaCategoryMetrics, setQACategoryMetrics] = useState<QACategoryMetric[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [k, qs, ev] = await Promise.all([
+      const [k, qs, ev, qa] = await Promise.all([
         getCampaignKpis(undefined, dateFrom || undefined, dateTo || undefined),
         getScoreByQuestion(undefined, dateFrom || undefined, dateTo || undefined),
         getEvaluatorActivity(undefined, dateFrom || undefined, dateTo || undefined),
+        getQACategoryMetrics(undefined, dateFrom || undefined, dateTo || undefined),
       ]);
       setKpis(k);
       setQuestionScores(qs);
       setEvaluators(ev);
+      setQACategoryMetrics(qa);
     } catch (e) {
       console.error(e);
     } finally {
@@ -109,7 +139,18 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
     });
   }
 
+  const qaCategoriesAtRisk = qaCategoryMetrics.filter(
+    (category) => category.fatalFailCount > 0 || category.failRate >= 20,
+  );
+  if (qaCategoriesAtRisk.length > 0) {
+    alerts.push({
+      type: "warning",
+      msg: `${qaCategoriesAtRisk.length} categoria(s) QA con fallas bajo umbral o fatales`,
+    });
+  }
+
   const pieData = kpis.filter((k) => k.totalEvaluations > 0).map((k) => ({ name: k.name, value: k.totalEvaluations }));
+  const qaCategoryChartData = [...qaCategoryMetrics].sort((a, b) => a.avgScore - b.avgScore);
 
   return (
     <div className="space-y-6">
@@ -253,6 +294,121 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
           ) : <div className="flex h-[200px] items-center justify-center text-muted-foreground">Sin datos de preguntas tipo RATING</div>}
         </CardContent>
       </Card>
+
+      {/* QA Category Metrics */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="h-4 w-4" />
+              Score por Categoria QA
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {qaCategoryChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(240, qaCategoryChartData.length * 42)}>
+                <BarChart data={qaCategoryChartData} layout="vertical" margin={{ left: 150, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis type="number" domain={[0, 100]} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    width={145}
+                    className="text-xs"
+                    tickFormatter={(value: string) =>
+                      value.length > 20 ? `${value.slice(0, 18)}...` : value
+                    }
+                  />
+                  <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
+                  <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
+                    {qaCategoryChartData.map((category, index) => (
+                      <Cell
+                        key={category.id}
+                        fill={
+                          category.avgScore >= passThreshold
+                            ? (category.color ?? COLORS[index % COLORS.length])
+                            : "#ef4444"
+                        }
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[240px] items-center justify-center text-muted-foreground">
+                Sin datos por categoria QA
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Riesgo por Categoria QA</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {qaCategoryMetrics.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead className="text-right">Score</TableHead>
+                    <TableHead className="text-right">Eval.</TableHead>
+                    <TableHead className="text-right">Bajo umbral</TableHead>
+                    <TableHead className="text-right">Fatales</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {qaCategoryMetrics.map((category) => (
+                    <TableRow key={category.id}>
+                      <TableCell>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: category.color ?? "#ff6600" }}
+                          />
+                          <span className="truncate font-medium">{category.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={category.avgScore >= passThreshold ? "default" : "destructive"}
+                          className="tabular-nums"
+                        >
+                          {category.avgScore.toFixed(1)}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {category.totalEvaluations}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={category.failedAnswers > 0 ? "secondary" : "outline"}
+                          className="tabular-nums"
+                        >
+                          {category.failedAnswers} ({category.failRate}%)
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={category.fatalFailCount > 0 ? "destructive" : "outline"}
+                          className="tabular-nums"
+                        >
+                          {category.fatalFailCount}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="flex h-[240px] items-center justify-center text-muted-foreground">
+                Sin categorias QA evaluadas
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Evaluator Activity */}
       <Card>

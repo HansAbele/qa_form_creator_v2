@@ -68,7 +68,7 @@ Se agrego Vitest y mocks controlados:
 
 Ultimo resultado conocido:
 
-- `pnpm test -- --run`: 6 archivos, 19 tests pasando.
+- `pnpm test -- --run`: 8 archivos, 26 tests pasando.
 - `pnpm lint -- --max-diagnostics 120`: limpio.
 - `pnpm build`: correcto.
 - `pnpm exec prisma validate`: schema valido.
@@ -168,13 +168,21 @@ Evaluaciones:
 - `src/components/forms/question-renderer.tsx` muestra badges de categoria/peso/fatal/comentario y captura comentarios QA por pregunta.
 - `src/server/actions/responses.ts` calcula score ponderado cuando hay pesos, mantiene fallback de promedio simple para formularios antiguos sin pesos, guarda `formVersion`, `result`, `hasFatalFail`, `Answer.categoryId`, `Answer.score`, `Answer.comment` y `Answer.isFatalFail`.
 - El servidor exige comentario cuando una pregunta `RATING` marcada como `requiresCommentOnFail` falla. En esta primera regla, una pregunta rating falla cuando no obtiene 5/5.
-- Tests ampliados en `src/server/actions/responses.test.ts`: 22 tests totales pasando, con cobertura de score ponderado, metadata de respuestas, fatal fail y comentario obligatorio.
+- Tests ampliados en `src/server/actions/responses.test.ts`: cobertura de score ponderado, metadata de respuestas, fatal fail y comentario obligatorio.
+
+Analytics/reportes por categoria QA:
+
+- `src/lib/qa-category-metrics.ts` agrupa respuestas calificadas por categoria QA.
+- `src/server/queries/analytics.ts` expone `getQACategoryMetrics()` con scope `canViewKPIs`, umbrales por campana y soporte de `visibleInKPIs`.
+- `/kpis` muestra score y riesgo por categoria QA: evaluaciones unicas, respuestas bajo umbral, tasa de falla y fallas fatales.
+- Detalle de evaluacion y dialogo de reportes muestran categoria QA, score por respuesta, peso, fatal y comentario.
+- Tests agregados: `src/lib/qa-category-metrics.test.ts` y `src/server/queries/analytics.test.ts`.
 
 Pendiente:
 
 - versionado real al editar publicados
-- score por categoria
-- analytics/reportes por categoria QA
+- validar visualmente analytics/reportes por categoria QA con datos reales
+- exportes enriquecidos por categoria QA si se decide llevar el mismo detalle a CSV/XLSX
 - reglas fatales para preguntas no-rating si se define una semantica de fallo para opciones
 
 ### Arranque local y sesiones
@@ -235,9 +243,9 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 ### Prioridad 3 - funcionalidades QA profundas
 
 - Completar formularios por categorias QA: versionado real, publicacion, validacion de publicados y migracion segura para formularios existentes.
-- Completar evaluaciones por categorias: score por categoria y reportes/analytics por categoria.
+- Completar evaluaciones por categorias: primer corte de score/reportes/analytics por categoria ya implementado; falta validacion visual con datos reales y exportes detallados si aplican.
 - Reglas fatales para preguntas select/radio cuando exista una definicion explicita de respuesta fallida.
-- Dashboard/KPIs con categorias criticas.
+- Dashboard/KPIs con categorias criticas: primer corte visible en `/kpis`; falta calibrar visualmente con datos reales.
 - Coaching accionable.
 - Notificaciones operativas.
 
@@ -259,4 +267,4 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 
 ## Frase sugerida para iniciar nueva conversacion
 
-Lee `docs/handoff/current-conversation-context-2026-05-05.md`, `docs/plans/qa-settings-critical-changes-plan.md` y `docs/plans/qore-integral-improvements-adjusted-proposal.md`. Continuemos desde el estado actual: validar Configuracion en navegador, revisar scripts legacy restantes y seguir con formularios por categorias.
+Lee `docs/handoff/current-conversation-context-2026-05-05.md`, `docs/plans/qa-settings-critical-changes-plan.md` y `docs/plans/qore-integral-improvements-adjusted-proposal.md`. Continuemos desde el estado actual: validar Configuracion y analytics QA en navegador, revisar scripts legacy restantes y seguir con versionado/publicacion de formularios.

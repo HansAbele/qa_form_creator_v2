@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { getPassThresholdForCampaign } from "@/lib/settings";
+import { buildQACategoryMetrics } from "@/lib/qa-category-metrics";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
 import {
   assertCampaignPermissionForUser,
@@ -415,7 +416,16 @@ export async function getReportData(filters: {
       evaluator: { select: { name: true } },
       answers: {
         include: {
-          question: { select: { label: true, type: true } },
+          question: {
+            select: {
+              label: true,
+              type: true,
+              weight: true,
+              fatal: true,
+              requiresCommentOnFail: true,
+            },
+          },
+          category: { select: { id: true, name: true, systemColor: true, systemIcon: true } },
         },
       },
     },
@@ -434,6 +444,20 @@ export async function getReportData(filters: {
       question: a.question.label,
       questionType: a.question.type,
       value: a.value,
+      category: a.category
+        ? {
+            id: a.category.id,
+            name: a.category.name,
+            color: a.category.systemColor,
+            icon: a.category.systemIcon,
+          }
+        : null,
+      score: a.score === null ? null : Number(a.score),
+      comment: a.comment,
+      isFatalFail: a.isFatalFail,
+      questionWeight: a.question.weight,
+      fatal: a.question.fatal,
+      requiresCommentOnFail: a.question.requiresCommentOnFail,
     })),
   }));
 }
@@ -620,6 +644,67 @@ export async function getScoreByQuestion(campaignId?: string, dateFrom?: string,
       totalAnswers: data.count,
     }))
     .sort((a, b) => a.avgScore - b.avgScore); // worst first
+}
+
+// ─── QA Category Metrics ───────────────────────────
+
+export async function getQACategoryMetrics(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+
+  const answers = await prisma.answer.findMany({
+    where: {
+      categoryId: { not: null },
+      score: { not: null },
+      response: {
+        form: campaignFilter,
+        ...dw,
+      },
+    },
+    include: {
+      category: {
+        select: {
+          id: true,
+          name: true,
+          systemColor: true,
+          systemIcon: true,
+          visibleInKPIs: true,
+        },
+      },
+      response: {
+        select: {
+          id: true,
+          form: { select: { campaignId: true } },
+        },
+      },
+    },
+  });
+
+  const campaignIds = answers.map((answer) => answer.response.form.campaignId);
+  const passThresholds = await getPassThresholdMap(campaignIds);
+
+  return buildQACategoryMetrics(
+    answers
+      .filter((answer) => answer.category?.visibleInKPIs !== false && answer.category)
+      .map((answer) => ({
+        responseId: answer.response.id,
+        categoryId: answer.category?.id ?? answer.categoryId ?? "uncategorized",
+        categoryName: answer.category?.name ?? "Sin categoria",
+        categoryColor: answer.category?.systemColor ?? null,
+        categoryIcon: answer.category?.systemIcon ?? null,
+        score: answer.score === null ? null : Number(answer.score),
+        passThreshold: passThresholds.get(answer.response.form.campaignId) ?? 70,
+        isFatalFail: answer.isFatalFail,
+        comment: answer.comment,
+      })),
+  );
 }
 
 // ─── Team Performance ─────────────────────────────
@@ -1257,7 +1342,18 @@ export async function getResponseDetail(responseId: string) {
       disposition: { select: { id: true, name: true, code: true } },
       answers: {
         include: {
-          question: { select: { id: true, label: true, type: true, order: true } },
+          question: {
+            select: {
+              id: true,
+              label: true,
+              type: true,
+              order: true,
+              weight: true,
+              fatal: true,
+              requiresCommentOnFail: true,
+            },
+          },
+          category: { select: { id: true, name: true, systemColor: true, systemIcon: true } },
         },
         orderBy: { question: { order: "asc" } },
       },
@@ -1296,6 +1392,20 @@ export async function getResponseDetail(responseId: string) {
       questionLabel: a.question.label,
       questionType: a.question.type,
       value: a.value,
+      category: a.category
+        ? {
+            id: a.category.id,
+            name: a.category.name,
+            color: a.category.systemColor,
+            icon: a.category.systemIcon,
+          }
+        : null,
+      score: a.score === null ? null : Number(a.score),
+      comment: a.comment,
+      isFatalFail: a.isFatalFail,
+      questionWeight: a.question.weight,
+      fatal: a.question.fatal,
+      requiresCommentOnFail: a.question.requiresCommentOnFail,
     })),
   };
 }
