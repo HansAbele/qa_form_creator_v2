@@ -358,8 +358,8 @@ export function ResponsesListClient({
 
           {loading ? (
             <div className="space-y-2 pt-4">
-              {[...Array(6)].map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
+              {["agent", "evaluator", "campaign", "form", "score", "date"].map((key) => (
+                <Skeleton key={key} className="h-10 w-full" />
               ))}
             </div>
           ) : data && data.responses.length > 0 ? (

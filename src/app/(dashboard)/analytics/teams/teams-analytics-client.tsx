@@ -148,8 +148,8 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
                       if (entry?.payload?.id) router.push(`/analytics/teams/${entry.payload.id}`);
                     }}
                   >
-                    {teams.map((_, i) => (
-                      <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                    {teams.map((team, i) => (
+                      <Cell key={team.id} fill={BAR_COLORS[i % BAR_COLORS.length]} />
                     ))}
                   </Bar>
                 </BarChart>

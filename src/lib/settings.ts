@@ -25,6 +25,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export type SettingKey = keyof AppSettings;
 
+export interface CampaignScoringSettings extends AppSettings {
+  campaignId: string;
+  usesGlobalDefaults: boolean;
+  fatalFailuresAllowed: number;
+}
+
+export type CampaignScoringPatch = Partial<
+  AppSettings & {
+    usesGlobalDefaults: boolean;
+    fatalFailuresAllowed: number;
+  }
+>;
+
 // ─── Zod-like runtime validation ──────────────────────
 // Keeping it lightweight (no zod dep here) — enforce type + range.
 
@@ -52,6 +65,32 @@ export function validateSetting(key: SettingKey, value: unknown): number {
   const validator = VALIDATORS[key];
   if (!validator) throw new Error(`Setting key desconocido: ${key}`);
   return validator(value);
+}
+
+export function validateCampaignScoringPatch(
+  patch: CampaignScoringPatch,
+): CampaignScoringPatch {
+  const validated: CampaignScoringPatch = {};
+
+  if (patch.usesGlobalDefaults !== undefined) {
+    validated.usesGlobalDefaults = Boolean(patch.usesGlobalDefaults);
+  }
+
+  for (const key of Object.keys(DEFAULT_SETTINGS) as SettingKey[]) {
+    if (patch[key] !== undefined) {
+      validated[key] = validateSetting(key, patch[key]);
+    }
+  }
+
+  if (patch.fatalFailuresAllowed !== undefined) {
+    validated.fatalFailuresAllowed = clamp(
+      num(patch.fatalFailuresAllowed, "fatalFailuresAllowed"),
+      0,
+      100,
+    );
+  }
+
+  return validated;
 }
 
 // ─── Cached reader ─────────────────────────────────────
@@ -91,4 +130,84 @@ export const getSettings = unstable_cache(loadSettingsFromDb, ["app-settings"], 
 export async function getPassThreshold(): Promise<number> {
   const s = await getSettings();
   return s.passThreshold;
+}
+
+type CampaignScoringRow = {
+  campaignId: string;
+  usesGlobalDefaults: boolean;
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
+};
+
+function getCampaignScoringDelegate() {
+  return (
+    prisma as unknown as {
+      campaignScoringSettings?: {
+        findUnique: (args: {
+          where: { campaignId: string };
+        }) => Promise<CampaignScoringRow | null>;
+      };
+    }
+  ).campaignScoringSettings;
+}
+
+function mergeCampaignScoring(
+  campaignId: string,
+  globalSettings: AppSettings,
+  row?: CampaignScoringRow | null,
+): CampaignScoringSettings {
+  if (!row || row.usesGlobalDefaults) {
+    return {
+      campaignId,
+      ...globalSettings,
+      usesGlobalDefaults: true,
+      fatalFailuresAllowed: row?.fatalFailuresAllowed ?? 0,
+    };
+  }
+
+  return {
+    campaignId,
+    usesGlobalDefaults: false,
+    passThreshold: row.passThreshold,
+    targetPassRate: row.targetPassRate,
+    targetAvgScore: row.targetAvgScore,
+    targetDailyRate: row.targetDailyRate,
+    fatalFailuresAllowed: row.fatalFailuresAllowed,
+  };
+}
+
+export async function getCampaignScoringSettings(
+  campaignId: string,
+): Promise<CampaignScoringSettings> {
+  const globalSettings = await getSettings();
+  try {
+    const delegate = getCampaignScoringDelegate();
+    const row = delegate ? await delegate.findUnique({ where: { campaignId } }) : null;
+    return mergeCampaignScoring(campaignId, globalSettings, row);
+  } catch {
+    return mergeCampaignScoring(campaignId, globalSettings);
+  }
+}
+
+export async function getEffectiveSettingsForCampaign(
+  campaignId?: string,
+): Promise<AppSettings> {
+  if (!campaignId) return getSettings();
+  const settings = await getCampaignScoringSettings(campaignId);
+  return {
+    passThreshold: settings.passThreshold,
+    targetPassRate: settings.targetPassRate,
+    targetAvgScore: settings.targetAvgScore,
+    targetDailyRate: settings.targetDailyRate,
+  };
+}
+
+export async function getPassThresholdForCampaign(
+  campaignId?: string,
+): Promise<number> {
+  const settings = await getEffectiveSettingsForCampaign(campaignId);
+  return settings.passThreshold;
 }

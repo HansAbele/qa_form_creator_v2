@@ -166,8 +166,8 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Activity className="h-4 w-4" /> Alertas</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            {alerts.map((a, i) => (
-              <div key={i} className={`flex items-center gap-2 rounded-lg p-2 text-sm ${a.type === "warning" ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200"}`}>
+            {alerts.map((a) => (
+              <div key={`${a.type}-${a.msg}`} className={`flex items-center gap-2 rounded-lg p-2 text-sm ${a.type === "warning" ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200"}`}>
                 {a.type === "warning" ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />}
                 {a.msg}
               </div>
@@ -200,7 +200,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
                       />
                       <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
                       <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
-                        {sorted.map((_, i) => (<Cell key={i} fill={COLORS[i % COLORS.length]} />))}
+                        {sorted.map((item, i) => (<Cell key={item.id} fill={COLORS[i % COLORS.length]} />))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
@@ -217,7 +217,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie data={pieData} cx="50%" cy="50%" outerRadius={100} dataKey="value" label={(props) => `${props.name}: ${props.value}`}>
-                    {pieData.map((_, i) => (<Cell key={i} fill={COLORS[i % COLORS.length]} />))}
+                    {pieData.map((item, i) => (<Cell key={item.name} fill={COLORS[i % COLORS.length]} />))}
                   </Pie>
                   <Tooltip /><Legend />
                 </PieChart>
@@ -244,8 +244,8 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
                 <YAxis dataKey="question" type="category" width={145} className="text-xs" />
                 <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
                 <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
-                  {questionScores.map((q, i) => (
-                    <Cell key={i} fill={q.avgScore >= 80 ? "#22c55e" : q.avgScore >= 60 ? "#f59e0b" : "#ef4444"} />
+                  {questionScores.map((q) => (
+                    <Cell key={q.question} fill={q.avgScore >= 80 ? "#22c55e" : q.avgScore >= 60 ? "#f59e0b" : "#ef4444"} />
                   ))}
                 </Bar>
               </BarChart>

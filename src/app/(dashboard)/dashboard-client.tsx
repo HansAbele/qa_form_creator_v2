@@ -61,6 +61,7 @@ import {
   getTopBottomPerformers,
 } from "@/server/queries/analytics";
 import type { AppSettings } from "@/lib/settings";
+import type { UiAccess } from "@/server/queries/ui-access";
 
 // ─── Chart configs (theme-aware via CSS vars) ─────────────────────────────────
 const trendsConfig = {
@@ -83,10 +84,6 @@ const performerConfig = {
 
 const volumeConfig = {
   count: { label: "Evaluaciones", color: "#ff6600" },
-} satisfies ChartConfig;
-
-const teamConfig = {
-  avgScore: { label: "Score Promedio", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
 const dispChartConfig = {
@@ -141,12 +138,12 @@ function Section({
 export function DashboardClient({
   userName,
   settings,
-  userRole,
+  access,
   campaigns,
 }: {
   userName: string;
   settings: AppSettings;
-  userRole: string;
+  access: UiAccess;
   campaigns: { id: string; name: string }[];
 }) {
   const [campaignId, setCampaignId] = useState("");
@@ -193,6 +190,8 @@ export function DashboardClient({
   >([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const canOpenKpiDetails = access.canViewKPIs;
+  const canOpenReportDetails = access.canViewReports;
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -572,7 +571,9 @@ export function DashboardClient({
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 Pass / Fail (≥{settings.passThreshold}%)
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para ver detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenReportDetails ? "Click para ver detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -597,23 +598,30 @@ export function DashboardClient({
                         {passFail.map((entry) => (
                           <Cell
                             key={entry.name}
-                            cursor="pointer"
+                            cursor={canOpenReportDetails ? "pointer" : "default"}
                             fill={entry.fill}
-                            onClick={() => {
-                              const params = new URLSearchParams();
-                              if (entry.name === "Pass") {
-                                params.set("minScore", String(settings.passThreshold));
-                              } else {
-                                params.set(
-                                  "maxScore",
-                                  String(settings.passThreshold - 0.01),
-                                );
-                              }
-                              if (campaignId) params.set("campaignId", campaignId);
-                              if (dateFrom) params.set("dateFrom", dateFrom);
-                              if (dateTo) params.set("dateTo", dateTo);
-                              router.push(`/analytics/responses?${params}`);
-                            }}
+                            onClick={
+                              canOpenReportDetails
+                                ? () => {
+                                    const params = new URLSearchParams();
+                                    if (entry.name === "Pass") {
+                                      params.set(
+                                        "minScore",
+                                        String(settings.passThreshold),
+                                      );
+                                    } else {
+                                      params.set(
+                                        "maxScore",
+                                        String(settings.passThreshold - 0.01),
+                                      );
+                                    }
+                                    if (campaignId) params.set("campaignId", campaignId);
+                                    if (dateFrom) params.set("dateFrom", dateFrom);
+                                    if (dateTo) params.set("dateTo", dateTo);
+                                    router.push(`/analytics/responses?${params}`);
+                                  }
+                                : undefined
+                            }
                           />
                         ))}
                         <RechartsLabel
@@ -685,7 +693,9 @@ export function DashboardClient({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Award className="h-4 w-4 text-emerald-500" />
                 Top 10 Performers
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -729,8 +739,12 @@ export function DashboardClient({
                       {topBottom.top10.map((entry) => (
                         <Cell
                           key={entry.id}
-                          cursor="pointer"
-                          onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                          cursor={canOpenKpiDetails ? "pointer" : "default"}
+                          onClick={
+                            canOpenKpiDetails
+                              ? () => router.push(`/analytics/agents/${entry.id}`)
+                              : undefined
+                          }
                         />
                       ))}
                     </Bar>
@@ -790,8 +804,12 @@ export function DashboardClient({
                       {topBottom.bottom5.map((entry) => (
                         <Cell
                           key={entry.id}
-                          cursor="pointer"
-                          onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                          cursor={canOpenKpiDetails ? "pointer" : "default"}
+                          onClick={
+                            canOpenKpiDetails
+                              ? () => router.push(`/analytics/agents/${entry.id}`)
+                              : undefined
+                          }
                         />
                       ))}
                     </Bar>
@@ -889,7 +907,9 @@ export function DashboardClient({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Tag className="h-4 w-4 text-cyan-500" />
                 Disposiciones Más Frecuentes
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -926,9 +946,16 @@ export function DashboardClient({
                       {dispAnalytics.slice(0, 10).map((entry, i) => (
                         <Cell
                           key={entry.id}
-                          cursor="pointer"
+                          cursor={canOpenKpiDetails ? "pointer" : "default"}
                           fill={BAR_COLORS[i % BAR_COLORS.length]}
-                          onClick={() => router.push(`/analytics/dispositions/${entry.id}`)}
+                          onClick={
+                            canOpenKpiDetails
+                              ? () =>
+                                  router.push(
+                                    `/analytics/dispositions/${entry.id}`,
+                                  )
+                              : undefined
+                          }
                         />
                       ))}
                     </Bar>
@@ -948,7 +975,9 @@ export function DashboardClient({
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               Evaluaciones por Agente (Top 10 por volumen)
-              <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+              <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -980,9 +1009,13 @@ export function DashboardClient({
                     {evalsPerAgent.map((entry, i) => (
                       <Cell
                         key={entry.id}
-                        cursor="pointer"
+                        cursor={canOpenKpiDetails ? "pointer" : "default"}
                         fill={BAR_COLORS[i % BAR_COLORS.length]}
-                        onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                        onClick={
+                          canOpenKpiDetails
+                            ? () => router.push(`/analytics/agents/${entry.id}`)
+                            : undefined
+                        }
                       />
                     ))}
                   </Bar>
@@ -1004,7 +1037,9 @@ export function DashboardClient({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-4 w-4 text-orange-500" />
                 Actividad de Evaluadores
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1023,8 +1058,16 @@ export function DashboardClient({
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="grid grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-muted/40 cursor-pointer"
-                        onClick={() => router.push(`/analytics/evaluators/${ev.id}`)}
+                        className={`grid grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors ${
+                          canOpenKpiDetails
+                            ? "cursor-pointer hover:bg-muted/40"
+                            : "cursor-default"
+                        }`}
+                        onClick={
+                          canOpenKpiDetails
+                            ? () => router.push(`/analytics/evaluators/${ev.id}`)
+                            : undefined
+                        }
                       >
                         <span className="truncate font-medium">{ev.name}</span>
                         <span className="text-center tabular-nums">
@@ -1063,7 +1106,9 @@ export function DashboardClient({
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 Evaluaciones Recientes
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenReportDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1076,8 +1121,16 @@ export function DashboardClient({
                         initial={{ opacity: 0, x: 8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="flex cursor-pointer items-center justify-between rounded-lg border border-border/60 p-3 transition-colors hover:bg-muted/40"
-                        onClick={() => router.push(`/analytics/responses/${r.id}`)}
+                        className={`flex items-center justify-between rounded-lg border border-border/60 p-3 transition-colors ${
+                          canOpenReportDetails
+                            ? "cursor-pointer hover:bg-muted/40"
+                            : "cursor-default"
+                        }`}
+                        onClick={
+                          canOpenReportDetails
+                            ? () => router.push(`/analytics/responses/${r.id}`)
+                            : undefined
+                        }
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{r.agentName}</p>

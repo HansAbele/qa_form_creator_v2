@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { writeAuditLog } from "@/server/audit-log";
 import {
   assertCampaignAccessForUser,
   assertCampaignPermissionForUser,
@@ -34,7 +35,18 @@ export async function createDispositionCategory(data: {
   const category = await prisma.dispositionCategory.create({
     data: { name: data.name.trim(), campaignId: data.campaignId },
   });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: data.campaignId,
+    module: "dispositions",
+    action: "category_created",
+    entityType: "disposition_category",
+    entityId: category.id,
+    afterValue: category,
+    impact: "Categoria disponible para organizar disposiciones.",
+  });
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
   return category;
 }
 
@@ -44,7 +56,7 @@ export async function updateDispositionCategory(id: string, data: { name: string
 
   const existing = await prisma.dispositionCategory.findUnique({
     where: { id },
-    select: { campaignId: true },
+    select: { id: true, name: true, campaignId: true },
   });
   if (!existing) throw new Error("Categoria no encontrada");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
@@ -53,7 +65,19 @@ export async function updateDispositionCategory(id: string, data: { name: string
     where: { id },
     data: { name: data.name.trim() },
   });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: existing.campaignId,
+    module: "dispositions",
+    action: "category_updated",
+    entityType: "disposition_category",
+    entityId: id,
+    beforeValue: existing,
+    afterValue: category,
+    impact: "Cambio operativo en categoria de disposiciones.",
+  });
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
   return category;
 }
 
@@ -63,7 +87,7 @@ export async function deleteDispositionCategory(id: string) {
 
   const existing = await prisma.dispositionCategory.findUnique({
     where: { id },
-    select: { campaignId: true },
+    select: { id: true, name: true, campaignId: true },
   });
   if (!existing) throw new Error("Categoria no encontrada");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
@@ -75,7 +99,18 @@ export async function deleteDispositionCategory(id: string) {
     }),
     prisma.dispositionCategory.delete({ where: { id } }),
   ]);
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: existing.campaignId,
+    module: "dispositions",
+    action: "category_deleted",
+    entityType: "disposition_category",
+    entityId: id,
+    beforeValue: existing,
+    impact: "Categoria eliminada y disposiciones desvinculadas.",
+  });
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
 }
 
 // ─── Dispositions ───────────────────────────────────
@@ -164,7 +199,18 @@ export async function createDisposition(data: {
       createdById: session.user.id,
     },
   });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: data.campaignId,
+    module: "dispositions",
+    action: "created",
+    entityType: "disposition",
+    entityId: disposition.id,
+    afterValue: disposition,
+    impact: "Disposicion disponible para evaluaciones.",
+  });
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
   return disposition;
 }
 
@@ -198,7 +244,18 @@ export async function createDispositionInline(data: {
   const disposition = await prisma.disposition.create({
     data: { name: trimmed, campaignId: data.campaignId, createdById: session.user.id },
   });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: data.campaignId,
+    module: "dispositions",
+    action: "created_inline",
+    entityType: "disposition",
+    entityId: disposition.id,
+    afterValue: disposition,
+    impact: "Disposicion creada desde flujo de evaluacion.",
+  });
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
   return disposition;
 }
 
@@ -211,7 +268,14 @@ export async function updateDisposition(
 
   const existing = await prisma.disposition.findUnique({
     where: { id },
-    select: { campaignId: true },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      categoryId: true,
+      campaignId: true,
+      active: true,
+    },
   });
   if (!existing) throw new Error("Disposicion no encontrada");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
@@ -235,7 +299,19 @@ export async function updateDisposition(
       active: data.active,
     },
   });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: existing.campaignId,
+    module: "dispositions",
+    action: "updated",
+    entityType: "disposition",
+    entityId: id,
+    beforeValue: existing,
+    afterValue: disposition,
+    impact: "Cambio operativo en disposicion.",
+  });
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
   return disposition;
 }
 
@@ -245,18 +321,40 @@ export async function deleteDisposition(id: string) {
 
   const existing = await prisma.disposition.findUnique({
     where: { id },
-    select: { campaignId: true },
+    select: { id: true, name: true, code: true, categoryId: true, campaignId: true, active: true },
   });
   if (!existing) throw new Error("Disposicion no encontrada");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
 
   const usageCount = await prisma.response.count({ where: { dispositionId: id } });
   if (usageCount > 0) {
-    await prisma.disposition.update({ where: { id }, data: { active: false } });
+    const updated = await prisma.disposition.update({ where: { id }, data: { active: false } });
+    await writeAuditLog({
+      userId: session.user.id,
+      campaignId: existing.campaignId,
+      module: "dispositions",
+      action: "deactivated",
+      entityType: "disposition",
+      entityId: id,
+      beforeValue: existing,
+      afterValue: updated,
+      impact: "Disposicion con historial desactivada para futuras evaluaciones.",
+    });
   } else {
     await prisma.disposition.delete({ where: { id } });
+    await writeAuditLog({
+      userId: session.user.id,
+      campaignId: existing.campaignId,
+      module: "dispositions",
+      action: "deleted",
+      entityType: "disposition",
+      entityId: id,
+      beforeValue: existing,
+      impact: "Disposicion eliminada sin historial de evaluaciones.",
+    });
   }
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
 }
 
 export async function bulkImportDispositions(data: {
@@ -299,7 +397,17 @@ export async function bulkImportDispositions(data: {
     })),
     skipDuplicates: true,
   });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: data.campaignId,
+    module: "dispositions",
+    action: "bulk_imported",
+    entityType: "disposition",
+    afterValue: { created: toCreate.length, skipped: uniqueNames.length - toCreate.length },
+    impact: "Carga masiva de disposiciones para la campana.",
+  });
   revalidatePath("/admin/campaigns");
+  revalidatePath("/operations/dispositions");
   return { created: toCreate.length, skipped: uniqueNames.length - toCreate.length };
 }
 

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { writeAuditLog } from "@/server/audit-log";
 import { getCampaignFilterForPermission } from "@/server/queries/campaign-filter";
 
 interface ExportFilters {
@@ -50,11 +51,24 @@ async function getExportData(filters: ExportFilters) {
     orderBy: { createdAt: "desc" },
   });
 
-  return responses;
+  return { responses, userId: session.user.id };
+}
+
+async function auditExport(format: string, filters: ExportFilters, userId: string, rowCount: number) {
+  await writeAuditLog({
+    userId,
+    campaignId: filters.campaignId ?? null,
+    module: "exports",
+    action: "generated",
+    entityType: "export",
+    afterValue: { format, filters, rowCount },
+    impact: "Datos exportados segun scope de campana y permisos del usuario.",
+  });
 }
 
 export async function exportToCsv(filters: ExportFilters): Promise<string> {
-  const responses = await getExportData(filters);
+  const { responses, userId } = await getExportData(filters);
+  await auditExport("csv", filters, userId, responses.length);
 
   if (responses.length === 0) return "";
 
@@ -107,7 +121,8 @@ export async function exportToCsv(filters: ExportFilters): Promise<string> {
 
 export async function exportToExcel(filters: ExportFilters): Promise<string> {
   const ExcelJS = (await import("exceljs")).default;
-  const responses = await getExportData(filters);
+  const { responses, userId } = await getExportData(filters);
+  await auditExport("xlsx", filters, userId, responses.length);
 
   if (responses.length === 0) return "";
 
@@ -181,7 +196,8 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
 }
 
 export async function exportToJson(filters: ExportFilters): Promise<string> {
-  const responses = await getExportData(filters);
+  const { responses, userId } = await getExportData(filters);
+  await auditExport("json", filters, userId, responses.length);
 
   const data = responses.map((r) => ({
     fecha: new Date(r.createdAt).toISOString(),

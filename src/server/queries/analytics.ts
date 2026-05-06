@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { getPassThreshold } from "@/lib/settings";
+import { getPassThresholdForCampaign } from "@/lib/settings";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
 import {
   assertCampaignPermissionForUser,
@@ -25,6 +25,17 @@ function dateWhere(dateFrom?: string, dateTo?: string) {
   };
 }
 
+async function getPassThresholdMap(campaignIds: string[]) {
+  const uniqueCampaignIds = [...new Set(campaignIds.filter(Boolean))];
+  const entries = await Promise.all(
+    uniqueCampaignIds.map(async (campaignId) => [
+      campaignId,
+      await getPassThresholdForCampaign(campaignId),
+    ] as const),
+  );
+  return new Map(entries);
+}
+
 // ─── Dashboard Stats ────────────────────────────────
 
 export async function getDashboardStats(campaignId?: string, dateFrom?: string, dateTo?: string) {
@@ -33,7 +44,7 @@ export async function getDashboardStats(campaignId?: string, dateFrom?: string, 
 
   const formFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
+  const passThreshold = await getPassThresholdForCampaign(campaignId);
 
   const [formCount, responseCount, avgScore, passCount, failCount, recentResponses] =
     await Promise.all([
@@ -324,7 +335,7 @@ export async function getAgentPerformance(campaignId?: string) {
   if (!session?.user) throw new Error("No autorizado");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
-  const passThreshold = await getPassThreshold();
+  const passThreshold = await getPassThresholdForCampaign(campaignId);
   const where = { ...campaignFilter, active: true };
 
   const agents = await prisma.agent.findMany({
@@ -439,7 +450,7 @@ export async function getScoreDistribution(
 
   const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
+  const passThreshold = await getPassThresholdForCampaign(campaignId);
   const where = { form: campaignFilter, ...dw };
 
   const responses = await prisma.response.findMany({
@@ -481,7 +492,6 @@ async function getCampaignKpisForPermission(
 
   const campaignFilter = await getCampaignFilterForPermission(permission, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const campaigns = await prisma.campaign.findMany({
     where: campaignFilter.campaignId ? { id: campaignFilter.campaignId } : {},
@@ -511,6 +521,7 @@ async function getCampaignKpisForPermission(
   const results = await Promise.all(
     campaigns.map(async (campaign) => {
       const formIds = campaign.forms.map((f) => f.id);
+      const passThreshold = await getPassThresholdForCampaign(campaign.id);
 
       if (formIds.length === 0) {
         return {
@@ -619,7 +630,6 @@ export async function getTeamPerformance(campaignId?: string, dateFrom?: string,
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const teams = await prisma.team.findMany({
     where: campaignFilter,
@@ -632,9 +642,13 @@ export async function getTeamPerformance(campaignId?: string, dateFrom?: string,
       },
     },
   });
+  const passThresholds = await getPassThresholdMap(
+    teams.map((team) => team.campaignId),
+  );
 
   return teams
     .map((team) => {
+      const passThreshold = passThresholds.get(team.campaignId) ?? 70;
       const allScores = team.agents.flatMap((a) => a.responses.map((r) => Number(r.score)));
       const total = allScores.length;
       const avg = total > 0 ? allScores.reduce((a, b) => a + b, 0) / total : 0;
@@ -666,7 +680,6 @@ async function getDispositionAnalyticsForPermission(
 
   const campaignFilter = await getCampaignFilterForPermission(permission, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const dispositions = await prisma.disposition.findMany({
     where: { ...campaignFilter, active: true },
@@ -678,9 +691,13 @@ async function getDispositionAnalyticsForPermission(
       },
     },
   });
+  const passThresholds = await getPassThresholdMap(
+    dispositions.map((disposition) => disposition.campaignId),
+  );
 
   return dispositions
     .map((d) => {
+      const passThreshold = passThresholds.get(d.campaignId) ?? 70;
       const scores = d.responses.map((r) => Number(r.score));
       const total = scores.length;
       const avg = total > 0 ? scores.reduce((a, b) => a + b, 0) / total : 0;
@@ -945,7 +962,6 @@ export async function getTeamDetail(
   if (!session?.user) throw new Error("No autorizado");
 
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const team = await prisma.team.findUnique({
     where: { id: teamId },
@@ -963,6 +979,7 @@ export async function getTeamDetail(
 
   if (!team) throw new Error("Equipo no encontrado");
   await assertCampaignPermissionForUser(session.user, team.campaignId, KPI_READ_PERMISSION);
+  const passThreshold = await getPassThresholdForCampaign(team.campaignId);
 
   // Agent ranking
   const agentRanking = team.agents
@@ -1023,7 +1040,6 @@ export async function getDispositionDetail(
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const disposition = await prisma.disposition.findUnique({
     where: { id: dispositionId },
@@ -1036,6 +1052,7 @@ export async function getDispositionDetail(
   if (!disposition) throw new Error("Disposición no encontrada");
 
   await assertCampaignPermissionForUser(session.user, disposition.campaignId, KPI_READ_PERMISSION);
+  const passThreshold = await getPassThresholdForCampaign(disposition.campaignId);
 
   const responses = await prisma.response.findMany({
     where: { dispositionId, ...dw },

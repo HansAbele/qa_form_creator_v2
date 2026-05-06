@@ -1,5 +1,4 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +6,7 @@ import { Star } from "lucide-react";
 import type { QuestionType } from "@prisma/client";
 
 interface PreviewQuestion {
+  id?: string;
   type: QuestionType;
   label: string;
   options: string[];
@@ -43,7 +43,7 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
       </CardHeader>
       <CardContent className="space-y-6">
         {questions.map((q, i) => (
-          <div key={i} className="space-y-2">
+          <div key={q.id ?? `${q.type}-${q.label}`} className="space-y-2">
             <div className="flex items-center gap-2">
               <Label>
                 {q.label || `Pregunta ${i + 1}`}
@@ -79,7 +79,7 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
               <div className="space-y-2">
                 {q.options.length > 0 ? (
                   q.options.map((opt, j) => (
-                    <div key={j} className="flex items-center gap-2">
+                    <div key={getPreviewOptionKey(q, opt, j)} className="flex items-center gap-2">
                       <div className="h-4 w-4 rounded-full border border-input" />
                       <span className="text-sm">{opt || `Opción ${j + 1}`}</span>
                     </div>
@@ -98,4 +98,12 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
       </CardContent>
     </Card>
   );
+}
+
+function getPreviewOptionKey(
+  question: PreviewQuestion,
+  option: string,
+  index: number,
+) {
+  return `${question.id ?? question.label}-${option || "empty"}-${index}`;
 }

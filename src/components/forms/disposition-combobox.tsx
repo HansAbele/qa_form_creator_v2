@@ -79,7 +79,7 @@ export function DispositionCombobox({ campaignId, value, onChange, error }: Prop
     return all.filter(
       (d) =>
         d.name.toLowerCase().includes(q) ||
-        (d.code && d.code.toLowerCase().includes(q)),
+        d.code?.toLowerCase().includes(q),
     );
   }, [search, all]);
 

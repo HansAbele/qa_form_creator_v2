@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { writeAuditLog } from "@/server/audit-log";
 import {
   assertCampaignPermissionForUser,
   getCampaignFilterForPermission,
@@ -103,6 +104,23 @@ export async function createForm(data: {
     include: { questions: true },
   });
 
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: data.campaignId,
+    module: "forms",
+    action: "created",
+    entityType: "form",
+    entityId: form.id,
+    afterValue: {
+      id: form.id,
+      title: form.title,
+      description: form.description,
+      campaignId: form.campaignId,
+      questionCount: form.questions.length,
+    },
+    impact: "Formulario disponible para evaluaciones segun permisos.",
+  });
+
   revalidatePath("/forms");
   return form;
 }
@@ -126,7 +144,16 @@ export async function updateForm(
 
   const existing = await prisma.form.findUnique({
     where: { id },
-    select: { campaignId: true },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      campaignId: true,
+      questions: {
+        select: { id: true, type: true, label: true, required: true, order: true },
+        orderBy: { order: "asc" },
+      },
+    },
   });
   if (!existing) throw new Error("Formulario no encontrado");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canEditForms");
@@ -157,6 +184,24 @@ export async function updateForm(
     });
   });
 
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: form.campaignId,
+    module: "forms",
+    action: "updated",
+    entityType: "form",
+    entityId: id,
+    beforeValue: existing,
+    afterValue: {
+      id: form.id,
+      title: form.title,
+      description: form.description,
+      campaignId: form.campaignId,
+      questionCount: form.questions.length,
+    },
+    impact: "Formulario actualizado; afecta evaluaciones futuras.",
+  });
+
   revalidatePath("/forms");
   revalidatePath(`/forms/${id}`);
   return form;
@@ -168,7 +213,7 @@ export async function deleteForm(id: string) {
 
   const form = await prisma.form.findUnique({
     where: { id },
-    select: { campaignId: true },
+    select: { id: true, title: true, description: true, campaignId: true },
   });
   if (!form) throw new Error("Formulario no encontrado");
   await assertCampaignPermissionForUser(session.user, form.campaignId, "canEditForms");
@@ -181,5 +226,15 @@ export async function deleteForm(id: string) {
   }
 
   await prisma.form.delete({ where: { id } });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: form.campaignId,
+    module: "forms",
+    action: "deleted",
+    entityType: "form",
+    entityId: id,
+    beforeValue: form,
+    impact: "Formulario eliminado sin evaluaciones registradas.",
+  });
   revalidatePath("/forms");
 }

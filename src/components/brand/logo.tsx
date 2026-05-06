@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 interface LogoProps {
@@ -23,11 +24,12 @@ export function Logo({ className, size = "md", showText = true, textClassName }:
   const sizes = sizeMap[size];
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      {/* Plain <img> keeps it simple in standalone Next output (no sharp needed) */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      <Image
         src="/tno-logo.png"
         alt="TNO"
+        width={64}
+        height={64}
+        unoptimized
         className={cn("shrink-0 object-contain", sizes.box)}
       />
       {showText && (

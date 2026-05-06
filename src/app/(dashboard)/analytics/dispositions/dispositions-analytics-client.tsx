@@ -24,7 +24,6 @@ import {
   BarChart3,
   ClipboardCheck,
   Tag,
-  TrendingUp,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -511,9 +510,9 @@ export function DispositionsAnalyticsClient() {
                     radius={[6, 6, 0, 0]}
                     animationDuration={900}
                   >
-                    {volumeChartData.map((_, i) => (
+                    {volumeChartData.map((item, i) => (
                       <Cell
-                        key={i}
+                        key={item.id}
                         fill={BAR_COLORS[i % BAR_COLORS.length]}
                       />
                     ))}

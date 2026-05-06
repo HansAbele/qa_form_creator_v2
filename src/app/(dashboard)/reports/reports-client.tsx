@@ -282,8 +282,8 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-medium">Respuestas</p>
-                {selectedResponse.answers.map((a, i) => (
-                  <div key={i} className="rounded-lg border p-3 text-sm">
+                {selectedResponse.answers.map((a) => (
+                  <div key={`${a.question}-${a.value}`} className="rounded-lg border p-3 text-sm">
                     <p className="font-medium">{a.question}</p>
                     <p className="text-muted-foreground">
                       {a.questionType === "RATING" ? `${a.value}/5 ★` : a.value}

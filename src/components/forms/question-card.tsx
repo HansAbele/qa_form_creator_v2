@@ -94,7 +94,7 @@ export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCa
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Opciones</Label>
               {question.options.map((opt, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={getOptionKey(question.id, opt, i)} className="flex items-center gap-2">
                   <Input
                     value={opt}
                     placeholder={`Opción ${i + 1}`}
@@ -146,4 +146,8 @@ export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCa
       </CardContent>
     </Card>
   );
+}
+
+function getOptionKey(questionId: string, option: string, index: number) {
+  return `${questionId}-${option || "empty"}-${index}`;
 }

@@ -3,6 +3,7 @@
 import { updateTag, revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { writeAuditLog } from "@/server/audit-log";
 import {
   DEFAULT_SETTINGS,
   getSettings,
@@ -31,6 +32,7 @@ export async function updateSettings(
   const keys = Object.keys(patch) as SettingKey[];
 
   if (keys.length === 0) return getSettings();
+  const beforeSettings = await getSettings();
 
   // Validate all before writing (all-or-nothing)
   const validated: { key: SettingKey; value: number }[] = [];
@@ -56,7 +58,18 @@ export async function updateSettings(
   updateTag("settings");
   revalidatePath("/", "layout");
 
-  return getSettings();
+  const afterSettings = await getSettings();
+  await writeAuditLog({
+    userId,
+    module: "settings",
+    action: "global_scoring_updated",
+    entityType: "app_settings",
+    beforeValue: beforeSettings,
+    afterValue: afterSettings,
+    impact: "Dashboard, KPIs, reportes y evaluaciones futuras usan los nuevos parametros globales.",
+  });
+
+  return afterSettings;
 }
 
 /** Reset all settings back to their defaults (ADMIN only). */
