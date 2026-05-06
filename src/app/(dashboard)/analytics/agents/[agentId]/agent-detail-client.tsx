@@ -432,8 +432,8 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                       }
                     />
                     <Bar dataKey="avgScore" radius={[0, 6, 6, 0]} animationDuration={900}>
-                      {data.scoreByQuestion.map((item, i) => (
-                        <Cell key={i} fill={getQuestionBarColor(item.avgScore)} />
+                      {data.scoreByQuestion.map((item) => (
+                        <Cell key={item.question} fill={getQuestionBarColor(item.avgScore)} />
                       ))}
                     </Bar>
                   </BarChart>

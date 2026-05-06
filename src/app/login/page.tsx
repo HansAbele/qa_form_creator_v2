@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn } from "next-auth/react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
@@ -74,10 +75,12 @@ export default function LoginPage() {
 
         {/* Brand header */}
         <div className="relative flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="/tno-logo.png"
             alt="TNO"
+            width={40}
+            height={40}
+            unoptimized
             className="h-10 w-10 shrink-0 object-contain"
           />
           <span className="text-xl font-bold uppercase tracking-[0.14em] text-[hsl(var(--tno-orange))]">
@@ -118,15 +121,10 @@ export default function LoginPage() {
       <main className="relative flex w-full flex-col lg:w-1/2">
         {/* Theme toggle (top-right) */}
         <div className="absolute right-6 top-6 lg:right-10 lg:top-10">
-          <div
-            role="radiogroup"
-            aria-label="Toggle theme"
-            className="inline-flex items-center gap-0.5 rounded-full border border-border bg-muted p-0.5"
-          >
+          <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-muted p-0.5">
             <button
               type="button"
-              role="radio"
-              aria-checked={mounted ? isDark : undefined}
+              aria-pressed={mounted ? isDark : undefined}
               onClick={() => setTheme("dark")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors",
@@ -140,8 +138,7 @@ export default function LoginPage() {
             </button>
             <button
               type="button"
-              role="radio"
-              aria-checked={mounted ? !isDark : undefined}
+              aria-pressed={mounted ? !isDark : undefined}
               onClick={() => setTheme("light")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors",

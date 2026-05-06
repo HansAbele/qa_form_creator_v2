@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { writeAuditLog } from "@/server/audit-log";
 import {
   assertCampaignPermissionForUser,
   getCampaignFilterForPermission,
@@ -228,6 +229,24 @@ export async function submitResponse(data: unknown) {
     });
 
     return newResponse;
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: form.campaignId,
+    module: "evaluations",
+    action: "created",
+    entityType: "response",
+    entityId: response.id,
+    afterValue: {
+      id: response.id,
+      formId: input.formId,
+      agentId: input.agentId,
+      dispositionId: input.dispositionId,
+      score,
+      answerCount: sanitizedAnswers.length,
+    },
+    impact: "Nueva evaluacion incluida en Dashboard, KPIs, reportes y exportaciones.",
   });
 
   revalidatePath("/forms");

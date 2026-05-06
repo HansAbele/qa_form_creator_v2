@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import {
   ArrowLeft,
-  Award,
   Calendar,
   ClipboardCheck,
   FileText,
@@ -238,7 +237,7 @@ export function ResponseDetailClient({
           }
           onClick={
             data.disposition
-              ? () => router.push(`/analytics/dispositions/${data.disposition!.id}`)
+              ? () => router.push(`/analytics/dispositions/${data.disposition?.id}`)
               : undefined
           }
         >

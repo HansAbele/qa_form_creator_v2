@@ -29,8 +29,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.next-dev.*.log
 
-# env files — committed intentionally for machine transfer
+# env files - committed intentionally for machine transfer
 # .env
 # .env.local
 # .env.production
@@ -42,8 +43,12 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-# next-env.d.ts  ← committed intentionally (needed for TS in new machine)
+# next-env.d.ts committed intentionally (needed for TS in new machine)
 
 # deploy temp dirs
 /_local_save/
 /_server_backup/
+
+# generated one-off migration/reset artifacts
+/scripts/migration.sql
+/scripts/pw.sql

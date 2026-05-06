@@ -2,6 +2,9 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getMyProfile } from "@/server/actions/profile";
 import { readSettings } from "@/server/actions/settings";
+import { readCampaignScoringSettings } from "@/server/actions/campaign-scoring";
+import { readOperationalAudit } from "@/server/actions/audit";
+import { readQACategories } from "@/server/actions/qa-categories";
 import { getCampaigns } from "@/server/actions/campaigns";
 import { getUsers } from "@/server/actions/users";
 import { SettingsClient } from "./settings-client";
@@ -17,6 +20,13 @@ export default async function SettingsPage() {
     isAdmin ? getUsers() : Promise.resolve([]),
     isAdmin ? getCampaigns() : Promise.resolve([]),
   ]);
+  const [campaignScoring, auditEvents, qaCategories] = isAdmin
+    ? await Promise.all([
+        readCampaignScoringSettings(campaigns.map((campaign) => campaign.id)),
+        readOperationalAudit(25),
+        readQACategories(),
+      ])
+    : [[], [], []];
 
   return (
     <SettingsClient
@@ -32,6 +42,9 @@ export default async function SettingsPage() {
         campaigns: u.campaigns,
       }))}
       accessCampaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
+      campaignScoring={campaignScoring}
+      auditEvents={auditEvents}
+      qaCategories={qaCategories}
     />
   );
 }

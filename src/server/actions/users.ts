@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { hash } from "bcryptjs";
+import { writeAuditLog } from "@/server/audit-log";
 import type { Role } from "@prisma/client";
 import {
   CAMPAIGN_PERMISSION_KEYS,
@@ -90,6 +91,22 @@ export async function createUser(data: {
     return newUser;
   });
 
+  await writeAuditLog({
+    userId: session.user.id,
+    module: "users",
+    action: "created",
+    entityType: "user",
+    entityId: user.id,
+    afterValue: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      campaignIds: data.campaignIds,
+    },
+    impact: "Usuario creado y asignado a campanas iniciales.",
+  });
+
   revalidatePath("/admin/users");
   revalidatePath("/settings");
   return user;
@@ -119,6 +136,18 @@ export async function updateUser(
   if (data.password) {
     updateData.password = await hash(data.password, 10);
   }
+
+  const beforeUser = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      active: true,
+      campaigns: { select: { campaignId: true } },
+    },
+  });
 
   const user = await prisma.$transaction(async (tx) => {
     const updated = await tx.user.update({
@@ -157,6 +186,25 @@ export async function updateUser(
     }
 
     return updated;
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    module: "users",
+    action: "updated",
+    entityType: "user",
+    entityId: id,
+    beforeValue: beforeUser,
+    afterValue: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      active: user.active,
+      campaignIds: data.campaignIds,
+      passwordChanged: Boolean(data.password),
+    },
+    impact: "Usuario y asignaciones de campana actualizados.",
   });
 
   revalidatePath("/admin/users");
@@ -221,6 +269,18 @@ export async function updateCampaignAccess(data: {
     include: { campaign: { select: { id: true, name: true } } },
   });
 
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: data.campaignId,
+    module: "permissions",
+    action: "campaign_access_updated",
+    entityType: "user_campaign",
+    entityId: `${data.userId}:${data.campaignId}`,
+    beforeValue: existingAccess,
+    afterValue: access,
+    impact: "Permisos efectivos de usuario modificados para la campana.",
+  });
+
   revalidatePath("/settings");
   revalidatePath("/admin/users");
   return access;
@@ -234,9 +294,19 @@ export async function deleteUser(id: string) {
     throw new Error("No puedes desactivar tu propia cuenta");
   }
 
-  await prisma.user.update({
+  const user = await prisma.user.update({
     where: { id },
     data: { active: false },
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    module: "users",
+    action: "deactivated",
+    entityType: "user",
+    entityId: id,
+    afterValue: { id: user.id, email: user.email, active: user.active },
+    impact: "Usuario desactivado; se bloquea su acceso futuro.",
   });
 
   revalidatePath("/admin/users");

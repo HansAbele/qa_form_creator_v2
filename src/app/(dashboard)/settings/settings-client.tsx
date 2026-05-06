@@ -24,6 +24,9 @@ import {
   BarChart3,
   ClipboardCheck,
   FileSpreadsheet,
+  History,
+  ListChecks,
+  MessageSquareWarning,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,7 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -48,7 +51,10 @@ import {
   updateSettings,
   resetSettings,
 } from "@/server/actions/settings";
-import type { AppSettings } from "@/lib/settings";
+import { updateCampaignScoringSettings } from "@/server/actions/campaign-scoring";
+import type { OperationalAuditEvent } from "@/server/actions/audit";
+import type { QACategorySummary } from "@/server/actions/qa-categories";
+import type { AppSettings, CampaignScoringSettings } from "@/lib/settings";
 import {
   CAMPAIGN_ACCESS_LABELS,
   CAMPAIGN_PERMISSION_KEYS,
@@ -58,6 +64,7 @@ import {
   type CampaignPermissionKey,
   type CampaignPermissionState,
 } from "@/lib/campaign-permissions";
+import { cn } from "@/lib/utils";
 
 interface SettingsClientProps {
   profile: ProfileInfo;
@@ -65,6 +72,9 @@ interface SettingsClientProps {
   isAdmin: boolean;
   accessUsers: AccessUser[];
   accessCampaigns: { id: string; name: string }[];
+  campaignScoring: CampaignScoringSettings[];
+  auditEvents: OperationalAuditEvent[];
+  qaCategories: QACategorySummary[];
 }
 
 interface AccessUser {
@@ -80,6 +90,104 @@ type AccessCampaign = {
   campaign: { id: string; name: string };
   roleInCampaign: CampaignAccessLevel;
 } & CampaignPermissionState;
+
+type SettingsSectionId =
+  | "account"
+  | "access"
+  | "scoring"
+  | "campaign-scoring"
+  | "categories"
+  | "evaluations"
+  | "forms-config"
+  | "dashboard-kpis"
+  | "reports-export"
+  | "audit"
+  | "notifications";
+
+const SETTINGS_SECTIONS: {
+  id: SettingsSectionId;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+}[] = [
+  {
+    id: "account",
+    label: "Mi cuenta",
+    description: "Perfil, rol y seguridad personal",
+    icon: User,
+  },
+  {
+    id: "access",
+    label: "Accesos y permisos",
+    description: "Usuarios, campañas y permisos efectivos",
+    icon: UserCog,
+    adminOnly: true,
+  },
+  {
+    id: "scoring",
+    label: "Scoring global",
+    description: "Defaults operativos de calidad",
+    icon: Target,
+    adminOnly: true,
+  },
+  {
+    id: "campaign-scoring",
+    label: "Scoring por campaña",
+    description: "Overrides y metas por operación",
+    icon: Building2,
+    adminOnly: true,
+  },
+  {
+    id: "categories",
+    label: "Categorías QA",
+    description: "Catálogo para formularios y KPIs",
+    icon: ListChecks,
+    adminOnly: true,
+  },
+  {
+    id: "evaluations",
+    label: "Evaluaciones",
+    description: "Reglas de captura y validación",
+    icon: ClipboardCheck,
+    adminOnly: true,
+  },
+  {
+    id: "forms-config",
+    label: "Formularios",
+    description: "Publicación, versionado y reglas QA",
+    icon: ClipboardCheck,
+    adminOnly: true,
+  },
+  {
+    id: "dashboard-kpis",
+    label: "Dashboard & KPIs",
+    description: "Visibilidad operacional por rol",
+    icon: BarChart3,
+    adminOnly: true,
+  },
+  {
+    id: "reports-export",
+    label: "Reportes & Exportación",
+    description: "Privacidad y trazabilidad de salidas",
+    icon: FileSpreadsheet,
+    adminOnly: true,
+  },
+  {
+    id: "audit",
+    label: "Auditoría operativa",
+    description: "Eventos sensibles del sistema",
+    icon: History,
+    adminOnly: true,
+  },
+  {
+    id: "notifications",
+    label: "Notificaciones",
+    description: "Alertas de riesgo QA",
+    icon: MessageSquareWarning,
+    adminOnly: true,
+  },
+];
 
 const PERMISSION_GROUPS: {
   title: string;
@@ -116,7 +224,19 @@ export function SettingsClient({
   isAdmin,
   accessUsers,
   accessCampaigns,
+  campaignScoring,
+  auditEvents,
+  qaCategories,
 }: SettingsClientProps) {
+  const visibleSections = SETTINGS_SECTIONS.filter(
+    (section) => !section.adminOnly || isAdmin,
+  );
+  const [activeSection, setActiveSection] =
+    useState<SettingsSectionId>("account");
+  const currentSection =
+    visibleSections.find((section) => section.id === activeSection) ??
+    visibleSections[0];
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
       {/* Header */}
@@ -137,48 +257,100 @@ export function SettingsClient({
         </p>
       </motion.div>
 
-      {/* Tabs */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+        className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]"
       >
-        <Tabs defaultValue="account" className="gap-6">
-          <TabsList variant="line" className="w-full justify-start gap-4 overflow-x-auto border-b border-border/60">
-            <TabsTrigger value="account" className="gap-2">
-              <User className="h-4 w-4" />
-              Mi Cuenta
-            </TabsTrigger>
-            {isAdmin && (
-              <>
-                <TabsTrigger value="access" className="gap-2">
-                  <UserCog className="h-4 w-4" />
-                  Accesos y permisos
-                </TabsTrigger>
-                <TabsTrigger value="scoring" className="gap-2">
-                  <Target className="h-4 w-4" />
-                  Scoring global
-                </TabsTrigger>
-              </>
-            )}
-          </TabsList>
+        <aside className="h-fit rounded-lg border bg-card p-2 lg:sticky lg:top-6">
+          <div className="px-2 py-2">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              Secciones
+            </p>
+          </div>
+          <nav className="space-y-1">
+            {visibleSections.map((section) => {
+              const Icon = section.icon;
+              const selected = section.id === currentSection.id;
 
-          <TabsContent value="account">
-            <AccountTab profile={profile} />
-          </TabsContent>
+              return (
+                <Button
+                  key={section.id}
+                  type="button"
+                  variant="ghost"
+                  className={cn(
+                    "h-auto w-full justify-start gap-3 px-3 py-2 text-left",
+                    selected &&
+                      "bg-orange-50 text-orange-950 hover:bg-orange-50 dark:bg-orange-950/30 dark:text-orange-100",
+                  )}
+                  onClick={() => setActiveSection(section.id)}
+                >
+                  <Icon
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground",
+                      selected && "text-orange-500",
+                    )}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">
+                      {section.label}
+                    </span>
+                    <span className="block truncate text-xs font-normal text-muted-foreground">
+                      {section.description}
+                    </span>
+                  </span>
+                </Button>
+              );
+            })}
+          </nav>
+        </aside>
 
-          {isAdmin && (
-            <>
-              <TabsContent value="access">
-                <AccessTab users={accessUsers} campaigns={accessCampaigns} />
-              </TabsContent>
+        <section className="min-w-0 space-y-4">
+          <div className="flex flex-col gap-1 border-b pb-4">
+            <h2 className="text-xl font-semibold tracking-tight">
+              {currentSection.label}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {currentSection.description}
+            </p>
+          </div>
 
-              <TabsContent value="scoring">
-                <ScoringTab settings={settings} />
-              </TabsContent>
-            </>
+          {currentSection.id === "account" && <AccountTab profile={profile} />}
+          {isAdmin && currentSection.id === "access" && (
+            <AccessTab users={accessUsers} campaigns={accessCampaigns} />
           )}
-        </Tabs>
+          {isAdmin && currentSection.id === "scoring" && (
+            <ScoringTab settings={settings} />
+          )}
+          {isAdmin && currentSection.id === "campaign-scoring" && (
+            <CampaignScoringTab
+              campaigns={accessCampaigns}
+              scoring={campaignScoring}
+            />
+          )}
+          {isAdmin && currentSection.id === "categories" && (
+            <QACategoriesTab categories={qaCategories} />
+          )}
+          {isAdmin && currentSection.id === "evaluations" && (
+            <EvaluationRulesTab />
+          )}
+          {isAdmin && currentSection.id === "forms-config" && (
+            <FormsConfigTab />
+          )}
+          {isAdmin && currentSection.id === "dashboard-kpis" && (
+            <DashboardKpisTab />
+          )}
+          {isAdmin && currentSection.id === "reports-export" && (
+            <ReportsExportTab />
+          )}
+          {isAdmin && currentSection.id === "audit" && (
+            <OperationalAuditTab events={auditEvents} />
+          )}
+          {isAdmin && currentSection.id === "notifications" && (
+            <NotificationsTab />
+          )}
+        </section>
       </motion.div>
     </div>
   );
@@ -420,7 +592,7 @@ function AccessTab({
                       <Badge
                         variant={user.role === "ADMIN" ? "default" : "secondary"}
                       >
-                        {user.role === "ADMIN" ? "QA Manager" : "QA campaña"}
+                        {user.role === "ADMIN" ? "QA Manager" : "QA campa�a"}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -585,23 +757,29 @@ function AccessTab({
                   <div key={group.title} className="rounded-lg border p-3">
                     <div className="mb-3 text-sm font-medium">{group.title}</div>
                     <div className="space-y-2">
-                      {group.keys.map((permissionKey) => (
-                        <label
-                          key={permissionKey}
-                          className="flex items-center gap-2 text-sm"
-                        >
-                          <Checkbox
-                            checked={permissionState[permissionKey]}
-                            onCheckedChange={(checked) =>
-                              setPermissionDraft(roleInCampaign, {
-                                ...permissionState,
-                                [permissionKey]: Boolean(checked),
-                              })
-                            }
-                          />
-                          <span>{CAMPAIGN_PERMISSION_LABELS[permissionKey]}</span>
-                        </label>
-                      ))}
+                      {group.keys.map((permissionKey) => {
+                        const checkboxId = `${selectedUser.id}-${selectedAccess.campaign.id}-${permissionKey}`;
+                        return (
+                          <div
+                            key={permissionKey}
+                            className="flex items-center gap-2 text-sm"
+                          >
+                            <Checkbox
+                              id={checkboxId}
+                              checked={permissionState[permissionKey]}
+                              onCheckedChange={(checked) =>
+                                setPermissionDraft(roleInCampaign, {
+                                  ...permissionState,
+                                  [permissionKey]: Boolean(checked),
+                                })
+                              }
+                            />
+                            <label htmlFor={checkboxId}>
+                              {CAMPAIGN_PERMISSION_LABELS[permissionKey]}
+                            </label>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -610,7 +788,7 @@ function AccessTab({
               <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-xs text-muted-foreground">
                   {hasDraft
-                    ? "Hay cambios pendientes para esta campaña."
+                    ? "Hay cambios pendientes para esta campa�a."
                     : "Los permisos mostrados son los guardados actualmente."}
                 </div>
                 <div className="flex gap-2">
@@ -761,21 +939,6 @@ function PermissionSummary({
   );
 }
 
-function getAccessLevelLabel(user: AccessUser): string {
-  if (user.role === "ADMIN") return "Global";
-  if (user.campaigns.length === 0) return "Sin campaña";
-  return "Admin campaña";
-}
-
-function getEffectivePermissions(user: AccessUser): string[] {
-  if (!user.active) return ["Sin acceso activo"];
-  if (user.role === "ADMIN") {
-    return ["Usuarios", "Todas las campañas", "Scoring global", "Exportación"];
-  }
-  if (user.campaigns.length === 0) return ["Sin campaña asignada"];
-  return ["Dashboard/KPIs", "Formularios", "Evaluaciones", "Reportes"];
-}
-
 function getAccessLevelLabelV2(user: AccessUser): string {
   if (user.role === "ADMIN") return "Global";
   if (user.campaigns.length === 0) return "Sin campaña";
@@ -815,7 +978,7 @@ function getEffectivePermissionsV2(user: AccessUser): string[] {
     permissions.push("Operación");
   }
 
-  return permissions.length > 0 ? permissions : ["Solo asignación"];
+  return permissions.length > 0 ? permissions : ["Solo asignaci�n"];
 }
 
 function getPermissionStateFromAccess(
@@ -873,7 +1036,7 @@ function AccountTab({ profile }: { profile: ProfileInfo }) {
         setNewPassword("");
         setConfirmPassword("");
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error al cambiar contraseña");
+        toast.error(e instanceof Error ? e.message : "Error al cambiar contrase�a");
       }
     });
   };
@@ -901,7 +1064,7 @@ function AccountTab({ profile }: { profile: ProfileInfo }) {
               label="Rol"
               value={
                 <Badge variant={profile.role === "ADMIN" ? "default" : "secondary"}>
-                  {profile.role === "ADMIN" ? "QA Manager" : "QA campaña"}
+                  {profile.role === "ADMIN" ? "QA Manager" : "QA campa�a"}
                 </Badge>
               }
             />
@@ -1128,7 +1291,7 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
           <p className="font-medium">Estos valores afectan a toda la aplicación</p>
           <p className="text-xs opacity-90">
             Los cambios se aplican inmediatamente en Dashboard, Reports y KPIs.
-            Las evaluaciones anteriores no se recalculan — el umbral solo afecta a cómo se cuentan de ahora en adelante.
+            Las evaluaciones anteriores no se recalculan - el umbral solo afecta a cómo se cuentan de ahora en adelante.
           </p>
         </div>
       </div>
@@ -1174,7 +1337,7 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Por defecto: 70%. Rango válido: 0–100.
+            Por defecto: 70%. Rango válido: 0-100.
           </p>
         </CardContent>
       </Card>
@@ -1254,6 +1417,608 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function CampaignScoringTab({
+  campaigns,
+  scoring,
+}: {
+  campaigns: { id: string; name: string }[];
+  scoring: CampaignScoringSettings[];
+}) {
+  const router = useRouter();
+  const [selectedCampaignId, setSelectedCampaignId] = useState(campaigns[0]?.id ?? "");
+  const [drafts, setDrafts] = useState<Record<string, CampaignScoringSettings>>(
+    () => Object.fromEntries(scoring.map((item) => [item.campaignId, item])),
+  );
+  const [saving, startSaving] = useTransition();
+
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId);
+  const original = scoring.find((item) => item.campaignId === selectedCampaignId);
+  const draft = selectedCampaignId ? drafts[selectedCampaignId] : null;
+  const usesGlobalDefaults = draft?.usesGlobalDefaults ?? true;
+  const dirty =
+    Boolean(draft && original) &&
+    JSON.stringify(draft) !== JSON.stringify(original);
+
+  const setDraftValue = <K extends keyof CampaignScoringSettings>(
+    key: K,
+    value: CampaignScoringSettings[K],
+  ) => {
+    if (!draft || !selectedCampaignId) return;
+    setDrafts((current) => ({
+      ...current,
+      [selectedCampaignId]: { ...draft, [key]: value },
+    }));
+  };
+
+  const handleSave = () => {
+    if (!draft || !selectedCampaignId) return;
+    startSaving(async () => {
+      try {
+        const saved = await updateCampaignScoringSettings(selectedCampaignId, {
+          usesGlobalDefaults: draft.usesGlobalDefaults,
+          passThreshold: draft.passThreshold,
+          targetPassRate: draft.targetPassRate,
+          targetAvgScore: draft.targetAvgScore,
+          targetDailyRate: draft.targetDailyRate,
+          fatalFailuresAllowed: draft.fatalFailuresAllowed,
+        });
+        setDrafts((current) => ({ ...current, [selectedCampaignId]: saved }));
+        toast.success("Scoring de campaña actualizado");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Error al guardar");
+      }
+    });
+  };
+
+  if (campaigns.length === 0 || !draft) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-sm text-muted-foreground">
+          No hay campañas disponibles para configurar.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" />
+        <p className="text-xs leading-relaxed">
+          Los overrides aplican solo a la campaña seleccionada. Si usa defaults
+          globales, Dashboard, KPIs y reportes toman los valores del scoring global.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Building2 className="h-4 w-4 text-orange-500" />
+            Configuración por campaña
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+            <div className="space-y-2">
+              <Label>Campaña</Label>
+              <Select
+                value={selectedCampaignId}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setSelectedCampaignId(value);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar campaña" />
+                </SelectTrigger>
+                <SelectContent>
+                  {campaigns.map((campaign) => (
+                    <SelectItem key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">
+                    {selectedCampaign?.name ?? "Campa�a"}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Controla thresholds y metas operativas para esta campaña.
+                  </p>
+                </div>
+                <Badge variant={usesGlobalDefaults ? "secondary" : "default"}>
+                  {usesGlobalDefaults ? "Usa global" : "Override activo"}
+                </Badge>
+              </div>
+              <div className="mt-4 flex items-center gap-2 text-sm">
+                <Checkbox
+                  id="campaign-custom-scoring"
+                  checked={!usesGlobalDefaults}
+                  onCheckedChange={(checked) =>
+                    setDraftValue("usesGlobalDefaults", checked !== true)
+                  }
+                />
+                <Label htmlFor="campaign-custom-scoring" className="text-sm font-normal">
+                  Esta campaña usa valores personalizados
+                </Label>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <PctTargetField
+              id="campaign-pass-threshold"
+              label="Pass Threshold"
+              description="Score mínimo para aprobar evaluaciones de esta campaña."
+              value={draft.passThreshold}
+              onChange={(value) => setDraftValue("passThreshold", value)}
+              defaultValue={70}
+            />
+            <PctTargetField
+              id="campaign-target-score"
+              label="Target Score Promedio"
+              description="Score promedio esperado para la campaña."
+              value={draft.targetAvgScore}
+              onChange={(value) => setDraftValue("targetAvgScore", value)}
+              defaultValue={80}
+            />
+            <PctTargetField
+              id="campaign-target-pass-rate"
+              label="Target Pass Rate"
+              description="Porcentaje objetivo de evaluaciones aprobadas."
+              value={draft.targetPassRate}
+              onChange={(value) => setDraftValue("targetPassRate", value)}
+              defaultValue={85}
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="campaign-target-daily">Evaluaciones diarias</Label>
+                <Input
+                  id="campaign-target-daily"
+                  type="number"
+                  min={0}
+                  max={10000}
+                  value={draft.targetDailyRate}
+                  onChange={(event) =>
+                    setDraftValue(
+                      "targetDailyRate",
+                      Math.max(0, Math.min(10000, Number(event.target.value) || 0)),
+                    )
+                  }
+                  className="w-28 text-right tabular-nums"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="campaign-fatal-allowed">Fallas fatales permitidas</Label>
+                <Input
+                  id="campaign-fatal-allowed"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={draft.fatalFailuresAllowed}
+                  onChange={(event) =>
+                    setDraftValue(
+                      "fatalFailuresAllowed",
+                      Math.max(0, Math.min(100, Number(event.target.value) || 0)),
+                    )
+                  }
+                  className="w-28 text-right tabular-nums"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={!dirty || saving}>
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Guardar scoring de campaña
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ListChecks className="h-4 w-4 text-orange-500" />
+          Categorías QA
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Categorías globales para estructurar formularios, pesos, fallas fatales
+          y KPIs críticos. El color e icono quedan controlados por sistema.
+        </p>
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Categoría</TableHead>
+                <TableHead>Uso</TableHead>
+                <TableHead>Reglas</TableHead>
+                <TableHead>Visibilidad</TableHead>
+                <TableHead>Estado</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {categories.map((category) => (
+                <TableRow key={category.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: category.systemColor ?? "#f97316" }}
+                      />
+                      <div>
+                        <div className="font-medium">{category.name}</div>
+                        <div className="max-w-[360px] text-xs text-muted-foreground">
+                          {category.description}
+                        </div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>{category.usageCount} formularios</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {category.canBeFatal && <Badge variant="destructive">Fatal</Badge>}
+                      {category.requiresCommentOnFail && (
+                        <Badge variant="secondary">Comentario requerido</Badge>
+                      )}
+                      {!category.canBeFatal && !category.requiresCommentOnFail && (
+                        <span className="text-xs text-muted-foreground">Operativa</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {category.visibleInDashboard && (
+                        <Badge variant="outline">Dashboard</Badge>
+                      )}
+                      {category.visibleInKPIs && <Badge variant="outline">KPIs</Badge>}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={category.isActive ? "default" : "secondary"}>
+                      {category.isActive ? "Activa" : "Inactiva"}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {categories.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="py-8 text-center text-sm text-muted-foreground"
+                  >
+                    Aplica la migración de categorías QA para ver el catálogo base.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EvaluationRulesTab() {
+  return (
+    <OperationalConfigSection
+      icon={<ClipboardCheck className="h-4 w-4 text-orange-500" />}
+      title="Evaluaciones"
+      description="Reglas server-side que gobiernan el envío de evaluaciones."
+      items={[
+        {
+          label: "Consistencia de campaña",
+          detail: "Formulario, agente y disposición deben pertenecer a la misma campaña.",
+          enabled: true,
+          badge: "Activo",
+        },
+        {
+          label: "Validación de respuestas",
+          detail: "Preguntas requeridas, opciones válidas y duplicados se validan en servidor.",
+          enabled: true,
+          badge: "Activo",
+        },
+        {
+          label: "Score por respuesta",
+          detail: "El modelo guarda score, comentario y falla fatal por respuesta.",
+          enabled: true,
+          badge: "Modelo listo",
+        },
+        {
+          label: "Flujo avanzado de evaluación",
+          detail: "Borradores, resumen por categoría y comentarios por falla quedan reservados para el flujo especializado.",
+          enabled: false,
+          badge: "Controlado",
+        },
+      ]}
+    />
+  );
+}
+
+function FormsConfigTab() {
+  return (
+    <OperationalConfigSection
+      icon={<ClipboardCheck className="h-4 w-4 text-orange-500" />}
+      title="Formularios"
+      description="Defaults y reglas de publicación para el builder de formularios."
+      items={[
+        {
+          label: "Estados de formulario",
+          detail: "La base de datos soporta borrador, publicación, archivo y versión.",
+          enabled: true,
+          badge: "Modelo listo",
+        },
+        {
+          label: "Estructura QA",
+          detail: "Cada pregunta puede ligar categoría QA, peso, regla fatal y comentario requerido.",
+          enabled: true,
+          badge: "Modelo listo",
+        },
+        {
+          label: "Edición de publicados",
+          detail: "Los formularios publicados deben conservar historial creando una nueva versión.",
+          enabled: false,
+          badge: "Bloqueado por flujo",
+        },
+        {
+          label: "Validación de pesos",
+          detail: "La publicación debe validar pesos completos y vista previa antes de activar el formulario.",
+          enabled: false,
+          badge: "Controlado",
+        },
+      ]}
+    />
+  );
+}
+
+function DashboardKpisTab() {
+  return (
+    <OperationalConfigSection
+      icon={<BarChart3 className="h-4 w-4 text-orange-500" />}
+      title="Dashboard & KPIs"
+      description="Visibilidad operativa por rol y widgets que deben mantenerse bajo control de backend."
+      items={[
+        {
+          label: "Vista QA Manager",
+          detail: "Acceso global a campañas, comparativos y alertas operativas.",
+          enabled: true,
+          badge: "Activo",
+        },
+        {
+          label: "Vista QA de campaña",
+          detail: "Lectura limitada a campañas asignadas y permisos efectivos.",
+          enabled: true,
+          badge: "Activo",
+        },
+        {
+          label: "Vista Supervisor",
+          detail: "Lectura de tendencias, coaching y evaluaciones dentro de su campaña.",
+          enabled: false,
+          badge: "Rol futuro",
+        },
+        {
+          label: "Preferencias por widget",
+          detail: "La visibilidad final debe persistirse por rol y campaña cuando se habilite la matriz.",
+          enabled: false,
+          badge: "Gobernado",
+        },
+      ]}
+    />
+  );
+}
+
+function ReportsExportTab() {
+  return (
+    <OperationalConfigSection
+      icon={<FileSpreadsheet className="h-4 w-4 text-orange-500" />}
+      title="Reportes & Exportación"
+      description="Reglas de privacidad y trazabilidad para reportes operativos."
+      items={[
+        {
+          label: "Scope de exportación",
+          detail: "Un usuario solo exporta lo que puede ver según permisos de campaña.",
+          enabled: true,
+          badge: "Activo",
+        },
+        {
+          label: "Auditoría de salidas",
+          detail: "Exportaciones CSV, Excel y JSON quedan registradas en auditoría operativa.",
+          enabled: true,
+          badge: "Activo",
+        },
+        {
+          label: "Exportación supervisor",
+          detail: "Supervisor no exporta por defecto salvo permiso especial por campaña.",
+          enabled: false,
+          badge: "Restringido",
+        },
+        {
+          label: "Campos exportables",
+          detail: "La selección de campos debe respetar privacidad de agente, evaluador y comentarios.",
+          enabled: false,
+          badge: "Gobernado",
+        },
+      ]}
+    />
+  );
+}
+
+function OperationalAuditTab({ events }: { events: OperationalAuditEvent[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <History className="h-4 w-4 text-orange-500" />
+          Auditoría operativa
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Eventos sensibles registrados desde servidor: permisos, scoring,
+          formularios, evaluaciones, exportaciones y operación de campaña.
+        </p>
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Usuario</TableHead>
+                <TableHead>Campaña</TableHead>
+                <TableHead>Módulo</TableHead>
+                <TableHead>Acción</TableHead>
+                <TableHead>Impacto</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {events.map((event) => (
+                <TableRow key={event.id}>
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {new Date(event.createdAt).toLocaleString("es-ES", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </TableCell>
+                  <TableCell>{event.userName ?? "Sistema"}</TableCell>
+                  <TableCell>{event.campaignName ?? "Global"}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{event.module}</Badge>
+                  </TableCell>
+                  <TableCell>{event.action}</TableCell>
+                  <TableCell className="max-w-[320px] text-xs text-muted-foreground">
+                    {event.impact ?? "-"}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {events.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="py-8 text-center text-sm text-muted-foreground"
+                  >
+                    No hay eventos disponibles. Si acabas de agregar auditoría,
+                    aplica la migración y regenera Prisma en el entorno.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NotificationsTab() {
+  return (
+    <OperationalConfigSection
+      icon={<MessageSquareWarning className="h-4 w-4 text-orange-500" />}
+      title="Notificaciones"
+      description="Alertas operativas para riesgos de calidad por campaña."
+      items={[
+        {
+          label: "Criticidad de evaluación",
+          detail: "Customer Critical o Compliance Critical fallido.",
+          enabled: false,
+          badge: "In-app",
+        },
+        {
+          label: "Riesgo por agente",
+          detail: "Agente debajo del threshold o categoría crítica bajo target.",
+          enabled: false,
+          badge: "In-app",
+        },
+        {
+          label: "Riesgo por campaña",
+          detail: "Campaña debajo de target pass rate o QA bajo meta diaria.",
+          enabled: false,
+          badge: "In-app",
+        },
+        {
+          label: "Destinatarios",
+          detail: "Matriz de QA Manager, QA de campaña y Supervisor con scope por campaña.",
+          enabled: false,
+          badge: "Gobernado",
+        },
+      ]}
+    />
+  );
+}
+
+interface OperationalConfigItem {
+  label: string;
+  detail: string;
+  enabled: boolean;
+  badge: string;
+}
+
+function OperationalConfigSection({
+  icon,
+  title,
+  description,
+  items,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  items: OperationalConfigItem[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          {icon}
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">{description}</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {items.map((item) => (
+            <div key={item.label} className="rounded-lg border p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <Switch
+                  size="sm"
+                  checked={item.enabled}
+                  disabled
+                  aria-label={item.label}
+                />
+                <Badge variant={item.enabled ? "default" : "secondary"}>
+                  {item.badge}
+                </Badge>
+              </div>
+              <div className="text-sm font-medium">{item.label}</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {item.detail}
+              </p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

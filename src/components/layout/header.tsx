@@ -25,15 +25,10 @@ export function Header() {
 
       <div className="flex items-center gap-4">
         {/* Horizontal segmented theme switcher */}
-        <div
-          role="radiogroup"
-          aria-label="Cambiar tema"
-          className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5"
-        >
+        <div className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5">
           <button
             type="button"
-            role="radio"
-            aria-checked={mounted ? !isDark : undefined}
+            aria-pressed={mounted ? !isDark : undefined}
             onClick={() => setTheme("light")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-semibold transition-colors",
@@ -47,8 +42,7 @@ export function Header() {
           </button>
           <button
             type="button"
-            role="radio"
-            aria-checked={mounted ? isDark : undefined}
+            aria-pressed={mounted ? isDark : undefined}
             onClick={() => setTheme("dark")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-semibold transition-colors",

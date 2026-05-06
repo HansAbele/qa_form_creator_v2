@@ -136,13 +136,14 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
             <Label>Campañas asignadas</Label>
             <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
               {campaigns.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 text-sm">
+                <div key={c.id} className="flex items-center gap-2 text-sm">
                   <Checkbox
+                    id={`campaign-${c.id}`}
                     checked={selectedCampaigns.includes(c.id)}
                     onCheckedChange={() => toggleCampaign(c.id)}
                   />
-                  {c.name}
-                </label>
+                  <label htmlFor={`campaign-${c.id}`}>{c.name}</label>
+                </div>
               ))}
               {campaigns.length === 0 && (
                 <p className="text-sm text-muted-foreground">No hay campañas</p>

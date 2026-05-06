@@ -85,6 +85,7 @@ model User {
   forms                Form[]         @relation("FormCreator")
   responses            Response[]     @relation("Evaluator")
   dispositionsCreated  Disposition[]  @relation("DispositionCreator")
+  auditLogs            AuditLog[]     @relation("AuditActor")
 }
 
 model Campaign {
@@ -101,6 +102,8 @@ model Campaign {
   teams                 Team[]
   dispositionCategories DispositionCategory[]
   dispositions          Disposition[]
+  auditLogs             AuditLog[]
+  scoringSettings       CampaignScoringSettings?
 }
 
 model UserCampaign {
@@ -202,28 +205,76 @@ model Form {
   description String?
   campaignId  String
   createdById String
+  status      String   @default("DRAFT")
+  version     String   @default("1.0.0")
+  publishedAt DateTime?
+  archivedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   campaign  Campaign   @relation(fields: [campaignId], references: [id])
   createdBy User       @relation("FormCreator", fields: [createdById], references: [id])
+  categories FormCategory[]
   questions Question[]
   responses Response[]
 }
 
 model Question {
-  id       String       @id @default(cuid())
-  formId   String
-  type     QuestionType
-  label    String
-  options  Json?
-  required Boolean      @default(false)
-  order    Int          @default(0)
+  id                    String       @id @default(cuid())
+  formId                String
+  formCategoryId        String?
+  type                  QuestionType
+  label                 String
+  options               Json?
+  required              Boolean      @default(false)
+  weight                Int          @default(0)
+  fatal                 Boolean      @default(false)
+  requiresCommentOnFail Boolean      @default(false)
+  order                 Int          @default(0)
 
-  form    Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
-  answers Answer[]
+  form         Form          @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formCategory FormCategory? @relation(fields: [formCategoryId], references: [id], onDelete: SetNull)
+  answers      Answer[]
 
   @@index([formId, order])
+  @@index([formCategoryId])
+}
+
+model QACategory {
+  id                    String   @id @default(cuid())
+  name                  String   @unique
+  description           String?
+  systemColor           String?
+  systemIcon            String?
+  isActive              Boolean  @default(true)
+  canBeFatal            Boolean  @default(false)
+  requiresCommentOnFail Boolean  @default(false)
+  visibleInDashboard    Boolean  @default(true)
+  visibleInKPIs         Boolean  @default(true)
+  sortOrder             Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  formCategories FormCategory[]
+  answers        Answer[]
+}
+
+model FormCategory {
+  id              String  @id @default(cuid())
+  formId          String
+  qaCategoryId    String
+  weight          Int     @default(0)
+  fatalIfFailed   Boolean @default(false)
+  requiresComment Boolean @default(false)
+  sortOrder       Int     @default(0)
+
+  form       Form       @relation(fields: [formId], references: [id], onDelete: Cascade)
+  qaCategory QACategory @relation(fields: [qaCategoryId], references: [id], onDelete: Restrict)
+  questions  Question[]
+
+  @@unique([formId, qaCategoryId])
+  @@index([qaCategoryId])
+  @@index([formId, sortOrder])
 }
 
 // ─── Evaluaciones ────────────────────────────────────
@@ -231,10 +282,14 @@ model Question {
 model Response {
   id            String   @id @default(cuid())
   formId        String
+  formVersion   String?
   agentId       String
   evaluatorId   String
   dispositionId String?
   score         Decimal  @db.Decimal(5, 2)
+  result        String?
+  hasFatalFail  Boolean  @default(false)
+  status        String   @default("SUBMITTED")
   createdAt     DateTime @default(now())
 
   form        Form         @relation(fields: [formId], references: [id])
@@ -254,13 +309,19 @@ model Answer {
   id         String @id @default(cuid())
   responseId String
   questionId String
+  categoryId String?
   value      String
+  score      Decimal? @db.Decimal(5, 2)
+  comment    String?
+  isFatalFail Boolean @default(false)
 
-  response Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
-  question Question @relation(fields: [questionId], references: [id])
+  response Response    @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id])
+  category QACategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   @@index([responseId])
   @@index([questionId])
+  @@index([categoryId])
 }
 
 // ─── Configuración global ──────────────────────────────
@@ -271,4 +332,44 @@ model AppSetting {
   value     Json
   updatedAt DateTime @updatedAt
   updatedBy String?
+}
+
+model CampaignScoringSettings {
+  id                   String   @id @default(cuid())
+  campaignId           String   @unique
+  usesGlobalDefaults   Boolean  @default(true)
+  passThreshold        Int      @default(70)
+  targetPassRate       Int      @default(85)
+  targetAvgScore       Int      @default(80)
+  targetDailyRate      Int      @default(20)
+  fatalFailuresAllowed Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  updatedBy            String?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  campaignId  String?
+  module      String
+  action      String
+  entityType  String?
+  entityId    String?
+  beforeValue Json?
+  afterValue  Json?
+  impact      String?
+  createdAt   DateTime @default(now())
+
+  user     User?     @relation("AuditActor", fields: [userId], references: [id], onDelete: SetNull)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([campaignId, createdAt])
+  @@index([module, action])
+  @@index([entityType, entityId])
 }

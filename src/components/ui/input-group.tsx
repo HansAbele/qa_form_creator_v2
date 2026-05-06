@@ -1,6 +1,6 @@
 "use client"
 
-import * as React from "react"
+import type * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: InputGroup is a generic layout primitive, not a form fieldset.
     <div
       data-slot="input-group"
       role="group"
@@ -49,6 +50,8 @@ function InputGroupAddon({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: Addon groups controls visually inside the input primitive.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Addon click only forwards focus to the sibling input; keyboard focus remains on the actual input/control.
     <div
       role="group"
       data-slot="input-group-addon"

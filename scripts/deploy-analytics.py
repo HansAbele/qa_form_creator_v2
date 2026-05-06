@@ -16,7 +16,7 @@ Scope:
 
 Steps:
   1. Upload all changed/new files via SFTP
-  2. Run prisma db push inside Docker to sync schema
+  2. Run prisma migrate deploy inside Docker
   3. Rebuild + restart app container
 """
 import sys
@@ -143,31 +143,14 @@ def main():
     sftp.close()
     log(f"\n  Uploaded {uploaded}/{len(FILES)} files.")
 
-    # -- 2. Prisma db push (sync schema) ---------------------------------------
-    log("\n[2/3] Running prisma db push inside Docker container...")
-    # We need to run prisma db push inside the app container
-    # First check if app container exists and get its name
-    _, stdout, _ = client.exec_command(
-        "docker ps --format '{{.Names}}' | grep -i qa_form_creator_app || "
-        "docker ps --format '{{.Names}}' | grep -i qa.*app"
-    )
-    app_container = stdout.read().decode().strip().split("\n")[0]
-    if not app_container:
-        app_container = "qa_form_creator_app"
-    log(f"  App container: {app_container}")
-
-    # Run prisma db push directly against the database URL
-    # Since schema is uploaded to the host, we use npx prisma from the app container
-    push_cmd = (
+    # -- 2. Prisma migrate deploy ---------------------------------------------
+    log("\n[2/3] Running prisma migrate deploy inside Docker container...")
+    migrate_cmd = (
         f"cd {REMOTE_ROOT} && "
-        f"docker exec {app_container} npx prisma db push --skip-generate 2>&1 || "
-        # Fallback: if app container doesn't have prisma CLI, use a temporary container
-        f"docker run --rm --network qa_form_creator_network "
-        f"-v {REMOTE_ROOT}/prisma:/app/prisma "
-        f"-e DATABASE_URL=\"$(grep DATABASE_URL {REMOTE_ROOT}/.env.production | cut -d= -f2-)\" "
-        f"node:20-slim sh -c 'cd /app && npm i -g prisma@6 && prisma db push --skip-generate' 2>&1"
+        "docker compose -f docker-compose.prod.yml --env-file .env.production "
+        "exec -T app npx prisma migrate deploy --schema /app/prisma/schema.prisma 2>&1"
     )
-    stdin, stdout, stderr = client.exec_command(push_cmd, timeout=120)
+    stdin, stdout, stderr = client.exec_command(migrate_cmd, timeout=120)
     out_txt = stdout.read().decode().strip()
     err_txt = stderr.read().decode().strip()
     if out_txt:
