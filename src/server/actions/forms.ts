@@ -9,6 +9,10 @@ import {
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import {
+  type FormMutationInput,
+  formMutationSchema,
+} from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 
 export async function getForms() {
@@ -58,7 +62,12 @@ export async function getFormByIdForPermission(
     where: { id },
     include: {
       campaign: { select: { id: true, name: true } },
-      questions: { orderBy: { order: "asc" } },
+      questions: {
+        orderBy: { order: "asc" },
+        include: {
+          formCategory: { select: { qaCategoryId: true } },
+        },
+      },
     },
   });
 
@@ -69,44 +78,34 @@ export async function getFormByIdForPermission(
   return form;
 }
 
-export async function createForm(data: {
-  title: string;
-  description?: string;
-  campaignId: string;
-  questions: {
-    type: QuestionType;
-    label: string;
-    options?: string[];
-    required: boolean;
-  }[];
-}) {
+export async function createForm(data: FormMutationInput) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+  const input = await parseFormInput(data);
 
-  await assertCampaignPermissionForUser(session.user, data.campaignId, "canCreateForms");
+  await assertCampaignPermissionForUser(session.user, input.campaignId, "canCreateForms");
 
-  const form = await prisma.form.create({
-    data: {
-      title: data.title,
-      description: data.description,
-      campaignId: data.campaignId,
-      createdById: session.user.id,
-      questions: {
-        create: data.questions.map((q, index) => ({
-          type: q.type,
-          label: q.label,
-          options: q.options ?? undefined,
-          required: q.required,
-          order: index,
-        })),
+  const form = await prisma.$transaction(async (tx) => {
+    const createdForm = await tx.form.create({
+      data: {
+        title: input.title,
+        description: input.description,
+        campaignId: input.campaignId,
+        createdById: session.user.id,
       },
-    },
-    include: { questions: true },
+    });
+
+    await createFormQuestionStructure(tx, createdForm.id, input.questions);
+
+    return tx.form.findUniqueOrThrow({
+      where: { id: createdForm.id },
+      include: { questions: true, categories: true },
+    });
   });
 
   await writeAuditLog({
     userId: session.user.id,
-    campaignId: data.campaignId,
+    campaignId: input.campaignId,
     module: "forms",
     action: "created",
     entityType: "form",
@@ -117,6 +116,7 @@ export async function createForm(data: {
       description: form.description,
       campaignId: form.campaignId,
       questionCount: form.questions.length,
+      categoryCount: form.categories.length,
     },
     impact: "Formulario disponible para evaluaciones segun permisos.",
   });
@@ -127,20 +127,11 @@ export async function createForm(data: {
 
 export async function updateForm(
   id: string,
-  data: {
-    title: string;
-    description?: string;
-    campaignId: string;
-    questions: {
-      type: QuestionType;
-      label: string;
-      options?: string[];
-      required: boolean;
-    }[];
-  },
+  data: FormMutationInput,
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
+  const input = await parseFormInput(data);
 
   const existing = await prisma.form.findUnique({
     where: { id },
@@ -150,37 +141,45 @@ export async function updateForm(
       description: true,
       campaignId: true,
       questions: {
-        select: { id: true, type: true, label: true, required: true, order: true },
+        select: {
+          id: true,
+          type: true,
+          label: true,
+          required: true,
+          weight: true,
+          fatal: true,
+          requiresCommentOnFail: true,
+          order: true,
+          formCategory: {
+            select: { qaCategoryId: true },
+          },
+        },
         orderBy: { order: "asc" },
       },
     },
   });
   if (!existing) throw new Error("Formulario no encontrado");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canEditForms");
-  await assertCampaignPermissionForUser(session.user, data.campaignId, "canEditForms");
+  await assertCampaignPermissionForUser(session.user, input.campaignId, "canEditForms");
 
   const form = await prisma.$transaction(async (tx) => {
-    // Delete existing questions
     await tx.question.deleteMany({ where: { formId: id } });
+    await tx.formCategory.deleteMany({ where: { formId: id } });
 
-    // Update form and create new questions
-    return tx.form.update({
+    await tx.form.update({
       where: { id },
       data: {
-        title: data.title,
-        description: data.description,
-        campaignId: data.campaignId,
-        questions: {
-          create: data.questions.map((q, index) => ({
-            type: q.type,
-            label: q.label,
-            options: q.options ?? undefined,
-            required: q.required,
-            order: index,
-          })),
-        },
+        title: input.title,
+        description: input.description,
+        campaignId: input.campaignId,
       },
-      include: { questions: true },
+    });
+
+    await createFormQuestionStructure(tx, id, input.questions);
+
+    return tx.form.findUniqueOrThrow({
+      where: { id },
+      include: { questions: true, categories: true },
     });
   });
 
@@ -198,6 +197,7 @@ export async function updateForm(
       description: form.description,
       campaignId: form.campaignId,
       questionCount: form.questions.length,
+      categoryCount: form.categories.length,
     },
     impact: "Formulario actualizado; afecta evaluaciones futuras.",
   });
@@ -237,4 +237,104 @@ export async function deleteForm(id: string) {
     impact: "Formulario eliminado sin evaluaciones registradas.",
   });
   revalidatePath("/forms");
+}
+
+type FormQuestionInput = FormMutationInput["questions"][number];
+
+type FormWriteTransaction = Omit<
+  typeof prisma,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
+async function parseFormInput(data: unknown): Promise<FormMutationInput> {
+  const parsed = formMutationSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Datos del formulario invalidos");
+  }
+
+  const input = parsed.data;
+  const categoryIds = [...new Set(input.questions.map((question) => question.qaCategoryId))];
+  const categories = await prisma.qACategory.findMany({
+    where: { id: { in: categoryIds }, isActive: true },
+    select: {
+      id: true,
+      canBeFatal: true,
+      requiresCommentOnFail: true,
+    },
+  });
+  const categoriesById = new Map(categories.map((category) => [category.id, category]));
+
+  if (categoriesById.size !== categoryIds.length) {
+    throw new Error("Una o mas categorias QA no estan disponibles");
+  }
+
+  for (const question of input.questions) {
+    const category = categoriesById.get(question.qaCategoryId);
+    if (question.fatal && !category?.canBeFatal) {
+      throw new Error("La categoria seleccionada no permite fallas fatales");
+    }
+  }
+
+  return {
+    ...input,
+    questions: input.questions.map((question) => {
+      const category = categoriesById.get(question.qaCategoryId);
+      return {
+        ...question,
+        fatal: category?.canBeFatal ? question.fatal : false,
+        requiresCommentOnFail:
+          question.requiresCommentOnFail ||
+          Boolean(category?.requiresCommentOnFail),
+      };
+    }),
+  };
+}
+
+async function createFormQuestionStructure(
+  tx: FormWriteTransaction,
+  formId: string,
+  questions: FormQuestionInput[],
+) {
+  const formCategoryIds = new Map<string, string>();
+  const categoryOrder = [...new Set(questions.map((question) => question.qaCategoryId))];
+
+  for (const qaCategoryId of categoryOrder) {
+    const categoryQuestions = questions.filter(
+      (question) => question.qaCategoryId === qaCategoryId,
+    );
+    const weight = categoryQuestions.reduce(
+      (sum, question) => sum + (question.type === "RATING" ? question.weight : 0),
+      0,
+    );
+
+    const formCategory = await tx.formCategory.create({
+      data: {
+        formId,
+        qaCategoryId,
+        weight,
+        fatalIfFailed: categoryQuestions.some((question) => question.fatal),
+        requiresComment: categoryQuestions.some(
+          (question) => question.requiresCommentOnFail,
+        ),
+        sortOrder: categoryOrder.indexOf(qaCategoryId),
+      },
+      select: { id: true },
+    });
+    formCategoryIds.set(qaCategoryId, formCategory.id);
+  }
+
+  await tx.question.createMany({
+    data: questions.map((question, index) => ({
+      formId,
+      formCategoryId: formCategoryIds.get(question.qaCategoryId),
+      type: question.type as QuestionType,
+      label: question.label,
+      options: question.options ?? undefined,
+      required: question.required,
+      weight: question.type === "RATING" ? question.weight : 0,
+      fatal: question.fatal,
+      requiresCommentOnFail: question.requiresCommentOnFail,
+      order: index,
+    })),
+  });
 }
