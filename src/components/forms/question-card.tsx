@@ -3,12 +3,19 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
+import type { QACategoryOption } from "./form-builder";
 import type { QuestionType } from "@prisma/client";
 
 export interface QuestionData {
@@ -17,23 +24,34 @@ export interface QuestionData {
   label: string;
   options: string[];
   required: boolean;
+  qaCategoryId: string;
+  weight: number;
+  fatal: boolean;
+  requiresCommentOnFail: boolean;
 }
 
 interface QuestionCardProps {
   question: QuestionData;
   index: number;
+  qaCategories: QACategoryOption[];
   onUpdate: (updated: QuestionData) => void;
   onDelete: () => void;
 }
 
 const questionTypeLabels: Record<QuestionType, string> = {
   TEXT: "Texto",
-  RATING: "Calificación (1-5)",
-  SELECT: "Selección",
-  RADIO: "Opción múltiple",
+  RATING: "Calificacion (1-5)",
+  SELECT: "Seleccion",
+  RADIO: "Opcion multiple",
 };
 
-export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCardProps) {
+export function QuestionCard({
+  question,
+  index,
+  qaCategories,
+  onUpdate,
+  onDelete,
+}: QuestionCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: question.id });
 
@@ -44,6 +62,9 @@ export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCa
   };
 
   const showOptions = question.type === "SELECT" || question.type === "RADIO";
+  const selectedCategory = qaCategories.find(
+    (category) => category.id === question.qaCategoryId,
+  );
 
   return (
     <Card ref={setNodeRef} style={style} className="relative">
@@ -51,44 +72,105 @@ export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCa
         <button
           type="button"
           className="mt-1 cursor-grab text-muted-foreground hover:text-foreground"
+          aria-label={`Mover pregunta ${index + 1}`}
           {...attributes}
           {...listeners}
         >
           <GripVertical className="h-5 w-5" />
         </button>
 
-        <div className="flex-1 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">#{index + 1}</span>
-            <Select
-              value={question.type}
-              onValueChange={(val) => val && onUpdate({ ...question, type: val as QuestionType })}
-            >
-              <SelectTrigger className="w-48">
-                <SelectValue>
-                  {(value: string | null) => {
-                    if (!value) return "Tipo";
-                    return questionTypeLabels[value as QuestionType] ?? value;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(questionTypeLabels) as QuestionType[]).map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {questionTypeLabels[t]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="flex-1 space-y-4">
+          <div className="grid gap-3 lg:grid-cols-[auto_minmax(180px,220px)_minmax(220px,1fr)_120px] lg:items-end">
+            <div className="flex items-center gap-2 pb-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                #{index + 1}
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Tipo</Label>
+              <Select
+                value={question.type}
+                onValueChange={(val) => {
+                  if (!val) return;
+                  onUpdate({
+                    ...question,
+                    type: val as QuestionType,
+                    weight: val === "RATING" ? question.weight : 0,
+                  });
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(value: string | null) => {
+                      if (!value) return "Tipo";
+                      return questionTypeLabels[value as QuestionType] ?? value;
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(questionTypeLabels) as QuestionType[]).map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {questionTypeLabels[type]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Categoria QA</Label>
+              <Select
+                value={question.qaCategoryId}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  const category = qaCategories.find((item) => item.id === value);
+                  onUpdate({
+                    ...question,
+                    qaCategoryId: value,
+                    fatal: category?.canBeFatal ? question.fatal : false,
+                    requiresCommentOnFail:
+                      question.requiresCommentOnFail ||
+                      Boolean(category?.requiresCommentOnFail),
+                  });
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {qaCategories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Peso</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={question.weight}
+                disabled={question.type !== "RATING"}
+                onChange={(event) =>
+                  onUpdate({
+                    ...question,
+                    weight: Number(event.target.value) || 0,
+                  })
+                }
+              />
+            </div>
           </div>
 
-          <div>
-            <Input
-              placeholder="Texto de la pregunta..."
-              value={question.label}
-              onChange={(e) => onUpdate({ ...question, label: e.target.value })}
-            />
-          </div>
+          <Input
+            placeholder="Texto de la pregunta..."
+            value={question.label}
+            onChange={(e) => onUpdate({ ...question, label: e.target.value })}
+          />
 
           {showOptions && (
             <div className="space-y-2">
@@ -97,7 +179,7 @@ export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCa
                 <div key={getOptionKey(question.id, opt, i)} className="flex items-center gap-2">
                   <Input
                     value={opt}
-                    placeholder={`Opción ${i + 1}`}
+                    placeholder={`Opcion ${i + 1}`}
                     onChange={(e) => {
                       const newOptions = [...question.options];
                       newOptions[i] = e.target.value;
@@ -124,19 +206,35 @@ export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCa
                 size="xs"
                 onClick={() => onUpdate({ ...question, options: [...question.options, ""] })}
               >
-                + Agregar opción
+                + Agregar opcion
               </Button>
             </div>
           )}
 
-          <div className="flex items-center gap-2">
-            <Switch
+          <div className="grid gap-3 sm:grid-cols-3">
+            <SwitchField
+              label="Obligatoria"
               checked={question.required}
-              onCheckedChange={(checked) =>
+              onChange={(checked) =>
                 onUpdate({ ...question, required: Boolean(checked) })
               }
             />
-            <Label className="text-xs">Obligatoria</Label>
+            <SwitchField
+              label="Falla fatal"
+              checked={question.fatal}
+              disabled={!selectedCategory?.canBeFatal}
+              onChange={(checked) => onUpdate({ ...question, fatal: Boolean(checked) })}
+            />
+            <SwitchField
+              label="Comentario si falla"
+              checked={question.requiresCommentOnFail}
+              onChange={(checked) =>
+                onUpdate({
+                  ...question,
+                  requiresCommentOnFail: Boolean(checked),
+                })
+              }
+            />
           </div>
         </div>
 
@@ -145,6 +243,29 @@ export function QuestionCard({ question, index, onUpdate, onDelete }: QuestionCa
         </Button>
       </CardContent>
     </Card>
+  );
+}
+
+function SwitchField({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(value) => onChange(Boolean(value))}
+      />
+      <Label className="text-xs">{label}</Label>
+    </div>
   );
 }
 

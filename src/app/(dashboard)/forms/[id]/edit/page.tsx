@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getFormByIdForPermission } from "@/server/actions/forms";
 import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { readQACategories } from "@/server/actions/qa-categories";
 import { FormBuilder } from "@/components/forms/form-builder";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 
@@ -14,9 +15,10 @@ export default async function EditFormPage({
   if (!session?.user) redirect("/login");
   if (!(await hasAnyCampaignPermission("canEditForms"))) redirect("/forms");
   const { id } = await params;
-  const [form, campaigns] = await Promise.all([
+  const [form, campaigns, qaCategories] = await Promise.all([
     getFormByIdForPermission(id, "canEditForms"),
     getCampaignsForPermission("canEditForms"),
+    readQACategories(),
   ]);
 
   return (
@@ -24,6 +26,7 @@ export default async function EditFormPage({
       <h1 className="text-3xl font-bold tracking-tight">Editar Formulario</h1>
       <FormBuilder
         campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
+        qaCategories={qaCategories.filter((category) => category.isActive)}
         initialData={form}
       />
     </div>

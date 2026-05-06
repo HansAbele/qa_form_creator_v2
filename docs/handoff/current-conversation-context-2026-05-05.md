@@ -1,6 +1,6 @@
 # Handoff de contexto - Qore / QA Form Creator
 
-Ultima actualizacion: 2026-05-05
+Ultima actualizacion: 2026-05-06
 
 Este documento resume el estado actual de la conversacion y del trabajo realizado para poder continuar en una nueva conversacion sin perder contexto.
 
@@ -27,7 +27,7 @@ Roles funcionales definidos:
 2. `src/server/actions/teams.ts`: mutaciones sin RBAC por entidad.
 3. `src/server/actions/responses.ts`: envio de evaluaciones sin validar pertenencia.
 4. `src/server/actions/exports.ts`: exports filtraban fuera del scope.
-5. `scripts/ssh-helper.py`: secreto SSH versionado.
+5. `scripts/ssh-helper.py`: secreto SSH versionado historicamente.
 6. `scripts/deploy.sh`: migraciones de produccion fragiles.
 7. `docker-compose.prod.yml`: app expuesta directo por HTTP.
 8. `src/lib/auth.ts`: cookies no seguras en produccion.
@@ -35,7 +35,7 @@ Roles funcionales definidos:
 Estado actual:
 
 - Hallazgos 1 a 4: mitigados en codigo y cubiertos por tests RBAC.
-- Hallazgos 5 a 8: siguen pendientes y deben tratarse antes de produccion.
+- Hallazgos 5 a 8: mitigados en codigo. Sigue pendiente la rotacion operacional de cualquier secreto que haya estado expuesto historicamente y la validacion del runbook real de produccion antes de usarlo en servidor.
 
 ## Cambios ya implementados
 
@@ -154,14 +154,30 @@ Accion agregada:
 
 - `src/server/actions/qa-categories.ts`
 
+Builder de formularios:
+
+- `src/components/forms/form-builder.tsx` ahora recibe categorias QA activas.
+- `src/components/forms/question-card.tsx` permite asignar categoria QA por pregunta.
+- Las preguntas `RATING` tienen peso configurable y el builder valida que los pesos sumen 100%.
+- Las preguntas permiten flags de falla fatal y comentario requerido segun categoria.
+- `src/server/actions/forms.ts` valida categorias QA activas, persistencia de `FormCategory`, `Question.weight`, `Question.fatal` y `Question.requiresCommentOnFail`.
+
 Pendiente:
 
-- builder de formularios por categorias
-- validacion de pesos 100%
 - versionado real al editar publicados
 - UI de evaluacion por categorias
+- score ponderado en `submitResponse`
 - score por categoria
 - fallas fatales y comentarios obligatorios en servidor
+
+### Arranque local y sesiones
+
+Se corrigio el problema observado al probar localmente:
+
+- `/` ya no redirige ciegamente a `/login`; ahora resuelve al dashboard del route group `(dashboard)`.
+- El proxy permite abrir `/login` aunque exista una cookie vieja.
+- `/settings` redirige a `/login` si la sesion apunta a un usuario que ya no existe en la DB local, en vez de caer en 500 con `Usuario no encontrado`.
+- Se reemplazo `next-themes` por `src/components/theme-provider.tsx` para evitar el overlay de Next 16 por `<script>` dentro de componente React.
 
 ## Estado del modulo Configuracion
 
@@ -195,6 +211,7 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 ### Prioridad 1 - limpieza visible
 
 - Validar Configuracion en navegador y ajustar detalles responsive/espaciado si aparecen.
+- Validar el nuevo builder de Formularios con categorias QA, pesos y flags.
 - Mantener UI seria, compacta y operativa al completar controles persistidos.
 
 ### Prioridad 2 - produccion segura
@@ -210,7 +227,7 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 
 ### Prioridad 3 - funcionalidades QA profundas
 
-- Formularios por categorias QA.
+- Completar formularios por categorias QA: versionado real, publicacion, validacion de publicados y migracion segura para formularios existentes.
 - Evaluaciones por categorias con resumen sticky.
 - Scoring ponderado por categoria/pregunta.
 - Reglas fatales.

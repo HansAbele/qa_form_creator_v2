@@ -1,42 +1,57 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  closestCenter,
   KeyboardSensor,
   PointerSensor,
+  closestCenter,
+  type DragEndEvent,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  arrayMove,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
-  arrayMove,
 } from "@dnd-kit/sortable";
-import { toast } from "sonner";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { QuestionCard, type QuestionData } from "./question-card";
-import { FormPreview } from "./form-preview";
+import { Textarea } from "@/components/ui/textarea";
 import { createForm, updateForm } from "@/server/actions/forms";
 import type { QuestionType } from "@prisma/client";
+import { FormPreview } from "./form-preview";
+import { QuestionCard, type QuestionData } from "./question-card";
 
 interface Campaign {
   id: string;
   name: string;
 }
 
+export interface QACategoryOption {
+  id: string;
+  name: string;
+  description: string | null;
+  canBeFatal: boolean;
+  requiresCommentOnFail: boolean;
+}
+
 interface FormBuilderProps {
   campaigns: Campaign[];
+  qaCategories: QACategoryOption[];
   initialData?: {
     id: string;
     title: string;
@@ -48,7 +63,13 @@ interface FormBuilderProps {
       label: string;
       options: unknown;
       required: boolean;
+      weight: number;
+      fatal: boolean;
+      requiresCommentOnFail: boolean;
       order: number;
+      formCategory?: {
+        qaCategoryId: string;
+      } | null;
     }[];
   };
 }
@@ -58,7 +79,11 @@ function generateTempId() {
   return `temp-${Date.now()}-${++tempIdCounter}`;
 }
 
-export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
+export function FormBuilder({
+  campaigns,
+  qaCategories,
+  initialData,
+}: FormBuilderProps) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(initialData?.title ?? "");
@@ -71,7 +96,16 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
       label: q.label,
       options: Array.isArray(q.options) ? (q.options as string[]) : [],
       required: q.required,
+      qaCategoryId: q.formCategory?.qaCategoryId ?? "",
+      weight: q.weight,
+      fatal: q.fatal,
+      requiresCommentOnFail: q.requiresCommentOnFail,
     })) ?? [],
+  );
+
+  const ratingWeightTotal = questions.reduce(
+    (sum, question) => sum + (question.type === "RATING" ? question.weight : 0),
+    0,
   );
 
   const sensors = useSensors(
@@ -79,31 +113,37 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (over && active.id !== over.id) {
-        setQuestions((items) => {
-          const oldIndex = items.findIndex((i) => i.id === active.id);
-          const newIndex = items.findIndex((i) => i.id === over.id);
-          return arrayMove(items, oldIndex, newIndex);
-        });
-      }
-    },
-    [],
-  );
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setQuestions((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  }, []);
 
   const addQuestion = () => {
-    setQuestions((prev) => [
-      ...prev,
-      {
-        id: generateTempId(),
-        type: "RATING" as QuestionType,
-        label: "",
-        options: [],
-        required: true,
-      },
-    ]);
+    setQuestions((prev) => {
+      const hasRatingQuestion = prev.some((question) => question.type === "RATING");
+      const defaultCategory = qaCategories[0];
+
+      return [
+        ...prev,
+        {
+          id: generateTempId(),
+          type: "RATING" as QuestionType,
+          label: "",
+          options: [],
+          required: true,
+          qaCategoryId: defaultCategory?.id ?? "",
+          weight: hasRatingQuestion ? 0 : 100,
+          fatal: false,
+          requiresCommentOnFail: Boolean(defaultCategory?.requiresCommentOnFail),
+        },
+      ];
+    });
   };
 
   const updateQuestion = (index: number, updated: QuestionData) => {
@@ -116,20 +156,47 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
 
   const handleSave = async () => {
     if (!title.trim()) {
-      toast.error("El título es obligatorio");
+      toast.error("El titulo es obligatorio");
       return;
     }
     if (!campaignId) {
-      toast.error("Selecciona una campaña");
+      toast.error("Selecciona una campana");
+      return;
+    }
+    if (qaCategories.length === 0) {
+      toast.error("No hay categorias QA activas para asignar");
       return;
     }
     if (questions.length === 0) {
       toast.error("Agrega al menos una pregunta");
       return;
     }
-    const emptyLabels = questions.some((q) => !q.label.trim());
-    if (emptyLabels) {
+    if (questions.some((q) => !q.label.trim())) {
       toast.error("Todas las preguntas deben tener un texto");
+      return;
+    }
+    if (questions.some((q) => !q.qaCategoryId)) {
+      toast.error("Todas las preguntas deben tener una categoria QA");
+      return;
+    }
+    const invalidFatal = questions.some((question) => {
+      const category = qaCategories.find((item) => item.id === question.qaCategoryId);
+      return question.fatal && !category?.canBeFatal;
+    });
+    if (invalidFatal) {
+      toast.error("Hay fallas fatales en categorias que no lo permiten");
+      return;
+    }
+    const optionQuestionWithoutOptions = questions.some((question) => {
+      if (question.type !== "SELECT" && question.type !== "RADIO") return false;
+      return question.options.filter((option) => option.trim()).length < 2;
+    });
+    if (optionQuestionWithoutOptions) {
+      toast.error("Seleccion y opcion multiple requieren al menos 2 opciones");
+      return;
+    }
+    if (questions.some((question) => question.type === "RATING") && ratingWeightTotal !== 100) {
+      toast.error("Los pesos de preguntas rating deben sumar 100%");
       return;
     }
 
@@ -142,8 +209,15 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
         questions: questions.map((q) => ({
           type: q.type,
           label: q.label.trim(),
-          options: q.options.length > 0 ? q.options.filter((o) => o.trim()) : undefined,
+          options:
+            q.options.length > 0
+              ? q.options.map((option) => option.trim()).filter(Boolean)
+              : undefined,
           required: q.required,
+          qaCategoryId: q.qaCategoryId,
+          weight: q.type === "RATING" ? q.weight : 0,
+          fatal: q.fatal,
+          requiresCommentOnFail: q.requiresCommentOnFail,
         })),
       };
 
@@ -174,7 +248,7 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
         <TabsContent value="editor" className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="title">Título</Label>
+              <Label htmlFor="title">Titulo</Label>
               <Input
                 id="title"
                 placeholder="Nombre del formulario"
@@ -183,15 +257,15 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="campaign">Campaña</Label>
+              <Label htmlFor="campaign">Campana</Label>
               <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar campaña">
+                  <SelectValue placeholder="Seleccionar campana">
                     {(value: string | null) => {
-                      if (!value) return "Seleccionar campaña";
+                      if (!value) return "Seleccionar campana";
                       return (
                         campaigns.find((c) => c.id === value)?.name ??
-                        "Seleccionar campaña"
+                        "Seleccionar campana"
                       );
                     }}
                   </SelectValue>
@@ -208,10 +282,10 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="description">Descripción (opcional)</Label>
+            <Label htmlFor="description">Descripcion (opcional)</Label>
             <Textarea
               id="description"
-              placeholder="Descripción del formulario..."
+              placeholder="Descripcion del formulario..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
@@ -219,10 +293,15 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">
-                Preguntas ({questions.length})
-              </h3>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-medium">
+                  Preguntas ({questions.length})
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Peso rating: {ratingWeightTotal}% de 100%
+                </p>
+              </div>
               <Button type="button" variant="outline" onClick={addQuestion}>
                 <Plus className="mr-1 h-4 w-4" />
                 Agregar pregunta
@@ -244,6 +323,7 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
                       key={question.id}
                       question={question}
                       index={index}
+                      qaCategories={qaCategories}
                       onUpdate={(updated) => updateQuestion(index, updated)}
                       onDelete={() => deleteQuestion(index)}
                     />
@@ -270,11 +350,7 @@ export function FormBuilder({ campaigns, initialData }: FormBuilderProps) {
         </TabsContent>
 
         <TabsContent value="preview">
-          <FormPreview
-            title={title}
-            description={description}
-            questions={questions}
-          />
+          <FormPreview title={title} description={description} questions={questions} />
         </TabsContent>
       </Tabs>
     </div>
