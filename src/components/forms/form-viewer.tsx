@@ -6,13 +6,7 @@ import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -42,6 +36,7 @@ interface FormViewerProps {
       required: boolean;
       weight: number;
       fatal: boolean;
+      fatalOptions: unknown;
       requiresCommentOnFail: boolean;
       order: number;
       formCategory?: {
@@ -72,18 +67,18 @@ export function FormViewer({ form }: FormViewerProps) {
   const [submitting, setSubmitting] = useState(false);
 
   const ratingQuestions = form.questions.filter((question) => question.type === "RATING");
-  const ratingWeightTotal = ratingQuestions.reduce(
-    (sum, question) => sum + question.weight,
-    0,
-  );
+  const ratingWeightTotal = ratingQuestions.reduce((sum, question) => sum + question.weight, 0);
   const estimatedScore = calculateEstimatedScore(form.questions, answers);
+  const hasCriticalRules = form.questions.some(
+    (question) => question.fatal || question.requiresCommentOnFail,
+  );
   const fatalCount = form.questions.filter(
-    (question) => question.fatal && isFailedRating(question, answers[question.id] ?? ""),
+    (question) => question.fatal && isFailedQuestion(question, answers[question.id] ?? ""),
   ).length;
   const missingRequiredComments = form.questions.filter(
     (question) =>
       question.requiresCommentOnFail &&
-      isFailedRating(question, answers[question.id] ?? "") &&
+      isFailedQuestion(question, answers[question.id] ?? "") &&
       !comments[question.id]?.trim(),
   ).length;
 
@@ -136,20 +131,16 @@ export function FormViewer({ form }: FormViewerProps) {
 
       if (
         question.requiresCommentOnFail &&
-        isFailedRating(question, answers[question.id] ?? "") &&
+        isFailedQuestion(question, answers[question.id] ?? "") &&
         !comments[question.id]?.trim()
       ) {
-        newCommentErrors[question.id] =
-          "Este comentario es obligatorio cuando la regla falla";
+        newCommentErrors[question.id] = "Este comentario es obligatorio cuando la regla falla";
       }
     }
 
     setErrors(newErrors);
     setCommentErrors(newCommentErrors);
-    return (
-      Object.keys(newErrors).length === 0 &&
-      Object.keys(newCommentErrors).length === 0
-    );
+    return Object.keys(newErrors).length === 0 && Object.keys(newCommentErrors).length === 0;
   };
 
   const handleSubmit = async () => {
@@ -193,9 +184,7 @@ export function FormViewer({ form }: FormViewerProps) {
                   if (!value) return "Seleccionar agente...";
                   const agent = agents.find((a) => a.id === value);
                   if (!agent) return "Seleccionar agente...";
-                  return agent.agentCode
-                    ? `${agent.name} (${agent.agentCode})`
-                    : agent.name;
+                  return agent.agentCode ? `${agent.name} (${agent.agentCode})` : agent.name;
                 }}
               </SelectValue>
             </SelectTrigger>
@@ -216,10 +205,13 @@ export function FormViewer({ form }: FormViewerProps) {
           onChange={setDispositionId}
         />
 
-        {ratingQuestions.length > 0 && (
+        {(ratingQuestions.length > 0 || hasCriticalRules) && (
           <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-4 sm:grid-cols-3">
             <SummaryItem label="Score estimado" value={`${estimatedScore.toFixed(1)}%`} />
-            <SummaryItem label="Peso configurado" value={`${ratingWeightTotal || 100}%`} />
+            <SummaryItem
+              label="Peso configurado"
+              value={ratingQuestions.length > 0 ? `${ratingWeightTotal || 100}%` : "N/A"}
+            />
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground">Reglas criticas</p>
               <div className="flex flex-wrap gap-2">
@@ -284,10 +276,7 @@ function calculateEstimatedScore(
   const ratingQuestions = questions.filter((question) => question.type === "RATING");
   if (ratingQuestions.length === 0) return 0;
 
-  const totalWeight = ratingQuestions.reduce(
-    (sum, question) => sum + question.weight,
-    0,
-  );
+  const totalWeight = ratingQuestions.reduce((sum, question) => sum + question.weight, 0);
 
   if (totalWeight > 0) {
     return ratingQuestions.reduce((sum, question) => {
@@ -313,6 +302,21 @@ function getRatingScore(value: string) {
   return (numericValue / 5) * 100;
 }
 
-function isFailedRating(question: { type: QuestionType }, value: string) {
-  return question.type === "RATING" && Boolean(value) && getRatingScore(value) < 100;
+function isFailedQuestion(question: { type: QuestionType; fatalOptions: unknown }, value: string) {
+  if (!value) return false;
+  if (question.type === "RATING") return getRatingScore(value) < 100;
+  if (question.type === "SELECT" || question.type === "RADIO") {
+    return getStringOptions(question.fatalOptions).includes(value);
+  }
+
+  return false;
+}
+
+function getStringOptions(options: unknown) {
+  return Array.isArray(options)
+    ? options
+        .filter((option): option is string => typeof option === "string")
+        .map((option) => option.trim())
+        .filter(Boolean)
+    : [];
 }

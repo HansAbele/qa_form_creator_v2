@@ -67,6 +67,7 @@ interface FormBuilderProps {
       type: QuestionType;
       label: string;
       options: unknown;
+      fatalOptions: unknown;
       required: boolean;
       weight: number;
       fatal: boolean;
@@ -84,11 +85,7 @@ function generateTempId() {
   return `temp-${Date.now()}-${++tempIdCounter}`;
 }
 
-export function FormBuilder({
-  campaigns,
-  qaCategories,
-  initialData,
-}: FormBuilderProps) {
+export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilderProps) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(initialData?.title ?? "");
@@ -100,6 +97,7 @@ export function FormBuilder({
       type: q.type,
       label: q.label,
       options: Array.isArray(q.options) ? (q.options as string[]) : [],
+      fatalOptions: Array.isArray(q.fatalOptions) ? (q.fatalOptions as string[]) : [],
       required: q.required,
       qaCategoryId: q.formCategory?.qaCategoryId ?? "",
       weight: q.weight,
@@ -152,6 +150,7 @@ export function FormBuilder({
           qaCategoryId: defaultCategory?.id ?? "",
           weight: hasRatingQuestion ? 0 : 100,
           fatal: false,
+          fatalOptions: [],
           requiresCommentOnFail: Boolean(defaultCategory?.requiresCommentOnFail),
         },
       ];
@@ -207,6 +206,15 @@ export function FormBuilder({
       toast.error("Seleccion y opcion multiple requieren al menos 2 opciones");
       return;
     }
+    const fatalOptionQuestionWithoutRules = questions.some((question) => {
+      if (!question.fatal || !isOptionQuestion(question.type)) return false;
+      const validFatalOptions = getValidFatalOptions(question.fatalOptions, question.options);
+      return validFatalOptions.length === 0;
+    });
+    if (fatalOptionQuestionWithoutRules) {
+      toast.error("Selecciona al menos una opcion fatal en preguntas criticas");
+      return;
+    }
     if (questions.some((question) => question.type === "RATING") && ratingWeightTotal !== 100) {
       toast.error("Los pesos de preguntas rating deben sumar 100%");
       return;
@@ -224,6 +232,10 @@ export function FormBuilder({
           options:
             q.options.length > 0
               ? q.options.map((option) => option.trim()).filter(Boolean)
+              : undefined,
+          fatalOptions:
+            q.fatal && isOptionQuestion(q.type)
+              ? getValidFatalOptions(q.fatalOptions, q.options)
               : undefined,
           required: q.required,
           qaCategoryId: q.qaCategoryId,
@@ -265,9 +277,7 @@ export function FormBuilder({
             )}
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={editingPublished ? "default" : "secondary"}>
-                  {statusText}
-                </Badge>
+                <Badge variant={editingPublished ? "default" : "secondary"}>{statusText}</Badge>
                 <Badge variant="outline">v{initialData.version}</Badge>
               </div>
               {editingPublished && (
@@ -308,10 +318,7 @@ export function FormBuilder({
                   <SelectValue placeholder="Seleccionar campana">
                     {(value: string | null) => {
                       if (!value) return "Seleccionar campana";
-                      return (
-                        campaigns.find((c) => c.id === value)?.name ??
-                        "Seleccionar campana"
-                      );
+                      return campaigns.find((c) => c.id === value)?.name ?? "Seleccionar campana";
                     }}
                   </SelectValue>
                 </SelectTrigger>
@@ -340,9 +347,7 @@ export function FormBuilder({
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-lg font-medium">
-                  Preguntas ({questions.length})
-                </h3>
+                <h3 className="text-lg font-medium">Preguntas ({questions.length})</h3>
                 <p className="text-sm text-muted-foreground">
                   Peso rating: {ratingWeightTotal}% de 100%
                 </p>
@@ -400,4 +405,17 @@ export function FormBuilder({
       </Tabs>
     </div>
   );
+}
+
+function isOptionQuestion(type: QuestionType) {
+  return type === "SELECT" || type === "RADIO";
+}
+
+function normalizeOptions(options: string[]) {
+  return Array.from(new Set(options.map((option) => option.trim()).filter(Boolean)));
+}
+
+function getValidFatalOptions(fatalOptions: string[], options: string[]) {
+  const optionSet = new Set(normalizeOptions(options));
+  return normalizeOptions(fatalOptions).filter((option) => optionSet.has(option));
 }

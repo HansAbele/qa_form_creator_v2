@@ -25,7 +25,10 @@ const submitResponseSchema = z
         z
           .object({
             questionId: z.string().trim().min(1),
-            value: z.string().max(MAX_ANSWER_LENGTH).transform((value) => value.trim()),
+            value: z
+              .string()
+              .max(MAX_ANSWER_LENGTH)
+              .transform((value) => value.trim()),
             comment: z
               .string()
               .max(MAX_ANSWER_LENGTH)
@@ -88,6 +91,7 @@ export async function getResponseById(id: string) {
               options: true,
               weight: true,
               fatal: true,
+              fatalOptions: true,
               requiresCommentOnFail: true,
               formCategory: {
                 select: {
@@ -169,10 +173,11 @@ function getRatingScore(value: string) {
   return (numericValue / 5) * 100;
 }
 
-function isFailedRating(
-  question: { type: QuestionType },
-  value: string,
-) {
+function isFailedAnswer(question: { type: QuestionType; fatalOptions?: unknown }, value: string) {
+  if (!value) return false;
+  if (question.type === "SELECT" || question.type === "RADIO") {
+    return getQuestionOptions(question.fatalOptions).includes(value);
+  }
   if (question.type !== "RATING") return false;
   const ratingScore = getRatingScore(value);
   return ratingScore !== null && ratingScore < 100;
@@ -184,10 +189,7 @@ function calculateResponseScore(
 ) {
   if (ratingQuestions.length === 0) return 0;
 
-  const totalWeight = ratingQuestions.reduce(
-    (sum, question) => sum + question.weight,
-    0,
-  );
+  const totalWeight = ratingQuestions.reduce((sum, question) => sum + question.weight, 0);
 
   if (totalWeight > 0) {
     return ratingQuestions.reduce((sum, question) => {
@@ -267,16 +269,14 @@ export async function submitResponse(data: unknown) {
 
     if (
       question.requiresCommentOnFail &&
-      isFailedRating(question, answer.value) &&
+      isFailedAnswer(question, answer.value) &&
       !answer.comment
     ) {
       throw new Error("Hay preguntas que requieren comentario al fallar");
     }
 
-    const ratingScore =
-      question.type === "RATING" ? getRatingScore(answer.value) : null;
-    const isFatalFail =
-      question.fatal && isFailedRating(question, answer.value);
+    const ratingScore = question.type === "RATING" ? getRatingScore(answer.value) : null;
+    const isFatalFail = question.fatal && isFailedAnswer(question, answer.value);
 
     return {
       questionId: answer.questionId,

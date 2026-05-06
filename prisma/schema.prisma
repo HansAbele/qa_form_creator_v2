@@ -235,6 +235,7 @@ model Question {
   required              Boolean      @default(false)
   weight                Int          @default(0)
   fatal                 Boolean      @default(false)
+  fatalOptions          Json?
   requiresCommentOnFail Boolean      @default(false)
   order                 Int          @default(0)
 
