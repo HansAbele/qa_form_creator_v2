@@ -9,13 +9,27 @@ import { getCampaigns } from "@/server/actions/campaigns";
 import { getUsers } from "@/server/actions/users";
 import { SettingsClient } from "./settings-client";
 
+async function getProfileOrLogin() {
+  try {
+    return await getMyProfile();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "No autorizado" || error.message === "Usuario no encontrado")
+    ) {
+      redirect("/login");
+    }
+    throw error;
+  }
+}
+
 export default async function SettingsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const isAdmin = session.user.role === "ADMIN";
-  const [profile, settings, users, campaigns] = await Promise.all([
-    getMyProfile(),
+  const profile = await getProfileOrLogin();
+  const isAdmin = profile.role === "ADMIN";
+  const [settings, users, campaigns] = await Promise.all([
     readSettings(),
     isAdmin ? getUsers() : Promise.resolve([]),
     isAdmin ? getCampaigns() : Promise.resolve([]),

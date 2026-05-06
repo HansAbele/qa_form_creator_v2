@@ -39,12 +39,21 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  if (session.user.role === "ADMIN") {
+  const user = await prisma.user.findFirst({
+    where: { id: session.user.id, active: true },
+    select: { id: true, role: true },
+  });
+
+  if (!user) {
+    return toUiAccess(false, NO_CAMPAIGN_PERMISSIONS);
+  }
+
+  if (user.role === "ADMIN") {
     return toUiAccess(true, ALL_CAMPAIGN_PERMISSIONS);
   }
 
   const campaignAccess = await prisma.userCampaign.findMany({
-    where: { userId: session.user.id },
+    where: { userId: user.id },
     select: {
       canViewDashboard: true,
       canViewKPIs: true,
