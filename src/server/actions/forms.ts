@@ -65,7 +65,19 @@ export async function getFormByIdForPermission(
       questions: {
         orderBy: { order: "asc" },
         include: {
-          formCategory: { select: { qaCategoryId: true } },
+          formCategory: {
+            select: {
+              qaCategoryId: true,
+              qaCategory: {
+                select: {
+                  id: true,
+                  name: true,
+                  canBeFatal: true,
+                  requiresCommentOnFail: true,
+                },
+              },
+            },
+          },
         },
       },
     },
