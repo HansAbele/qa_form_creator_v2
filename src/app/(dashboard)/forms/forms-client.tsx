@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Archive, FileText, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { archiveForm, deleteForm, publishForm } from "@/server/actions/forms";
+import { cn } from "@/lib/utils";
 
 interface FormItem {
   id: string;
@@ -87,10 +88,10 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Formularios</h1>
         {canCreate && (
-          <Button render={<Link href="/forms/new" />}>
+          <Link href="/forms/new" className={cn(buttonVariants())}>
             <Plus className="mr-1 h-4 w-4" />
             Nuevo formulario
-          </Button>
+          </Link>
         )}
       </div>
 
@@ -127,9 +128,12 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
                 </div>
                 <div className="mt-4 flex gap-2">
                   {form.canEvaluate && form.status === "PUBLISHED" && (
-                    <Button render={<Link href={`/forms/${form.id}`} />} variant="outline" size="sm" className="flex-1">
+                    <Link
+                      href={`/forms/${form.id}`}
+                      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "flex-1")}
+                    >
                       Evaluar
-                    </Button>
+                    </Link>
                   )}
                   {form.canEdit && (
                     <>
@@ -144,9 +148,13 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
                           Publicar
                         </Button>
                       )}
-                      <Button render={<Link href={`/forms/${form.id}/edit`} />} variant="ghost" size="icon-sm">
+                      <Link
+                        href={`/forms/${form.id}/edit`}
+                        aria-label={`Editar ${form.title}`}
+                        className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
+                      >
                         <Pencil className="h-4 w-4" />
-                      </Button>
+                      </Link>
                       {form.status === "PUBLISHED" ? (
                         <Button
                           variant="ghost"
