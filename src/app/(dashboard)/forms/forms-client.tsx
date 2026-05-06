@@ -3,17 +3,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, FileText, Pencil, Trash2 } from "lucide-react";
+import { Archive, FileText, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { deleteForm } from "@/server/actions/forms";
+import { archiveForm, deleteForm, publishForm } from "@/server/actions/forms";
 
 interface FormItem {
   id: string;
   title: string;
   description: string | null;
   campaignName: string;
+  status: string;
+  version: string;
+  publishedAt: string | null;
   questionCount: number;
   responseCount: number;
   createdAt: string;
@@ -29,6 +32,23 @@ interface FormsListClientProps {
 export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
   const router = useRouter();
 
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case "PUBLISHED":
+        return "Publicado";
+      case "ARCHIVED":
+        return "Archivado";
+      default:
+        return "Borrador";
+    }
+  };
+
+  const statusVariant = (status: string): "default" | "secondary" | "outline" => {
+    if (status === "PUBLISHED") return "default";
+    if (status === "ARCHIVED") return "outline";
+    return "secondary";
+  };
+
   const handleDelete = async (id: string, title: string) => {
     if (!confirm(`¿Estás seguro de eliminar "${title}"?`)) return;
     try {
@@ -37,6 +57,28 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al eliminar");
+    }
+  };
+
+  const handlePublish = async (id: string, title: string) => {
+    if (!confirm(`Publicar "${title}" para evaluaciones?`)) return;
+    try {
+      await publishForm(id);
+      toast.success("Formulario publicado");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al publicar");
+    }
+  };
+
+  const handleArchive = async (id: string, title: string) => {
+    if (!confirm(`Archivar "${title}" y retirarlo de evaluaciones futuras?`)) return;
+    try {
+      await archiveForm(id);
+      toast.success("Formulario archivado");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al archivar");
     }
   };
 
@@ -66,7 +108,11 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <CardTitle className="text-base">{form.title}</CardTitle>
-                  <Badge variant="secondary">{form.campaignName}</Badge>
+                  <Badge variant={statusVariant(form.status)}>{statusLabel(form.status)}</Badge>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{form.campaignName}</Badge>
+                  <Badge variant="outline">v{form.version}</Badge>
                 </div>
                 {form.description && (
                   <p className="text-sm text-muted-foreground line-clamp-2">
@@ -80,23 +126,44 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
                   <span>{form.responseCount} evaluaciones</span>
                 </div>
                 <div className="mt-4 flex gap-2">
-                  {form.canEvaluate && (
+                  {form.canEvaluate && form.status === "PUBLISHED" && (
                     <Button render={<Link href={`/forms/${form.id}`} />} variant="outline" size="sm" className="flex-1">
                       Evaluar
                     </Button>
                   )}
                   {form.canEdit && (
                     <>
+                      {form.status === "DRAFT" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handlePublish(form.id, form.title)}
+                        >
+                          <Send className="mr-1 h-3.5 w-3.5" />
+                          Publicar
+                        </Button>
+                      )}
                       <Button render={<Link href={`/forms/${form.id}/edit`} />} variant="ghost" size="icon-sm">
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => handleDelete(form.id, form.title)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      {form.status === "PUBLISHED" ? (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => handleArchive(form.id, form.title)}
+                        >
+                          <Archive className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => handleDelete(form.id, form.title)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
                     </>
                   )}
                 </div>

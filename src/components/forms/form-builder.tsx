@@ -17,8 +17,9 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Plus } from "lucide-react";
+import { AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,6 +58,10 @@ interface FormBuilderProps {
     title: string;
     description: string | null;
     campaignId: string;
+    status: string;
+    version: string;
+    publishedAt: Date | null;
+    parentFormId: string | null;
     questions: {
       id: string;
       type: QuestionType;
@@ -102,6 +107,13 @@ export function FormBuilder({
       requiresCommentOnFail: q.requiresCommentOnFail,
     })) ?? [],
   );
+  const editingPublished = initialData?.status === "PUBLISHED";
+  const statusText =
+    initialData?.status === "PUBLISHED"
+      ? "Publicado"
+      : initialData?.status === "ARCHIVED"
+        ? "Archivado"
+        : "Borrador";
 
   const ratingWeightTotal = questions.reduce(
     (sum, question) => sum + (question.type === "RATING" ? question.weight : 0),
@@ -222,7 +234,13 @@ export function FormBuilder({
       };
 
       if (initialData) {
-        await updateForm(initialData.id, formData);
+        const savedForm = await updateForm(initialData.id, formData);
+        if (editingPublished && savedForm.id !== initialData.id) {
+          toast.success(`Borrador v${savedForm.version} creado`);
+          router.push(`/forms/${savedForm.id}/edit`);
+          router.refresh();
+          return;
+        }
         toast.success("Formulario actualizado");
       } else {
         await createForm(formData);
@@ -239,6 +257,29 @@ export function FormBuilder({
 
   return (
     <div className="space-y-6">
+      {initialData && (
+        <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            {editingPublished && (
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            )}
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={editingPublished ? "default" : "secondary"}>
+                  {statusText}
+                </Badge>
+                <Badge variant="outline">v{initialData.version}</Badge>
+              </div>
+              {editingPublished && (
+                <p className="text-sm text-muted-foreground">
+                  Guardar cambios crea un borrador de nueva version sin alterar la version
+                  publicada.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <Tabs defaultValue="editor">
         <TabsList>
           <TabsTrigger value="editor">Editor</TabsTrigger>
@@ -258,7 +299,11 @@ export function FormBuilder({
             </div>
             <div className="space-y-2">
               <Label htmlFor="campaign">Campana</Label>
-              <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
+              <Select
+                value={campaignId}
+                onValueChange={(v) => v && setCampaignId(v)}
+                disabled={editingPublished}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Seleccionar campana">
                     {(value: string | null) => {

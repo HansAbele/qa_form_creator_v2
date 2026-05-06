@@ -205,6 +205,7 @@ model Form {
   description String?
   campaignId  String
   createdById String
+  parentFormId String?
   status      String   @default("DRAFT")
   version     String   @default("1.0.0")
   publishedAt DateTime?
@@ -214,9 +215,14 @@ model Form {
 
   campaign  Campaign   @relation(fields: [campaignId], references: [id])
   createdBy User       @relation("FormCreator", fields: [createdById], references: [id])
+  parent    Form?      @relation("FormRevisions", fields: [parentFormId], references: [id], onDelete: SetNull)
+  revisions Form[]     @relation("FormRevisions")
   categories FormCategory[]
   questions Question[]
   responses Response[]
+
+  @@index([parentFormId])
+  @@index([status])
 }
 
 model Question {
