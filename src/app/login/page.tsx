@@ -4,8 +4,8 @@ import { signIn } from "next-auth/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useTheme } from "next-themes";
 import { Moon, Sun, User, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
 // ─── Time-based greeting ─────────────────────────────────

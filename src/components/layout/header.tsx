@@ -2,8 +2,8 @@
 
 import { signOut, useSession } from "next-auth/react";
 import { LogOut, Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
 export function Header() {
