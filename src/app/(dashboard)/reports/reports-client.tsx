@@ -32,7 +32,18 @@ interface ReportResponse {
   evaluatorName: string;
   score: number;
   createdAt: string;
-  answers: { question: string; questionType: string; value: string }[];
+  answers: {
+    question: string;
+    questionType: string;
+    value: string;
+    category: { id: string; name: string; color: string | null; icon: string | null } | null;
+    score: number | null;
+    comment: string | null;
+    isFatalFail: boolean;
+    questionWeight: number;
+    fatal: boolean;
+    requiresCommentOnFail: boolean;
+  }[];
 }
 
 interface ReportsClientProps {
@@ -284,10 +295,48 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
                 <p className="text-sm font-medium">Respuestas</p>
                 {selectedResponse.answers.map((a) => (
                   <div key={`${a.question}-${a.value}`} className="rounded-lg border p-3 text-sm">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap gap-1">
+                        {a.category && (
+                          <Badge variant="outline" className="gap-1.5 text-xs">
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ backgroundColor: a.category.color ?? "#ff6600" }}
+                            />
+                            {a.category.name}
+                          </Badge>
+                        )}
+                        {a.questionWeight > 0 && (
+                          <Badge variant="outline" className="text-xs">
+                            Peso {a.questionWeight}%
+                          </Badge>
+                        )}
+                        {a.fatal && (
+                          <Badge variant="destructive" className="text-xs">
+                            Fatal
+                          </Badge>
+                        )}
+                      </div>
+                      {a.score !== null && (
+                        <Badge
+                          variant={
+                            a.isFatalFail ? "destructive" : a.score >= 70 ? "default" : "secondary"
+                          }
+                          className="tabular-nums"
+                        >
+                          {a.score.toFixed(1)}%
+                        </Badge>
+                      )}
+                    </div>
                     <p className="font-medium">{a.question}</p>
                     <p className="text-muted-foreground">
                       {a.questionType === "RATING" ? `${a.value}/5 ★` : a.value}
                     </p>
+                    {a.comment && (
+                      <p className="mt-2 whitespace-pre-wrap border-l-2 border-orange-500/50 pl-2 text-xs text-muted-foreground">
+                        {a.comment}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

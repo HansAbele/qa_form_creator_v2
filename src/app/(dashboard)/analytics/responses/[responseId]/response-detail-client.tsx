@@ -33,6 +33,13 @@ interface Answer {
   questionLabel: string;
   questionType: string;
   value: string;
+  category: { id: string; name: string; color: string | null; icon: string | null } | null;
+  score: number | null;
+  comment: string | null;
+  isFatalFail: boolean;
+  questionWeight: number;
+  fatal: boolean;
+  requiresCommentOnFail: boolean;
 }
 
 interface ResponseDetailData {
@@ -281,16 +288,50 @@ export function ResponseDetailClient({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[50%]">Pregunta</TableHead>
+                  <TableHead className="w-[38%]">Pregunta</TableHead>
+                  <TableHead>Categoria QA</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Respuesta</TableHead>
+                  <TableHead className="text-right">Score QA</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.answers.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell className="align-top font-medium">
-                      {a.questionLabel}
+                      <div className="space-y-1">
+                        <p>{a.questionLabel}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {a.questionWeight > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              Peso {a.questionWeight}%
+                            </Badge>
+                          )}
+                          {a.fatal && (
+                            <Badge variant="destructive" className="text-xs">
+                              Fatal
+                            </Badge>
+                          )}
+                          {a.requiresCommentOnFail && (
+                            <Badge variant="secondary" className="text-xs">
+                              Comentario si falla
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top text-muted-foreground">
+                      {a.category ? (
+                        <Badge variant="outline" className="gap-1.5 text-xs">
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: a.category.color ?? "#ff6600" }}
+                          />
+                          {a.category.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Sin categoria</span>
+                      )}
                     </TableCell>
                     <TableCell className="align-top text-muted-foreground">
                       <Badge variant="outline" className="text-xs">
@@ -315,6 +356,23 @@ export function ResponseDetailClient({
                         <span className="whitespace-pre-wrap text-sm">
                           {a.value || <span className="text-muted-foreground italic">—</span>}
                         </span>
+                      )}
+                      {a.comment && (
+                        <p className="mt-2 whitespace-pre-wrap border-l-2 border-orange-500/50 pl-2 text-xs text-muted-foreground">
+                          {a.comment}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top text-right">
+                      {a.score !== null ? (
+                        <Badge
+                          variant={a.isFatalFail ? "destructive" : scoreBadgeVariant(a.score)}
+                          className="tabular-nums"
+                        >
+                          {a.score.toFixed(1)}%
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">N/A</span>
                       )}
                     </TableCell>
                   </TableRow>

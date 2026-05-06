@@ -62,6 +62,9 @@ export const prismaMock = {
     count: vi.fn(),
     create: vi.fn(),
   },
+  answer: {
+    findMany: vi.fn(),
+  },
   appSetting: {
     findMany: vi.fn(),
     upsert: vi.fn(),
