@@ -68,7 +68,7 @@ Se agrego Vitest y mocks controlados:
 
 Ultimo resultado conocido:
 
-- `pnpm test -- --run`: 8 archivos, 26 tests pasando.
+- `pnpm test -- --run`: 9 archivos, 29 tests pasando.
 - `pnpm lint -- --max-diagnostics 120`: limpio.
 - `pnpm build`: correcto.
 - `pnpm exec prisma validate`: schema valido.
@@ -162,6 +162,16 @@ Builder de formularios:
 - Las preguntas permiten flags de falla fatal y comentario requerido segun categoria.
 - `src/server/actions/forms.ts` valida categorias QA activas, persistencia de `FormCategory`, `Question.weight`, `Question.fatal` y `Question.requiresCommentOnFail`.
 
+Versionado/publicacion de formularios:
+
+- `prisma/migrations/20260506093000_add_form_revision_parent/` agrega `Form.parentFormId`, indices por parent/status y backfill para que formularios existentes queden `PUBLISHED`.
+- Formularios nuevos quedan como `DRAFT`; solo formularios `PUBLISHED` se pueden evaluar.
+- Editar un formulario `PUBLISHED` crea un borrador de nueva version (`1.0.0` -> `1.1.0`) sin borrar preguntas ni alterar la version publicada.
+- Publicar un borrador archiva la version publicada anterior dentro de la misma familia de revisiones.
+- `src/app/(dashboard)/forms/forms-client.tsx` muestra estado/version y acciones de publicar/archivar/eliminar segun estado.
+- `src/components/forms/form-builder.tsx` avisa cuando guardar un publicado creara un borrador de nueva version.
+- Tests agregados en `src/server/actions/forms.test.ts`: editar publicado crea draft, publicar archiva anterior y borradores no son evaluables.
+
 Evaluaciones:
 
 - `src/components/forms/form-viewer.tsx` muestra score estimado, peso configurado, fallas fatales y comentarios requeridos pendientes.
@@ -180,8 +190,8 @@ Analytics/reportes por categoria QA:
 
 Pendiente:
 
-- versionado real al editar publicados
 - validar visualmente analytics/reportes por categoria QA con datos reales
+- validar visualmente publicar/archivar/versionar formularios con datos reales
 - exportes enriquecidos por categoria QA si se decide llevar el mismo detalle a CSV/XLSX
 - reglas fatales para preguntas no-rating si se define una semantica de fallo para opciones
 
@@ -242,7 +252,7 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 
 ### Prioridad 3 - funcionalidades QA profundas
 
-- Completar formularios por categorias QA: versionado real, publicacion, validacion de publicados y migracion segura para formularios existentes.
+- Completar formularios por categorias QA: versionado/publicacion/validacion de publicados implementado; falta validacion visual con datos reales y refinamientos de flujo si aparecen.
 - Completar evaluaciones por categorias: primer corte de score/reportes/analytics por categoria ya implementado; falta validacion visual con datos reales y exportes detallados si aplican.
 - Reglas fatales para preguntas select/radio cuando exista una definicion explicita de respuesta fallida.
 - Dashboard/KPIs con categorias criticas: primer corte visible en `/kpis`; falta calibrar visualmente con datos reales.
@@ -267,4 +277,4 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 
 ## Frase sugerida para iniciar nueva conversacion
 
-Lee `docs/handoff/current-conversation-context-2026-05-05.md`, `docs/plans/qa-settings-critical-changes-plan.md` y `docs/plans/qore-integral-improvements-adjusted-proposal.md`. Continuemos desde el estado actual: validar Configuracion y analytics QA en navegador, revisar scripts legacy restantes y seguir con versionado/publicacion de formularios.
+Lee `docs/handoff/current-conversation-context-2026-05-05.md`, `docs/plans/qa-settings-critical-changes-plan.md` y `docs/plans/qore-integral-improvements-adjusted-proposal.md`. Continuemos desde el estado actual: validar Configuracion, analytics QA y versionado/publicacion de formularios en navegador, revisar scripts legacy restantes y seguir con exportes QA o reglas fatales no-rating.

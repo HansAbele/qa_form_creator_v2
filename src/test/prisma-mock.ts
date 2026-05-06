@@ -50,12 +50,22 @@ export const prismaMock = {
   form: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
+    findUniqueOrThrow: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
     delete: vi.fn(),
   },
   question: {
+    createMany: vi.fn(),
     deleteMany: vi.fn(),
+  },
+  formCategory: {
+    create: vi.fn(),
+    deleteMany: vi.fn(),
+  },
+  qACategory: {
+    findMany: vi.fn(),
   },
   response: {
     findMany: vi.fn(),
