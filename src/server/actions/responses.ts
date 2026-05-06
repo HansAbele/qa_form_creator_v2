@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { getPassThresholdForCampaign } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
 import {
   assertCampaignPermissionForUser,
@@ -25,6 +26,11 @@ const submitResponseSchema = z
           .object({
             questionId: z.string().trim().min(1),
             value: z.string().max(MAX_ANSWER_LENGTH).transform((value) => value.trim()),
+            comment: z
+              .string()
+              .max(MAX_ANSWER_LENGTH)
+              .optional()
+              .transform((value) => value?.trim() ?? ""),
           })
           .strict(),
       )
@@ -75,7 +81,22 @@ export async function getResponseById(id: string) {
       disposition: { select: { id: true, name: true, code: true } },
       answers: {
         include: {
-          question: { select: { label: true, type: true, options: true } },
+          question: {
+            select: {
+              label: true,
+              type: true,
+              options: true,
+              weight: true,
+              fatal: true,
+              requiresCommentOnFail: true,
+              formCategory: {
+                select: {
+                  qaCategory: { select: { id: true, name: true } },
+                },
+              },
+            },
+          },
+          category: { select: { id: true, name: true } },
         },
       },
     },
@@ -140,6 +161,49 @@ function validateAnswerValue(
   }
 }
 
+function getRatingScore(value: string) {
+  const numericValue = Number(value);
+  if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > 5) {
+    return null;
+  }
+  return (numericValue / 5) * 100;
+}
+
+function isFailedRating(
+  question: { type: QuestionType },
+  value: string,
+) {
+  if (question.type !== "RATING") return false;
+  const ratingScore = getRatingScore(value);
+  return ratingScore !== null && ratingScore < 100;
+}
+
+function calculateResponseScore(
+  ratingQuestions: { id: string; weight: number }[],
+  answersByQuestionId: Map<string, string>,
+) {
+  if (ratingQuestions.length === 0) return 0;
+
+  const totalWeight = ratingQuestions.reduce(
+    (sum, question) => sum + question.weight,
+    0,
+  );
+
+  if (totalWeight > 0) {
+    return ratingQuestions.reduce((sum, question) => {
+      const ratingScore = getRatingScore(answersByQuestionId.get(question.id) ?? "") ?? 0;
+      return sum + ratingScore * (question.weight / totalWeight);
+    }, 0);
+  }
+
+  const totalValue = ratingQuestions.reduce(
+    (sum, question) => sum + (Number(answersByQuestionId.get(question.id)) || 0),
+    0,
+  );
+  const maxPossible = ratingQuestions.length * 5;
+  return (totalValue / maxPossible) * 100;
+}
+
 export async function submitResponse(data: unknown) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
@@ -147,7 +211,18 @@ export async function submitResponse(data: unknown) {
 
   const form = await prisma.form.findUnique({
     where: { id: input.formId },
-    include: { questions: { orderBy: { order: "asc" } } },
+    include: {
+      questions: {
+        orderBy: { order: "asc" },
+        include: {
+          formCategory: {
+            select: {
+              qaCategoryId: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!form) throw new Error("Formulario no encontrado");
@@ -190,7 +265,27 @@ export async function submitResponse(data: unknown) {
     validateAnswerValue(question, answer.value);
     seenQuestionIds.add(answer.questionId);
 
-    return { questionId: answer.questionId, value: answer.value };
+    if (
+      question.requiresCommentOnFail &&
+      isFailedRating(question, answer.value) &&
+      !answer.comment
+    ) {
+      throw new Error("Hay preguntas que requieren comentario al fallar");
+    }
+
+    const ratingScore =
+      question.type === "RATING" ? getRatingScore(answer.value) : null;
+    const isFatalFail =
+      question.fatal && isFailedRating(question, answer.value);
+
+    return {
+      questionId: answer.questionId,
+      value: answer.value,
+      comment: answer.comment || undefined,
+      categoryId: question.formCategory?.qaCategoryId ?? undefined,
+      score: ratingScore ?? undefined,
+      isFatalFail,
+    };
   });
 
   for (const question of form.questions) {
@@ -199,17 +294,13 @@ export async function submitResponse(data: unknown) {
   }
 
   const ratingQuestions = form.questions.filter((q) => q.type === "RATING");
-  let score = 0;
-
-  if (ratingQuestions.length > 0) {
-    const answersByQuestionId = new Map(sanitizedAnswers.map((answer) => [answer.questionId, answer.value]));
-    const totalValue = ratingQuestions.reduce(
-      (sum, question) => sum + (Number(answersByQuestionId.get(question.id)) || 0),
-      0,
-    );
-    const maxPossible = ratingQuestions.length * 5;
-    score = (totalValue / maxPossible) * 100;
-  }
+  const answersByQuestionId = new Map(
+    sanitizedAnswers.map((answer) => [answer.questionId, answer.value]),
+  );
+  const score = calculateResponseScore(ratingQuestions, answersByQuestionId);
+  const hasFatalFail = sanitizedAnswers.some((answer) => answer.isFatalFail);
+  const passThreshold = await getPassThresholdForCampaign(form.campaignId);
+  const result = hasFatalFail || score < passThreshold ? "FAIL" : "PASS";
 
   const response = await prisma.$transaction(async (tx) => {
     const newResponse = await tx.response.create({
@@ -219,10 +310,17 @@ export async function submitResponse(data: unknown) {
         evaluatorId: session.user.id,
         dispositionId: input.dispositionId,
         score,
+        formVersion: form.version,
+        result,
+        hasFatalFail,
         answers: {
           create: sanitizedAnswers.map((a) => ({
             questionId: a.questionId,
             value: a.value,
+            categoryId: a.categoryId,
+            score: a.score,
+            comment: a.comment,
+            isFatalFail: a.isFatalFail,
           })),
         },
       },
@@ -244,7 +342,10 @@ export async function submitResponse(data: unknown) {
       agentId: input.agentId,
       dispositionId: input.dispositionId,
       score,
+      result,
+      hasFatalFail,
       answerCount: sanitizedAnswers.length,
+      fatalAnswerCount: sanitizedAnswers.filter((answer) => answer.isFatalFail).length,
     },
     impact: "Nueva evaluacion incluida en Dashboard, KPIs, reportes y exportaciones.",
   });

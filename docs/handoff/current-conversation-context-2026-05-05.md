@@ -162,13 +162,20 @@ Builder de formularios:
 - Las preguntas permiten flags de falla fatal y comentario requerido segun categoria.
 - `src/server/actions/forms.ts` valida categorias QA activas, persistencia de `FormCategory`, `Question.weight`, `Question.fatal` y `Question.requiresCommentOnFail`.
 
+Evaluaciones:
+
+- `src/components/forms/form-viewer.tsx` muestra score estimado, peso configurado, fallas fatales y comentarios requeridos pendientes.
+- `src/components/forms/question-renderer.tsx` muestra badges de categoria/peso/fatal/comentario y captura comentarios QA por pregunta.
+- `src/server/actions/responses.ts` calcula score ponderado cuando hay pesos, mantiene fallback de promedio simple para formularios antiguos sin pesos, guarda `formVersion`, `result`, `hasFatalFail`, `Answer.categoryId`, `Answer.score`, `Answer.comment` y `Answer.isFatalFail`.
+- El servidor exige comentario cuando una pregunta `RATING` marcada como `requiresCommentOnFail` falla. En esta primera regla, una pregunta rating falla cuando no obtiene 5/5.
+- Tests ampliados en `src/server/actions/responses.test.ts`: 22 tests totales pasando, con cobertura de score ponderado, metadata de respuestas, fatal fail y comentario obligatorio.
+
 Pendiente:
 
 - versionado real al editar publicados
-- UI de evaluacion por categorias
-- score ponderado en `submitResponse`
 - score por categoria
-- fallas fatales y comentarios obligatorios en servidor
+- analytics/reportes por categoria QA
+- reglas fatales para preguntas no-rating si se define una semantica de fallo para opciones
 
 ### Arranque local y sesiones
 
@@ -211,7 +218,7 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 ### Prioridad 1 - limpieza visible
 
 - Validar Configuracion en navegador y ajustar detalles responsive/espaciado si aparecen.
-- Validar el nuevo builder de Formularios con categorias QA, pesos y flags.
+- Validar el nuevo builder y flujo de evaluacion con categorias QA, pesos, flags y comentarios.
 - Mantener UI seria, compacta y operativa al completar controles persistidos.
 
 ### Prioridad 2 - produccion segura
@@ -228,9 +235,8 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 ### Prioridad 3 - funcionalidades QA profundas
 
 - Completar formularios por categorias QA: versionado real, publicacion, validacion de publicados y migracion segura para formularios existentes.
-- Evaluaciones por categorias con resumen sticky.
-- Scoring ponderado por categoria/pregunta.
-- Reglas fatales.
+- Completar evaluaciones por categorias: score por categoria y reportes/analytics por categoria.
+- Reglas fatales para preguntas select/radio cuando exista una definicion explicita de respuesta fallida.
 - Dashboard/KPIs con categorias criticas.
 - Coaching accionable.
 - Notificaciones operativas.

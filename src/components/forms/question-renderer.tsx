@@ -1,10 +1,17 @@
 "use client";
 
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Star } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { QuestionType } from "@prisma/client";
 
@@ -15,21 +22,63 @@ interface QuestionRendererProps {
     label: string;
     options: unknown;
     required: boolean;
+    weight: number;
+    fatal: boolean;
+    requiresCommentOnFail: boolean;
+    formCategory?: {
+      qaCategory?: {
+        name: string;
+      } | null;
+    } | null;
   };
   value: string;
   onChange: (value: string) => void;
+  comment?: string;
+  onCommentChange?: (value: string) => void;
   error?: string;
+  commentError?: string;
 }
 
-export function QuestionRenderer({ question, value, onChange, error }: QuestionRendererProps) {
+export function QuestionRenderer({
+  question,
+  value,
+  onChange,
+  comment = "",
+  onCommentChange,
+  error,
+  commentError,
+}: QuestionRendererProps) {
   const options = Array.isArray(question.options) ? (question.options as string[]) : [];
+  const showComment = question.fatal || question.requiresCommentOnFail;
 
   return (
-    <div className="space-y-2">
-      <Label>
-        {question.label}
-        {question.required && <span className="ml-1 text-destructive">*</span>}
-      </Label>
+    <div className="space-y-3 rounded-md border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Label>
+          {question.label}
+          {question.required && <span className="ml-1 text-destructive">*</span>}
+        </Label>
+        {question.formCategory?.qaCategory?.name && (
+          <Badge variant="secondary" className="text-xs">
+            {question.formCategory.qaCategory.name}
+          </Badge>
+        )}
+        {question.type === "RATING" && question.weight > 0 && (
+          <Badge variant="outline" className="text-xs">
+            Peso {question.weight}%
+          </Badge>
+        )}
+        {question.fatal && (
+          <Badge variant="destructive" className="text-xs">
+            Fatal
+          </Badge>
+        )}
+        {question.requiresCommentOnFail && (
+          <Badge variant="outline" className="text-xs">
+            Comentario si falla
+          </Badge>
+        )}
+      </div>
 
       {question.type === "TEXT" && (
         <Textarea
@@ -97,6 +146,20 @@ export function QuestionRenderer({ question, value, onChange, error }: QuestionR
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {showComment && (
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Comentario QA</Label>
+          <Textarea
+            placeholder="Agrega contexto para esta regla..."
+            value={comment}
+            onChange={(event) => onCommentChange?.(event.target.value)}
+            rows={2}
+            className="resize-none"
+          />
+          {commentError && <p className="text-sm text-destructive">{commentError}</p>}
+        </div>
+      )}
     </div>
   );
 }

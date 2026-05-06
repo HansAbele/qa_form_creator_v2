@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prismaMock, resetPrismaMock } from "@/test/prisma-mock";
 
-const { authMock, revalidatePathMock } = vi.hoisted(() => ({
+const { authMock, getPassThresholdForCampaignMock, revalidatePathMock } = vi.hoisted(() => ({
   authMock: vi.fn(),
+  getPassThresholdForCampaignMock: vi.fn(),
   revalidatePathMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({
   auth: authMock,
+}));
+
+vi.mock("@/lib/settings", () => ({
+  getPassThresholdForCampaign: getPassThresholdForCampaignMock,
 }));
 
 vi.mock("@/lib/prisma", async () => {
@@ -32,6 +37,7 @@ function validForm() {
   return {
     id: "form-1",
     campaignId: "campaign-1",
+    version: "1.0.0",
     questions: [
       {
         id: "q-rating",
@@ -39,6 +45,12 @@ function validForm() {
         label: "Rating",
         required: true,
         options: null,
+        weight: 0,
+        fatal: false,
+        requiresCommentOnFail: false,
+        formCategory: {
+          qaCategoryId: "qa-soft-skills",
+        },
       },
       {
         id: "q-select",
@@ -46,6 +58,12 @@ function validForm() {
         label: "Disposition",
         required: true,
         options: ["Good", "Bad"],
+        weight: 0,
+        fatal: false,
+        requiresCommentOnFail: false,
+        formCategory: {
+          qaCategoryId: "qa-process",
+        },
       },
       {
         id: "q-comment",
@@ -53,6 +71,10 @@ function validForm() {
         label: "Comment",
         required: false,
         options: null,
+        weight: 0,
+        fatal: false,
+        requiresCommentOnFail: false,
+        formCategory: null,
       },
     ],
   };
@@ -62,8 +84,10 @@ describe("submitResponse validation and RBAC", () => {
   beforeEach(() => {
     resetPrismaMock();
     authMock.mockReset();
+    getPassThresholdForCampaignMock.mockReset();
     revalidatePathMock.mockReset();
     authMock.mockResolvedValue({ user: qaUser });
+    getPassThresholdForCampaignMock.mockResolvedValue(70);
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canEvaluate: true,
@@ -101,6 +125,9 @@ describe("submitResponse validation and RBAC", () => {
           agentId: "agent-1",
           evaluatorId: "qa-1",
           dispositionId: "disp-1",
+          formVersion: "1.0.0",
+          hasFatalFail: false,
+          result: "PASS",
         }),
       }),
     );
@@ -152,5 +179,150 @@ describe("submitResponse validation and RBAC", () => {
         ],
       }),
     ).rejects.toThrow("Respuesta duplicada para una pregunta");
+  });
+
+  it("calculates weighted rating score and stores answer metadata", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-resolution",
+          type: "RATING",
+          label: "Resolution",
+          required: true,
+          options: null,
+          weight: 80,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-resolution" },
+        },
+        {
+          id: "q-soft",
+          type: "RATING",
+          label: "Soft skills",
+          required: true,
+          options: null,
+          weight: 20,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-soft" },
+        },
+      ],
+    });
+
+    await submitResponse({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        { questionId: "q-resolution", value: "5" },
+        { questionId: "q-soft", value: "1" },
+      ],
+    });
+
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          score: 84,
+          result: "PASS",
+          answers: {
+            create: [
+              expect.objectContaining({
+                questionId: "q-resolution",
+                categoryId: "qa-resolution",
+                score: 100,
+                isFatalFail: false,
+              }),
+              expect.objectContaining({
+                questionId: "q-soft",
+                categoryId: "qa-soft",
+                score: 20,
+                isFatalFail: false,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+  });
+
+  it("marks fatal failed rating as FAIL regardless of score threshold", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-fatal",
+          type: "RATING",
+          label: "Compliance",
+          required: true,
+          options: null,
+          weight: 100,
+          fatal: true,
+          requiresCommentOnFail: true,
+          formCategory: { qaCategoryId: "qa-compliance" },
+        },
+      ],
+    });
+
+    await submitResponse({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        {
+          questionId: "q-fatal",
+          value: "4",
+          comment: "Missing required verification.",
+        },
+      ],
+    });
+
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          score: 80,
+          result: "FAIL",
+          hasFatalFail: true,
+          answers: {
+            create: [
+              expect.objectContaining({
+                questionId: "q-fatal",
+                categoryId: "qa-compliance",
+                comment: "Missing required verification.",
+                isFatalFail: true,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+  });
+
+  it("requires a comment when a comment-required rating fails", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-comment-required",
+          type: "RATING",
+          label: "Compliance",
+          required: true,
+          options: null,
+          weight: 100,
+          fatal: false,
+          requiresCommentOnFail: true,
+          formCategory: { qaCategoryId: "qa-compliance" },
+        },
+      ],
+    });
+
+    await expect(
+      submitResponse({
+        formId: "form-1",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        answers: [{ questionId: "q-comment-required", value: "4" }],
+      }),
+    ).rejects.toThrow("Hay preguntas que requieren comentario al fallar");
   });
 });
