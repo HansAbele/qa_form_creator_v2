@@ -9,10 +9,7 @@ import {
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
-import {
-  type FormMutationInput,
-  formMutationSchema,
-} from "@/types/form-builder";
+import { type FormMutationInput, formMutationSchema } from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 
 const FORM_STATUS = {
@@ -57,10 +54,7 @@ export async function getFormById(id: string) {
   return getFormByIdForPermission(id, "canViewForms");
 }
 
-export async function getFormByIdForPermission(
-  id: string,
-  permission: CampaignPermissionKey,
-) {
+export async function getFormByIdForPermission(id: string, permission: CampaignPermissionKey) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -155,10 +149,7 @@ export async function createForm(data: FormMutationInput) {
   return form;
 }
 
-export async function updateForm(
-  id: string,
-  data: FormMutationInput,
-) {
+export async function updateForm(id: string, data: FormMutationInput) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
   const input = await parseFormInput(data);
@@ -182,6 +173,7 @@ export async function updateForm(
           required: true,
           weight: true,
           fatal: true,
+          fatalOptions: true,
           requiresCommentOnFail: true,
           order: true,
           formCategory: {
@@ -294,7 +286,10 @@ export async function publishForm(id: string) {
         select: {
           id: true,
           type: true,
+          options: true,
           weight: true,
+          fatal: true,
+          fatalOptions: true,
           formCategoryId: true,
         },
       },
@@ -427,9 +422,7 @@ export async function deleteForm(id: string) {
 
   const responseCount = await prisma.response.count({ where: { formId: id } });
   if (responseCount > 0) {
-    throw new Error(
-      "No se puede eliminar un formulario que tiene evaluaciones registradas",
-    );
+    throw new Error("No se puede eliminar un formulario que tiene evaluaciones registradas");
   }
 
   await prisma.form.delete({ where: { id } });
@@ -455,7 +448,10 @@ type FormWriteTransaction = Omit<
 
 type PublishableQuestion = {
   type: QuestionType;
+  options: unknown;
   weight: number;
+  fatal: boolean;
+  fatalOptions: unknown;
   formCategoryId: string | null;
 };
 
@@ -477,13 +473,20 @@ function validatePublishableForm(questions: PublishableQuestion[]) {
     throw new Error("Todas las preguntas deben tener categoria QA antes de publicar");
   }
 
+  const invalidFatalOptionQuestion = questions.some((question) => {
+    if (!question.fatal || !isOptionQuestion(question.type)) return false;
+    const options = getStringOptions(question.options);
+    const fatalOptions = getStringOptions(question.fatalOptions);
+    return fatalOptions.length === 0 || fatalOptions.some((option) => !options.includes(option));
+  });
+  if (invalidFatalOptionQuestion) {
+    throw new Error("Selecciona al menos una opcion fatal valida antes de publicar");
+  }
+
   const ratingQuestions = questions.filter((question) => question.type === "RATING");
   if (ratingQuestions.length === 0) return;
 
-  const ratingWeightTotal = ratingQuestions.reduce(
-    (sum, question) => sum + question.weight,
-    0,
-  );
+  const ratingWeightTotal = ratingQuestions.reduce((sum, question) => sum + question.weight, 0);
   if (ratingWeightTotal !== 100) {
     throw new Error("Los pesos de preguntas rating deben sumar 100% antes de publicar");
   }
@@ -525,9 +528,12 @@ async function parseFormInput(data: unknown): Promise<FormMutationInput> {
       return {
         ...question,
         fatal: category?.canBeFatal ? question.fatal : false,
+        fatalOptions:
+          category?.canBeFatal && question.fatal && isOptionQuestion(question.type)
+            ? question.fatalOptions
+            : undefined,
         requiresCommentOnFail:
-          question.requiresCommentOnFail ||
-          Boolean(category?.requiresCommentOnFail),
+          question.requiresCommentOnFail || Boolean(category?.requiresCommentOnFail),
       };
     }),
   };
@@ -556,9 +562,7 @@ async function createFormQuestionStructure(
         qaCategoryId,
         weight,
         fatalIfFailed: categoryQuestions.some((question) => question.fatal),
-        requiresComment: categoryQuestions.some(
-          (question) => question.requiresCommentOnFail,
-        ),
+        requiresComment: categoryQuestions.some((question) => question.requiresCommentOnFail),
         sortOrder: categoryOrder.indexOf(qaCategoryId),
       },
       select: { id: true },
@@ -573,6 +577,10 @@ async function createFormQuestionStructure(
       type: question.type as QuestionType,
       label: question.label,
       options: question.options ?? undefined,
+      fatalOptions:
+        question.fatal && isOptionQuestion(question.type)
+          ? (question.fatalOptions ?? undefined)
+          : undefined,
       required: question.required,
       weight: question.type === "RATING" ? question.weight : 0,
       fatal: question.fatal,
@@ -580,4 +588,17 @@ async function createFormQuestionStructure(
       order: index,
     })),
   });
+}
+
+function isOptionQuestion(type: QuestionType) {
+  return type === "SELECT" || type === "RADIO";
+}
+
+function getStringOptions(options: unknown) {
+  return Array.isArray(options)
+    ? options
+        .filter((option): option is string => typeof option === "string")
+        .map((option) => option.trim())
+        .filter(Boolean)
+    : [];
 }

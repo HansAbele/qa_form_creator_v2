@@ -27,6 +27,7 @@ export interface QuestionData {
   qaCategoryId: string;
   weight: number;
   fatal: boolean;
+  fatalOptions: string[];
   requiresCommentOnFail: boolean;
 }
 
@@ -52,8 +53,9 @@ export function QuestionCard({
   onUpdate,
   onDelete,
 }: QuestionCardProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: question.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: question.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -62,9 +64,8 @@ export function QuestionCard({
   };
 
   const showOptions = question.type === "SELECT" || question.type === "RADIO";
-  const selectedCategory = qaCategories.find(
-    (category) => category.id === question.qaCategoryId,
-  );
+  const selectedCategory = qaCategories.find((category) => category.id === question.qaCategoryId);
+  const canConfigureFatalOptions = showOptions && question.fatal;
 
   return (
     <Card ref={setNodeRef} style={style} className="relative">
@@ -82,9 +83,7 @@ export function QuestionCard({
         <div className="flex-1 space-y-4">
           <div className="grid gap-3 lg:grid-cols-[auto_minmax(180px,220px)_minmax(220px,1fr)_120px] lg:items-end">
             <div className="flex items-center gap-2 pb-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                #{index + 1}
-              </span>
+              <span className="text-xs font-medium text-muted-foreground">#{index + 1}</span>
             </div>
 
             <div className="space-y-1.5">
@@ -97,6 +96,10 @@ export function QuestionCard({
                     ...question,
                     type: val as QuestionType,
                     weight: val === "RATING" ? question.weight : 0,
+                    fatalOptions:
+                      val === "SELECT" || val === "RADIO"
+                        ? getValidFatalOptions(question.fatalOptions, question.options)
+                        : [],
                   });
                 }}
               >
@@ -129,9 +132,11 @@ export function QuestionCard({
                     ...question,
                     qaCategoryId: value,
                     fatal: category?.canBeFatal ? question.fatal : false,
+                    fatalOptions: category?.canBeFatal
+                      ? getValidFatalOptions(question.fatalOptions, question.options)
+                      : [],
                     requiresCommentOnFail:
-                      question.requiresCommentOnFail ||
-                      Boolean(category?.requiresCommentOnFail),
+                      question.requiresCommentOnFail || Boolean(category?.requiresCommentOnFail),
                   });
                 }}
               >
@@ -175,31 +180,74 @@ export function QuestionCard({
           {showOptions && (
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Opciones</Label>
-              {question.options.map((opt, i) => (
-                <div key={getOptionKey(question.id, opt, i)} className="flex items-center gap-2">
-                  <Input
-                    value={opt}
-                    placeholder={`Opcion ${i + 1}`}
-                    onChange={(e) => {
-                      const newOptions = [...question.options];
-                      newOptions[i] = e.target.value;
-                      onUpdate({ ...question, options: newOptions });
-                    }}
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={() => {
-                      const newOptions = question.options.filter((_, idx) => idx !== i);
-                      onUpdate({ ...question, options: newOptions });
-                    }}
+              {question.options.map((opt, i) => {
+                const optionValue = opt.trim();
+
+                return (
+                  <div
+                    key={getOptionKey(question.id, opt, i)}
+                    className="flex flex-col gap-2 sm:flex-row sm:items-center"
                   >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              ))}
+                    <Input
+                      value={opt}
+                      placeholder={`Opcion ${i + 1}`}
+                      onChange={(e) => {
+                        const newOptions = [...question.options];
+                        const previousOption = newOptions[i];
+                        newOptions[i] = e.target.value;
+                        onUpdate({
+                          ...question,
+                          options: newOptions,
+                          fatalOptions: replaceFatalOption(
+                            question.fatalOptions,
+                            previousOption,
+                            e.target.value,
+                            newOptions,
+                          ),
+                        });
+                      }}
+                      className="flex-1"
+                    />
+                    {canConfigureFatalOptions && (
+                      <SwitchField
+                        label="Fatal"
+                        checked={
+                          Boolean(optionValue) && question.fatalOptions.includes(optionValue)
+                        }
+                        disabled={!optionValue}
+                        onChange={(checked) => {
+                          if (!optionValue) return;
+                          const fatalOptions = checked
+                            ? normalizeOptions([...question.fatalOptions, optionValue])
+                            : question.fatalOptions.filter((option) => option !== optionValue);
+                          onUpdate({
+                            ...question,
+                            fatalOptions: getValidFatalOptions(fatalOptions, question.options),
+                          });
+                        }}
+                      />
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => {
+                        const newOptions = question.options.filter((_, idx) => idx !== i);
+                        onUpdate({
+                          ...question,
+                          options: newOptions,
+                          fatalOptions: getValidFatalOptions(
+                            question.fatalOptions.filter((option) => option !== optionValue),
+                            newOptions,
+                          ),
+                        });
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                );
+              })}
               <Button
                 type="button"
                 variant="outline"
@@ -215,15 +263,21 @@ export function QuestionCard({
             <SwitchField
               label="Obligatoria"
               checked={question.required}
-              onChange={(checked) =>
-                onUpdate({ ...question, required: Boolean(checked) })
-              }
+              onChange={(checked) => onUpdate({ ...question, required: Boolean(checked) })}
             />
             <SwitchField
               label="Falla fatal"
               checked={question.fatal}
               disabled={!selectedCategory?.canBeFatal}
-              onChange={(checked) => onUpdate({ ...question, fatal: Boolean(checked) })}
+              onChange={(checked) =>
+                onUpdate({
+                  ...question,
+                  fatal: Boolean(checked),
+                  fatalOptions: checked
+                    ? getValidFatalOptions(question.fatalOptions, question.options)
+                    : [],
+                })
+              }
             />
             <SwitchField
               label="Comentario si falla"
@@ -271,4 +325,29 @@ function SwitchField({
 
 function getOptionKey(questionId: string, option: string, index: number) {
   return `${questionId}-${option || "empty"}-${index}`;
+}
+
+function normalizeOptions(options: string[]) {
+  return Array.from(new Set(options.map((option) => option.trim()).filter(Boolean)));
+}
+
+function getValidFatalOptions(fatalOptions: string[], options: string[]) {
+  const optionSet = new Set(normalizeOptions(options));
+  return normalizeOptions(fatalOptions).filter((option) => optionSet.has(option));
+}
+
+function replaceFatalOption(
+  fatalOptions: string[],
+  previousOption: string,
+  nextOption: string,
+  nextOptions: string[],
+) {
+  const previousValue = previousOption.trim();
+  const nextValue = nextOption.trim();
+  const replaced = fatalOptions.flatMap((option) => {
+    if (option !== previousValue) return option;
+    return nextValue ? nextValue : [];
+  });
+
+  return getValidFatalOptions(replaced, nextOptions);
 }

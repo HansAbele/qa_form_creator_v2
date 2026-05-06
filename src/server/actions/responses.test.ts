@@ -45,6 +45,7 @@ function validForm() {
         label: "Rating",
         required: true,
         options: null,
+        fatalOptions: null,
         weight: 0,
         fatal: false,
         requiresCommentOnFail: false,
@@ -58,6 +59,7 @@ function validForm() {
         label: "Disposition",
         required: true,
         options: ["Good", "Bad"],
+        fatalOptions: null,
         weight: 0,
         fatal: false,
         requiresCommentOnFail: false,
@@ -71,6 +73,7 @@ function validForm() {
         label: "Comment",
         required: false,
         options: null,
+        fatalOptions: null,
         weight: 0,
         fatal: false,
         requiresCommentOnFail: false,
@@ -191,6 +194,7 @@ describe("submitResponse validation and RBAC", () => {
           label: "Resolution",
           required: true,
           options: null,
+          fatalOptions: null,
           weight: 80,
           fatal: false,
           requiresCommentOnFail: false,
@@ -202,6 +206,7 @@ describe("submitResponse validation and RBAC", () => {
           label: "Soft skills",
           required: true,
           options: null,
+          fatalOptions: null,
           weight: 20,
           fatal: false,
           requiresCommentOnFail: false,
@@ -256,6 +261,7 @@ describe("submitResponse validation and RBAC", () => {
           label: "Compliance",
           required: true,
           options: null,
+          fatalOptions: null,
           weight: 100,
           fatal: true,
           requiresCommentOnFail: true,
@@ -298,6 +304,68 @@ describe("submitResponse validation and RBAC", () => {
     );
   });
 
+  it("marks configured select fatal option and requires comment", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-select-fatal",
+          type: "SELECT",
+          label: "First call resolution",
+          required: true,
+          options: ["Yes", "No"],
+          fatalOptions: ["No"],
+          weight: 0,
+          fatal: true,
+          requiresCommentOnFail: true,
+          formCategory: { qaCategoryId: "qa-critical" },
+        },
+      ],
+    });
+
+    await expect(
+      submitResponse({
+        formId: "form-1",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        answers: [{ questionId: "q-select-fatal", value: "No" }],
+      }),
+    ).rejects.toThrow("Hay preguntas que requieren comentario al fallar");
+
+    await submitResponse({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        {
+          questionId: "q-select-fatal",
+          value: "No",
+          comment: "Resolution was missed.",
+        },
+      ],
+    });
+
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          score: 0,
+          result: "FAIL",
+          hasFatalFail: true,
+          answers: {
+            create: [
+              expect.objectContaining({
+                questionId: "q-select-fatal",
+                categoryId: "qa-critical",
+                comment: "Resolution was missed.",
+                isFatalFail: true,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+  });
+
   it("requires a comment when a comment-required rating fails", async () => {
     prismaMock.form.findUnique.mockResolvedValue({
       ...validForm(),
@@ -308,6 +376,7 @@ describe("submitResponse validation and RBAC", () => {
           label: "Compliance",
           required: true,
           options: null,
+          fatalOptions: null,
           weight: 100,
           fatal: false,
           requiresCommentOnFail: true,

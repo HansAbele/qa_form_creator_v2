@@ -24,6 +24,7 @@ interface QuestionRendererProps {
     required: boolean;
     weight: number;
     fatal: boolean;
+    fatalOptions: unknown;
     requiresCommentOnFail: boolean;
     formCategory?: {
       qaCategory?: {
@@ -49,6 +50,7 @@ export function QuestionRenderer({
   commentError,
 }: QuestionRendererProps) {
   const options = Array.isArray(question.options) ? (question.options as string[]) : [];
+  const fatalOptions = getStringOptions(question.fatalOptions);
   const showComment = question.fatal || question.requiresCommentOnFail;
 
   return (
@@ -71,6 +73,11 @@ export function QuestionRenderer({
         {question.fatal && (
           <Badge variant="destructive" className="text-xs">
             Fatal
+          </Badge>
+        )}
+        {question.fatal && fatalOptions.length > 0 && (
+          <Badge variant="outline" className="text-xs">
+            {fatalOptions.length} opcion(es) fatal(es)
           </Badge>
         )}
         {question.requiresCommentOnFail && (
@@ -110,9 +117,7 @@ export function QuestionRenderer({
             </button>
           ))}
           {value && (
-            <span className="ml-2 flex items-center text-sm text-muted-foreground">
-              {value}/5
-            </span>
+            <span className="ml-2 flex items-center text-sm text-muted-foreground">{value}/5</span>
           )}
         </div>
       )}
@@ -162,4 +167,13 @@ export function QuestionRenderer({
       )}
     </div>
   );
+}
+
+function getStringOptions(options: unknown) {
+  return Array.isArray(options)
+    ? options
+        .filter((option): option is string => typeof option === "string")
+        .map((option) => option.trim())
+        .filter(Boolean)
+    : [];
 }

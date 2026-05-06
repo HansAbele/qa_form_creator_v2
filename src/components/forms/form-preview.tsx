@@ -1,12 +1,6 @@
 import { Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { QuestionType } from "@prisma/client";
@@ -19,6 +13,7 @@ interface PreviewQuestion {
   required: boolean;
   weight: number;
   fatal: boolean;
+  fatalOptions: string[];
   requiresCommentOnFail: boolean;
 }
 
@@ -71,6 +66,11 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
                   Fatal
                 </Badge>
               )}
+              {q.fatal && q.fatalOptions.length > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  {q.fatalOptions.length} opcion(es) fatal(es)
+                </Badge>
+              )}
               {q.requiresCommentOnFail && (
                 <Badge variant="outline" className="text-xs">
                   Comentario requerido
@@ -85,10 +85,7 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
             {q.type === "RATING" && (
               <div className="flex gap-1">
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <Star
-                    key={star}
-                    className="h-6 w-6 text-muted-foreground/30"
-                  />
+                  <Star key={star} className="h-6 w-6 text-muted-foreground/30" />
                 ))}
               </div>
             )}
@@ -124,10 +121,6 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
   );
 }
 
-function getPreviewOptionKey(
-  question: PreviewQuestion,
-  option: string,
-  index: number,
-) {
+function getPreviewOptionKey(question: PreviewQuestion, option: string, index: number) {
   return `${question.id ?? question.label}-${option || "empty"}-${index}`;
 }
