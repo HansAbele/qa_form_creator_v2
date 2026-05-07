@@ -79,9 +79,7 @@ describe("QA category analytics", () => {
       },
     ]);
 
-    await expect(
-      getQACategoryMetrics(undefined, "2026-05-01", "2026-05-05"),
-    ).resolves.toEqual([
+    await expect(getQACategoryMetrics(undefined, "2026-05-01", "2026-05-05")).resolves.toEqual([
       expect.objectContaining({
         id: "cat-compliance",
         avgScore: 50,
@@ -100,7 +98,6 @@ describe("QA category analytics", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           categoryId: { not: null },
-          score: { not: null },
           response: expect.objectContaining({
             form: { campaignId: { in: ["campaign-1"] } },
           }),
@@ -131,5 +128,37 @@ describe("QA category analytics", () => {
     ]);
 
     await expect(getQACategoryMetrics()).resolves.toEqual([]);
+  });
+
+  it("counts fatal option answers even when they do not have numeric score", async () => {
+    prismaMock.answer.findMany.mockResolvedValue([
+      {
+        score: null,
+        isFatalFail: true,
+        comment: "Opcion fatal",
+        categoryId: "cat-critical",
+        category: {
+          id: "cat-critical",
+          name: "Critica",
+          systemColor: "#dc2626",
+          systemIcon: "shield",
+          visibleInKPIs: true,
+        },
+        response: {
+          id: "response-1",
+          form: { campaignId: "campaign-1" },
+        },
+      },
+    ]);
+
+    await expect(getQACategoryMetrics()).resolves.toEqual([
+      expect.objectContaining({
+        id: "cat-critical",
+        avgScore: 0,
+        failedAnswers: 1,
+        fatalFailCount: 1,
+        commentCount: 1,
+      }),
+    ]);
   });
 });

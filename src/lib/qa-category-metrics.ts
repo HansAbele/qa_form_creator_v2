@@ -30,6 +30,7 @@ interface QACategoryAccumulator {
   color: string | null;
   icon: string | null;
   totalAnswers: number;
+  scoredAnswers: number;
   scoreTotal: number;
   responseIds: Set<string>;
   failedAnswers: number;
@@ -45,27 +46,32 @@ export function buildQACategoryMetrics(rows: QACategoryMetricInput[]): QACategor
   const groups = new Map<string, QACategoryAccumulator>();
 
   for (const row of rows) {
-    if (row.score === null || Number.isNaN(row.score)) continue;
+    const hasScore = row.score !== null && !Number.isNaN(row.score);
+    if (!hasScore && !row.isFatalFail) continue;
 
-    const current =
-      groups.get(row.categoryId) ??
-      {
-        id: row.categoryId,
-        name: row.categoryName,
-        color: row.categoryColor,
-        icon: row.categoryIcon,
-        totalAnswers: 0,
-        scoreTotal: 0,
-        responseIds: new Set<string>(),
-        failedAnswers: 0,
-        fatalFailCount: 0,
-        commentCount: 0,
-      };
+    const current = groups.get(row.categoryId) ?? {
+      id: row.categoryId,
+      name: row.categoryName,
+      color: row.categoryColor,
+      icon: row.categoryIcon,
+      totalAnswers: 0,
+      scoredAnswers: 0,
+      scoreTotal: 0,
+      responseIds: new Set<string>(),
+      failedAnswers: 0,
+      fatalFailCount: 0,
+      commentCount: 0,
+    };
 
     current.totalAnswers++;
-    current.scoreTotal += row.score;
     current.responseIds.add(row.responseId);
-    if (row.score < row.passThreshold) current.failedAnswers++;
+    let isFailedAnswer = row.isFatalFail;
+    if (hasScore) {
+      current.scoredAnswers++;
+      current.scoreTotal += row.score ?? 0;
+      isFailedAnswer ||= (row.score ?? 0) < row.passThreshold;
+    }
+    if (isFailedAnswer) current.failedAnswers++;
     if (row.isFatalFail) current.fatalFailCount++;
     if (row.comment?.trim()) current.commentCount++;
     groups.set(row.categoryId, current);
@@ -79,7 +85,7 @@ export function buildQACategoryMetrics(rows: QACategoryMetricInput[]): QACategor
       icon: group.icon,
       totalAnswers: group.totalAnswers,
       totalEvaluations: group.responseIds.size,
-      avgScore: roundPercent(group.scoreTotal / group.totalAnswers),
+      avgScore: group.scoredAnswers > 0 ? roundPercent(group.scoreTotal / group.scoredAnswers) : 0,
       failedAnswers: group.failedAnswers,
       failRate: Math.round((group.failedAnswers / group.totalAnswers) * 100),
       fatalFailCount: group.fatalFailCount,

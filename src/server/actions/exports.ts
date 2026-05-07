@@ -17,10 +17,7 @@ async function getExportData(filters: ExportFilters) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(
-    "canExport",
-    filters.campaignId,
-  );
+  const campaignFilter = await getCampaignFilterForPermission("canExport", filters.campaignId);
 
   const where: Record<string, unknown> = {
     form: campaignFilter,
@@ -54,7 +51,12 @@ async function getExportData(filters: ExportFilters) {
   return { responses, userId: session.user.id };
 }
 
-async function auditExport(format: string, filters: ExportFilters, userId: string, rowCount: number) {
+async function auditExport(
+  format: string,
+  filters: ExportFilters,
+  userId: string,
+  rowCount: number,
+) {
   await writeAuditLog({
     userId,
     campaignId: filters.campaignId ?? null,
@@ -88,6 +90,8 @@ export async function exportToCsv(filters: ExportFilters): Promise<string> {
     "Código Agente",
     "Evaluador",
     "Score",
+    "Resultado",
+    "Falla fatal",
     ...questionCols,
   ];
 
@@ -100,6 +104,8 @@ export async function exportToCsv(filters: ExportFilters): Promise<string> {
       r.agent.agentCode ?? "",
       r.evaluator.name,
       Number(r.score).toFixed(2),
+      r.result ?? (r.hasFatalFail ? "FAIL" : "PASS"),
+      r.hasFatalFail ? "Si" : "No",
       ...questionCols.map((q) => answerMap.get(q) ?? ""),
     ];
   });
@@ -139,7 +145,17 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
   const sheet = workbook.addWorksheet("Evaluaciones");
 
   // Header row
-  const headers = ["Fecha", "Formulario", "Agente", "Código Agente", "Evaluador", "Score", ...questionCols];
+  const headers = [
+    "Fecha",
+    "Formulario",
+    "Agente",
+    "Código Agente",
+    "Evaluador",
+    "Score",
+    "Resultado",
+    "Falla fatal",
+    ...questionCols,
+  ];
   const headerRow = sheet.addRow(headers);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -161,12 +177,16 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
       r.agent.agentCode ?? "",
       r.evaluator.name,
       score,
+      r.result ?? (r.hasFatalFail ? "FAIL" : "PASS"),
+      r.hasFatalFail ? "Si" : "No",
       ...questionCols.map((q) => answerMap.get(q) ?? ""),
     ]);
 
     // Color-code score
     const scoreCell = row.getCell(6);
-    if (score >= 80) {
+    if (r.hasFatalFail || r.result === "FAIL") {
+      scoreCell.font = { color: { argb: "FFDC2626" }, bold: true };
+    } else if (score >= 80) {
       scoreCell.font = { color: { argb: "FF16A34A" }, bold: true };
     } else if (score >= 60) {
       scoreCell.font = { color: { argb: "FFCA8A04" }, bold: true };
@@ -206,6 +226,8 @@ export async function exportToJson(filters: ExportFilters): Promise<string> {
     codigoAgente: r.agent.agentCode,
     evaluador: r.evaluator.name,
     score: Number(r.score),
+    resultado: r.result ?? (r.hasFatalFail ? "FAIL" : "PASS"),
+    fallaFatal: r.hasFatalFail,
     respuestas: Object.fromEntries(r.answers.map((a) => [a.question.label, a.value])),
   }));
 

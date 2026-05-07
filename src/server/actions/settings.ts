@@ -4,13 +4,21 @@ import { updateTag, revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
+import type { Prisma } from "@prisma/client";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_OPERATIONAL_SETTINGS,
   getSettings,
+  mergeOperationalSettingsPatch,
+  sanitizeOperationalSettings,
   validateSetting,
   type AppSettings,
+  type OperationalSettings,
+  type OperationalSettingsPatch,
   type SettingKey,
 } from "@/lib/settings";
+
+const OPERATIONAL_SETTINGS_KEY = "operationalConfig";
 
 /** Read all settings (for server components). */
 export async function readSettings(): Promise<AppSettings> {
@@ -81,4 +89,62 @@ export async function resetSettings(): Promise<AppSettings> {
 
   const patch: Record<SettingKey, number> = { ...DEFAULT_SETTINGS };
   return updateSettings(patch);
+}
+
+export async function readOperationalSettings(): Promise<OperationalSettings> {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const row = await prisma.appSetting.findUnique({
+    where: { key: OPERATIONAL_SETTINGS_KEY },
+    select: { value: true },
+  });
+
+  return sanitizeOperationalSettings(row?.value);
+}
+
+export async function updateOperationalSettings(
+  patch: OperationalSettingsPatch,
+): Promise<OperationalSettings> {
+  const session = await auth();
+  if (!session?.user || session.user.role !== "ADMIN") {
+    throw new Error("No autorizado");
+  }
+
+  const beforeSettings = await readOperationalSettings();
+  const afterSettings = mergeOperationalSettingsPatch(beforeSettings, patch);
+
+  await prisma.appSetting.upsert({
+    where: { key: OPERATIONAL_SETTINGS_KEY },
+    create: {
+      key: OPERATIONAL_SETTINGS_KEY,
+      value: afterSettings as unknown as Prisma.InputJsonValue,
+      updatedBy: session.user.id,
+    },
+    update: {
+      value: afterSettings as unknown as Prisma.InputJsonValue,
+      updatedBy: session.user.id,
+    },
+  });
+
+  updateTag("settings");
+  revalidatePath("/settings");
+
+  await writeAuditLog({
+    userId: session.user.id,
+    module: "settings",
+    action: "operational_controls_updated",
+    entityType: "app_settings",
+    entityId: OPERATIONAL_SETTINGS_KEY,
+    beforeValue: beforeSettings,
+    afterValue: afterSettings,
+    impact:
+      "Controles operativos de Settings actualizados para evaluaciones, formularios, KPIs, reportes y notificaciones.",
+  });
+
+  return afterSettings;
+}
+
+export async function resetOperationalSettings(): Promise<OperationalSettings> {
+  return updateOperationalSettings(DEFAULT_OPERATIONAL_SETTINGS);
 }
