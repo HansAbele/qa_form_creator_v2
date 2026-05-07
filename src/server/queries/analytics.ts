@@ -5,10 +5,7 @@ import { auth } from "@/lib/auth";
 import { getPassThresholdForCampaign } from "@/lib/settings";
 import { buildQACategoryMetrics } from "@/lib/qa-category-metrics";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
-import {
-  assertCampaignPermissionForUser,
-  getCampaignFilterForPermission,
-} from "./campaign-filter";
+import { assertCampaignPermissionForUser, getCampaignFilterForPermission } from "./campaign-filter";
 
 const DASHBOARD_READ_PERMISSION = "canViewDashboard" satisfies CampaignPermissionKey;
 const KPI_READ_PERMISSION = "canViewKPIs" satisfies CampaignPermissionKey;
@@ -26,13 +23,18 @@ function dateWhere(dateFrom?: string, dateTo?: string) {
   };
 }
 
+function passingResponseWhere(passThreshold: number) {
+  return {
+    OR: [{ result: "PASS" }, { result: null, hasFatalFail: false, score: { gte: passThreshold } }],
+  };
+}
+
 async function getPassThresholdMap(campaignIds: string[]) {
   const uniqueCampaignIds = [...new Set(campaignIds.filter(Boolean))];
   const entries = await Promise.all(
-    uniqueCampaignIds.map(async (campaignId) => [
-      campaignId,
-      await getPassThresholdForCampaign(campaignId),
-    ] as const),
+    uniqueCampaignIds.map(
+      async (campaignId) => [campaignId, await getPassThresholdForCampaign(campaignId)] as const,
+    ),
   );
   return new Map(entries);
 }
@@ -47,31 +49,28 @@ export async function getDashboardStats(campaignId?: string, dateFrom?: string, 
   const dw = dateWhere(dateFrom, dateTo);
   const passThreshold = await getPassThresholdForCampaign(campaignId);
 
-  const [formCount, responseCount, avgScore, passCount, failCount, recentResponses] =
-    await Promise.all([
-      prisma.form.count({ where: formFilter }),
-      prisma.response.count({ where: { form: formFilter, ...dw } }),
-      prisma.response.aggregate({
-        where: { form: formFilter, ...dw },
-        _avg: { score: true },
-      }),
-      prisma.response.count({
-        where: { form: formFilter, ...dw, score: { gte: passThreshold } },
-      }),
-      prisma.response.count({
-        where: { form: formFilter, ...dw, score: { lt: passThreshold } },
-      }),
-      prisma.response.findMany({
-        where: { form: formFilter, ...dw },
-        include: {
-          form: { select: { title: true } },
-          agent: { select: { name: true } },
-          evaluator: { select: { name: true } },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      }),
-    ]);
+  const [formCount, responseCount, avgScore, passCount, recentResponses] = await Promise.all([
+    prisma.form.count({ where: formFilter }),
+    prisma.response.count({ where: { form: formFilter, ...dw } }),
+    prisma.response.aggregate({
+      where: { form: formFilter, ...dw },
+      _avg: { score: true },
+    }),
+    prisma.response.count({
+      where: { form: formFilter, ...dw, ...passingResponseWhere(passThreshold) },
+    }),
+    prisma.response.findMany({
+      where: { form: formFilter, ...dw },
+      include: {
+        form: { select: { title: true } },
+        agent: { select: { name: true } },
+        evaluator: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+  ]);
+  const failCount = responseCount - passCount;
 
   return {
     formCount,
@@ -125,11 +124,18 @@ export async function getResponseTrends(campaignId?: string, dateFrom?: string, 
 
 // ─── Top / Bottom Performers ───────────────────────
 
-export async function getTopBottomPerformers(campaignId?: string, dateFrom?: string, dateTo?: string) {
+export async function getTopBottomPerformers(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const campaignFilter = await getCampaignFilterForPermission(
+    DASHBOARD_READ_PERMISSION,
+    campaignId,
+  );
   const dw = dateWhere(dateFrom, dateTo);
 
   const agents = await prisma.agent.findMany({
@@ -197,9 +203,7 @@ async function getEvaluatorActivityForPermission(
       const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
       // Standard deviation for consistency
       const variance =
-        scores.length > 1
-          ? scores.reduce((sum, s) => sum + (s - avg) ** 2, 0) / scores.length
-          : 0;
+        scores.length > 1 ? scores.reduce((sum, s) => sum + (s - avg) ** 2, 0) / scores.length : 0;
       const stdDev = Math.sqrt(variance);
 
       return {
@@ -219,12 +223,7 @@ export async function getDashboardEvaluatorActivity(
   dateFrom?: string,
   dateTo?: string,
 ) {
-  return getEvaluatorActivityForPermission(
-    DASHBOARD_READ_PERMISSION,
-    campaignId,
-    dateFrom,
-    dateTo,
-  );
+  return getEvaluatorActivityForPermission(DASHBOARD_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
 export async function getEvaluatorActivity(
@@ -237,11 +236,18 @@ export async function getEvaluatorActivity(
 
 // ─── Evaluations per Agent (volume) ────────────────
 
-export async function getEvaluationsPerAgent(campaignId?: string, dateFrom?: string, dateTo?: string) {
+export async function getEvaluationsPerAgent(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const campaignFilter = await getCampaignFilterForPermission(
+    DASHBOARD_READ_PERMISSION,
+    campaignId,
+  );
   const dw = dateWhere(dateFrom, dateTo);
 
   const agents = await prisma.agent.findMany({
@@ -313,8 +319,7 @@ export async function getAgentScoreTrends(dateFrom?: string, dateTo?: string) {
       );
       if (dayResponses.length > 0) {
         const dayAvg =
-          dayResponses.map((r) => Number(r.score)).reduce((a, b) => a + b, 0) /
-          dayResponses.length;
+          dayResponses.map((r) => Number(r.score)).reduce((a, b) => a + b, 0) / dayResponses.length;
         point[agent.name] = Math.round(dayAvg * 100) / 100;
       } else {
         point[agent.name] = null;
@@ -363,8 +368,7 @@ export async function getAgentPerformance(campaignId?: string) {
     // Trend: compare last 5 vs previous 5
     const recent5 = scores.slice(0, 5);
     const prev5 = scores.slice(5, 10);
-    const recentAvg =
-      recent5.length > 0 ? recent5.reduce((a, b) => a + b, 0) / recent5.length : 0;
+    const recentAvg = recent5.length > 0 ? recent5.reduce((a, b) => a + b, 0) / recent5.length : 0;
     const prevAvg = prev5.length > 0 ? prev5.reduce((a, b) => a + b, 0) / prev5.length : 0;
     const trend = prev5.length > 0 ? recentAvg - prevAvg : 0;
 
@@ -439,6 +443,8 @@ export async function getReportData(filters: {
     agentCode: r.agent.agentCode,
     evaluatorName: r.evaluator.name,
     score: Number(r.score),
+    result: r.result,
+    hasFatalFail: r.hasFatalFail,
     createdAt: r.createdAt.toISOString(),
     answers: r.answers.map((a) => ({
       question: a.question.label,
@@ -472,7 +478,10 @@ export async function getScoreDistribution(
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const campaignFilter = await getCampaignFilterForPermission(
+    DASHBOARD_READ_PERMISSION,
+    campaignId,
+  );
   const dw = dateWhere(dateFrom, dateTo);
   const passThreshold = await getPassThresholdForCampaign(campaignId);
   const where = { form: campaignFilter, ...dw };
@@ -568,7 +577,11 @@ async function getCampaignKpisForPermission(
           _avg: { score: true },
         }),
         prisma.response.count({
-          where: { formId: { in: formIds }, ...dw, score: { gte: passThreshold } },
+          where: {
+            formId: { in: formIds },
+            ...dw,
+            ...passingResponseWhere(passThreshold),
+          },
         }),
       ]);
 
@@ -597,11 +610,7 @@ export async function getDashboardCampaignKpis(
   return getCampaignKpisForPermission(DASHBOARD_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
-export async function getCampaignKpis(
-  campaignId?: string,
-  dateFrom?: string,
-  dateTo?: string,
-) {
+export async function getCampaignKpis(campaignId?: string, dateFrom?: string, dateTo?: string) {
   return getCampaignKpisForPermission(KPI_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
@@ -662,7 +671,6 @@ export async function getQACategoryMetrics(
   const answers = await prisma.answer.findMany({
     where: {
       categoryId: { not: null },
-      score: { not: null },
       response: {
         form: campaignFilter,
         ...dw,
@@ -727,9 +735,7 @@ export async function getTeamPerformance(campaignId?: string, dateFrom?: string,
       },
     },
   });
-  const passThresholds = await getPassThresholdMap(
-    teams.map((team) => team.campaignId),
-  );
+  const passThresholds = await getPassThresholdMap(teams.map((team) => team.campaignId));
 
   return teams
     .map((team) => {
@@ -825,11 +831,7 @@ export async function getDispositionAnalytics(
 
 // ─── Agent Detail (drill-down) ────────────────────
 
-export async function getAgentDetail(
-  agentId: string,
-  dateFrom?: string,
-  dateTo?: string,
-) {
+export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -895,13 +897,21 @@ export async function getAgentDetail(
   const dispMap = new Map<string, { name: string; count: number; totalScore: number }>();
   for (const r of agent.responses) {
     if (!r.disposition) continue;
-    const ex = dispMap.get(r.disposition.id) ?? { name: r.disposition.name, count: 0, totalScore: 0 };
+    const ex = dispMap.get(r.disposition.id) ?? {
+      name: r.disposition.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     dispMap.set(r.disposition.id, ex);
   }
   const dispositionBreakdown = Array.from(dispMap.values())
-    .map((d) => ({ name: d.name, count: d.count, avgScore: Math.round((d.totalScore / d.count) * 100) / 100 }))
+    .map((d) => ({
+      name: d.name,
+      count: d.count,
+      avgScore: Math.round((d.totalScore / d.count) * 100) / 100,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // Evaluators
@@ -913,7 +923,12 @@ export async function getAgentDetail(
     evalMap.set(r.evaluator.id, ex);
   }
   const evaluators = Array.from(evalMap.entries())
-    .map(([id, d]) => ({ id, name: d.name, count: d.count, avgScore: Math.round((d.avgScore / d.count) * 100) / 100 }))
+    .map(([id, d]) => ({
+      id,
+      name: d.name,
+      count: d.count,
+      avgScore: Math.round((d.avgScore / d.count) * 100) / 100,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // Recent responses (last 10)
@@ -927,7 +942,8 @@ export async function getAgentDetail(
   }));
 
   const allScores = agent.responses.map((r) => Number(r.score));
-  const avgScore = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
+  const avgScore =
+    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
 
   return {
     name: agent.name,
@@ -946,11 +962,7 @@ export async function getAgentDetail(
 
 // ─── Evaluator Detail (drill-down) ────────────────
 
-export async function getEvaluatorDetail(
-  userId: string,
-  dateFrom?: string,
-  dateTo?: string,
-) {
+export async function getEvaluatorDetail(userId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -993,9 +1005,17 @@ export async function getEvaluatorDetail(
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Agents evaluated
-  const agentMap = new Map<string, { id: string; name: string; count: number; totalScore: number }>();
+  const agentMap = new Map<
+    string,
+    { id: string; name: string; count: number; totalScore: number }
+  >();
   for (const r of responses) {
-    const ex = agentMap.get(r.agent.id) ?? { id: r.agent.id, name: r.agent.name, count: 0, totalScore: 0 };
+    const ex = agentMap.get(r.agent.id) ?? {
+      id: r.agent.id,
+      name: r.agent.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     agentMap.set(r.agent.id, ex);
@@ -1038,11 +1058,7 @@ export async function getEvaluatorDetail(
 
 // ─── Team Detail (drill-down) ─────────────────────
 
-export async function getTeamDetail(
-  teamId: string,
-  dateFrom?: string,
-  dateTo?: string,
-) {
+export async function getTeamDetail(teamId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -1100,7 +1116,8 @@ export async function getTeamDetail(
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const allScores = team.agents.flatMap((a) => a.responses.map((r) => Number(r.score)));
-  const totalAvg = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
+  const totalAvg =
+    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
 
   return {
     name: team.name,
@@ -1173,9 +1190,12 @@ export async function getDispositionDetail(
     { id: string; name: string; count: number; totalScore: number }
   >();
   for (const r of responses) {
-    const ex =
-      agentMap.get(r.agent.id) ??
-      { id: r.agent.id, name: r.agent.name, count: 0, totalScore: 0 };
+    const ex = agentMap.get(r.agent.id) ?? {
+      id: r.agent.id,
+      name: r.agent.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     agentMap.set(r.agent.id, ex);
@@ -1196,9 +1216,12 @@ export async function getDispositionDetail(
     { id: string; name: string; count: number; totalScore: number }
   >();
   for (const r of responses) {
-    const ex =
-      evaluatorMap.get(r.evaluator.id) ??
-      { id: r.evaluator.id, name: r.evaluator.name, count: 0, totalScore: 0 };
+    const ex = evaluatorMap.get(r.evaluator.id) ?? {
+      id: r.evaluator.id,
+      name: r.evaluator.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     evaluatorMap.set(r.evaluator.id, ex);
@@ -1266,8 +1289,7 @@ export async function getDispositionDetail(
     sisterDispositions = sisters
       .map((s) => {
         const scores = s.responses.map((r) => Number(r.score));
-        const avg =
-          scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+        const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
         return {
           id: s.id,
           name: s.name,
@@ -1291,12 +1313,9 @@ export async function getDispositionDetail(
 
   const allScores = responses.map((r) => Number(r.score));
   const avgScore =
-    allScores.length > 0
-      ? allScores.reduce((a, b) => a + b, 0) / allScores.length
-      : 0;
+    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
   const passCount = allScores.filter((s) => s >= passThreshold).length;
-  const passRate =
-    allScores.length > 0 ? Math.round((passCount / allScores.length) * 100) : 0;
+  const passRate = allScores.length > 0 ? Math.round((passCount / allScores.length) * 100) : 0;
 
   return {
     id: disposition.id,
@@ -1362,7 +1381,11 @@ export async function getResponseDetail(responseId: string) {
 
   if (!response) throw new Error("Evaluación no encontrada");
 
-  await assertCampaignPermissionForUser(session.user, response.form.campaignId, REPORT_READ_PERMISSION);
+  await assertCampaignPermissionForUser(
+    session.user,
+    response.form.campaignId,
+    REPORT_READ_PERMISSION,
+  );
 
   return {
     id: response.id,
@@ -1476,9 +1499,7 @@ export async function getFilteredResponses(params: {
       },
       evaluator: { id: r.evaluator.id, name: r.evaluator.name },
       form: { id: r.form.id, title: r.form.title },
-      disposition: r.disposition
-        ? { id: r.disposition.id, name: r.disposition.name }
-        : null,
+      disposition: r.disposition ? { id: r.disposition.id, name: r.disposition.name } : null,
     })),
     totalCount,
     shownCount: responses.length,

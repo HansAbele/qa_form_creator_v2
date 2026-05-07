@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -31,6 +32,8 @@ interface ReportResponse {
   agentCode: string | null;
   evaluatorName: string;
   score: number;
+  result: string | null;
+  hasFatalFail: boolean;
   createdAt: string;
   answers: {
     question: string;
@@ -51,6 +54,12 @@ interface ReportsClientProps {
   forms: { id: string; title: string; campaignId: string }[];
 }
 
+function isPassingResponse(response: Pick<ReportResponse, "score" | "result" | "hasFatalFail">) {
+  if (response.result === "PASS") return true;
+  if (response.result === "FAIL") return false;
+  return !response.hasFatalFail && response.score >= 80;
+}
+
 export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
   const [campaignId, setCampaignId] = useState("");
   const [formId, setFormId] = useState("");
@@ -60,9 +69,7 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
   const [loading, setLoading] = useState(false);
   const [selectedResponse, setSelectedResponse] = useState<ReportResponse | null>(null);
 
-  const filteredForms = campaignId
-    ? forms.filter((f) => f.campaignId === campaignId)
-    : forms;
+  const filteredForms = campaignId ? forms.filter((f) => f.campaignId === campaignId) : forms;
 
   const handleSearch = async () => {
     setLoading(true);
@@ -99,10 +106,8 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
 
   const totalResponses = responses.length;
   const avgScore =
-    totalResponses > 0
-      ? responses.reduce((sum, r) => sum + r.score, 0) / totalResponses
-      : 0;
-  const passCount = responses.filter((r) => r.score >= 80).length;
+    totalResponses > 0 ? responses.reduce((sum, r) => sum + r.score, 0) / totalResponses : 0;
+  const passCount = responses.filter((r) => isPassingResponse(r)).length;
 
   return (
     <div className="space-y-6">
@@ -142,7 +147,10 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Formulario</Label>
-              <Select value={formId || "all"} onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}>
+              <Select
+                value={formId || "all"}
+                onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}
+              >
                 <SelectTrigger className="w-52">
                   <SelectValue placeholder="Todos">
                     {(value: string | null) => {
@@ -238,9 +246,14 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
               </TableCell>
               <TableCell>{r.evaluatorName}</TableCell>
               <TableCell>
-                <Badge variant={r.score >= 80 ? "default" : "destructive"}>
-                  {r.score.toFixed(1)}%
-                </Badge>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge variant={isPassingResponse(r) ? "default" : "destructive"}>
+                    {r.score.toFixed(1)}%
+                  </Badge>
+                  {!isPassingResponse(r) && (
+                    <Badge variant="destructive">{r.hasFatalFail ? "Fatal" : "Fail"}</Badge>
+                  )}
+                </div>
               </TableCell>
               <TableCell>
                 <Button variant="ghost" size="icon-xs" onClick={() => setSelectedResponse(r)}>
@@ -274,9 +287,19 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Score: </span>
-                  <Badge variant={selectedResponse.score >= 80 ? "default" : "destructive"}>
+                  <Badge variant={isPassingResponse(selectedResponse) ? "default" : "destructive"}>
                     {selectedResponse.score.toFixed(1)}%
                   </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Resultado: </span>
+                  <Badge variant={isPassingResponse(selectedResponse) ? "default" : "destructive"}>
+                    {isPassingResponse(selectedResponse) ? "PASS" : "FAIL"}
+                  </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Falla fatal: </span>
+                  {selectedResponse.hasFatalFail ? "Si" : "No"}
                 </div>
                 <div>
                   <span className="text-muted-foreground">Agente: </span>

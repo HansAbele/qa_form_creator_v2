@@ -38,6 +38,90 @@ export type CampaignScoringPatch = Partial<
   }
 >;
 
+export interface EvaluationOperationalSettings {
+  campaignConsistency: boolean;
+  answerValidation: boolean;
+  answerScoring: boolean;
+  advancedEvaluationFlow: boolean;
+}
+
+export interface FormsOperationalSettings {
+  formStates: boolean;
+  qaStructure: boolean;
+  publishedRevision: boolean;
+  weightValidation: boolean;
+}
+
+export interface DashboardKpisOperationalSettings {
+  managerGlobalView: boolean;
+  campaignQaView: boolean;
+  supervisorView: boolean;
+  widgetPreferences: boolean;
+}
+
+export interface ReportsExportOperationalSettings {
+  scopedExports: boolean;
+  exportAudit: boolean;
+  supervisorExports: boolean;
+  fieldSelection: boolean;
+}
+
+export interface NotificationsOperationalSettings {
+  criticalEvaluation: boolean;
+  agentRisk: boolean;
+  campaignRisk: boolean;
+  recipientMatrix: boolean;
+}
+
+export interface OperationalSettings {
+  evaluations: EvaluationOperationalSettings;
+  forms: FormsOperationalSettings;
+  dashboardKpis: DashboardKpisOperationalSettings;
+  reportsExport: ReportsExportOperationalSettings;
+  notifications: NotificationsOperationalSettings;
+}
+
+export type OperationalSettingsPatch = {
+  [K in keyof OperationalSettings]?: Partial<OperationalSettings[K]>;
+};
+
+export const DEFAULT_OPERATIONAL_SETTINGS: OperationalSettings = {
+  evaluations: {
+    campaignConsistency: true,
+    answerValidation: true,
+    answerScoring: true,
+    advancedEvaluationFlow: false,
+  },
+  forms: {
+    formStates: true,
+    qaStructure: true,
+    publishedRevision: true,
+    weightValidation: true,
+  },
+  dashboardKpis: {
+    managerGlobalView: true,
+    campaignQaView: true,
+    supervisorView: false,
+    widgetPreferences: false,
+  },
+  reportsExport: {
+    scopedExports: true,
+    exportAudit: true,
+    supervisorExports: false,
+    fieldSelection: false,
+  },
+  notifications: {
+    criticalEvaluation: false,
+    agentRisk: false,
+    campaignRisk: false,
+    recipientMatrix: false,
+  },
+};
+
+const OPERATIONAL_SECTION_KEYS = Object.keys(
+  DEFAULT_OPERATIONAL_SETTINGS,
+) as (keyof OperationalSettings)[];
+
 // ─── Zod-like runtime validation ──────────────────────
 // Keeping it lightweight (no zod dep here) — enforce type + range.
 
@@ -67,9 +151,7 @@ export function validateSetting(key: SettingKey, value: unknown): number {
   return validator(value);
 }
 
-export function validateCampaignScoringPatch(
-  patch: CampaignScoringPatch,
-): CampaignScoringPatch {
+export function validateCampaignScoringPatch(patch: CampaignScoringPatch): CampaignScoringPatch {
   const validated: CampaignScoringPatch = {};
 
   if (patch.usesGlobalDefaults !== undefined) {
@@ -91,6 +173,51 @@ export function validateCampaignScoringPatch(
   }
 
   return validated;
+}
+
+export function sanitizeOperationalSettings(value: unknown): OperationalSettings {
+  if (!isRecord(value)) return structuredClone(DEFAULT_OPERATIONAL_SETTINGS);
+
+  const sanitized = structuredClone(DEFAULT_OPERATIONAL_SETTINGS);
+  for (const sectionKey of OPERATIONAL_SECTION_KEYS) {
+    const section = value[sectionKey];
+    if (!isRecord(section)) continue;
+
+    for (const itemKey of Object.keys(sanitized[sectionKey])) {
+      const rawValue = section[itemKey];
+      if (typeof rawValue === "boolean") {
+        (sanitized[sectionKey] as unknown as Record<string, boolean>)[itemKey] = rawValue;
+      }
+    }
+  }
+
+  return sanitized;
+}
+
+export function mergeOperationalSettingsPatch(
+  current: OperationalSettings,
+  patch: OperationalSettingsPatch,
+): OperationalSettings {
+  const merged = sanitizeOperationalSettings(current);
+
+  for (const sectionKey of OPERATIONAL_SECTION_KEYS) {
+    const sectionPatch = patch[sectionKey];
+    if (!isRecord(sectionPatch)) continue;
+    const sectionPatchRecord = sectionPatch as Record<string, unknown>;
+
+    for (const itemKey of Object.keys(merged[sectionKey])) {
+      const value = sectionPatchRecord[itemKey];
+      if (typeof value === "boolean") {
+        (merged[sectionKey] as unknown as Record<string, boolean>)[itemKey] = value;
+      }
+    }
+  }
+
+  return merged;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // ─── Cached reader ─────────────────────────────────────
@@ -146,9 +273,7 @@ function getCampaignScoringDelegate() {
   return (
     prisma as unknown as {
       campaignScoringSettings?: {
-        findUnique: (args: {
-          where: { campaignId: string };
-        }) => Promise<CampaignScoringRow | null>;
+        findUnique: (args: { where: { campaignId: string } }) => Promise<CampaignScoringRow | null>;
       };
     }
   ).campaignScoringSettings;
@@ -192,9 +317,7 @@ export async function getCampaignScoringSettings(
   }
 }
 
-export async function getEffectiveSettingsForCampaign(
-  campaignId?: string,
-): Promise<AppSettings> {
+export async function getEffectiveSettingsForCampaign(campaignId?: string): Promise<AppSettings> {
   if (!campaignId) return getSettings();
   const settings = await getCampaignScoringSettings(campaignId);
   return {
@@ -205,9 +328,7 @@ export async function getEffectiveSettingsForCampaign(
   };
 }
 
-export async function getPassThresholdForCampaign(
-  campaignId?: string,
-): Promise<number> {
+export async function getPassThresholdForCampaign(campaignId?: string): Promise<number> {
   const settings = await getEffectiveSettingsForCampaign(campaignId);
   return settings.passThreshold;
 }
