@@ -281,9 +281,9 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 - Evaluaciones avanzadas cerradas repo-side el 2026-05-18: draft/autosave, editar/anular con auditoria, N/A y snapshots historicos completos.
 - Targets operativos Dashboard/KPIs/Reports cerrados repo-side el 2026-05-18.
 - Export configurable cerrado repo-side el 2026-05-18.
-- Dashboard/KPIs con coaching y tendencias mas profundas.
-- Coaching accionable.
-- Motor real de notificaciones: eventos, destinatarios, inbox/toasts/email.
+- Dashboard/KPIs con coaching y tendencias mas profundas cerrado repo-side el 2026-06-29: coaching accionable por agente, categoria QA y campana contra targets.
+- Motor real de notificaciones in-app cerrado repo-side el 2026-06-29: modelos `Notification`/`NotificationPreference`, destinatarios por campana/permiso, inbox en header y eventos desde evaluaciones, exports y Settings.
+- Extension futura opcional: email/push con proveedor externo.
 
 ## Archivos clave para revisar en la siguiente conversacion
 
@@ -306,4 +306,4 @@ El codigo todavia conserva delegates tolerantes (`as unknown`) en auditoria/scor
 
 ## Frase sugerida para iniciar nueva conversacion
 
-Lee `docs/handoff/current-conversation-context-2026-05-05.md`, `docs/plans/qa-settings-critical-changes-plan.md` y `docs/plans/qore-integral-improvements-adjusted-proposal.md`. Continuemos desde el estado actual: la fase operativa de Settings, auditoria UI, validacion visual, formularios versionados, opcion fatal SELECT/RADIO, reportes/KPIs/export con datos reales, produccion segura repo-side, rol Supervisor read-only, decision de mantener permisos booleanos, auditoria no-admin por campana y evaluaciones avanzadas ya quedaron cerrados. Lo siguiente real es targets de scoring, export configurable, coaching/tendencias o motor de notificaciones.
+Lee `docs/handoff/current-conversation-context-2026-05-05.md`, `docs/plans/qa-settings-critical-changes-plan.md` y `docs/plans/qore-integral-improvements-adjusted-proposal.md`. Continuemos desde el estado actual: la fase operativa de Settings, auditoria UI, validacion visual, formularios versionados, opcion fatal SELECT/RADIO, reportes/KPIs/export con datos reales, produccion segura repo-side, rol Supervisor read-only, decision de mantener permisos booleanos, auditoria no-admin por campana, evaluaciones avanzadas, targets operativos, export configurable, coaching accionable y notificaciones in-app ya quedaron cerrados. Lo siguiente real es rotacion operacional de secretos, validacion con datos productivos o email/push externo si se decide.

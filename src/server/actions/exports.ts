@@ -11,6 +11,7 @@ import {
 import { submittedResponseWhere } from "@/lib/response-status";
 import { getCampaignScoringSettings } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
+import { emitNotificationToUser } from "@/server/notifications";
 import { getCampaignFilterForPermission } from "@/server/queries/campaign-filter";
 
 interface ExportFilters {
@@ -363,6 +364,24 @@ async function auditExport(
       detailRowCount,
     },
     impact: "Datos exportados segun scope de campana y permisos del usuario.",
+  });
+
+  await emitNotificationToUser({
+    userId,
+    campaignId: filters.campaignId ?? null,
+    type: "export_generated",
+    severity: "SUCCESS",
+    title: `Export ${format.toUpperCase()} generado`,
+    body: `${rowCount} evaluaciones exportadas con ${selectedFields.length} campos seleccionados.`,
+    href: "/analytics/export",
+    entityType: "export",
+    metadata: {
+      format,
+      filters,
+      selectedFields,
+      rowCount,
+      detailRowCount,
+    },
   });
 }
 

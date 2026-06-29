@@ -1,6 +1,6 @@
 # Plan de cambios criticos: Configuracion, permisos y gobierno QA
 
-Last updated: 2026-05-18
+Last updated: 2026-06-29
 
 ## Objetivo
 
@@ -28,10 +28,12 @@ Cerrado:
 - Evaluaciones avanzadas: draft/autosave, editar/anular con auditoria, N/A, snapshots historicos de scoring/config/form y exclusion de drafts/anuladas en metricas/export.
 - Targets operativos completos en Dashboard/KPIs/Reports: `targetPassRate`, `targetAvgScore`, `targetDailyRate` y `fatalFailuresAllowed` usados en metricas, badges, alertas y comparativos.
 - Export configurable cerrado repo-side: seleccion de campos para CSV/JSON/Excel, Excel enriquecido con resumen/evaluaciones/detalle de respuestas y auditoria con campos seleccionados.
+- Motor real de notificaciones in-app cerrado repo-side: modelos `Notification`/`NotificationPreference`, inbox en header, acciones para leer/marcar/archivar y eventos desde evaluaciones, exports y Settings.
+- Coaching/tendencias profundas cerrado repo-side: Dashboard muestra coaching accionable por agente, categoria QA y campana contra targets operativos.
 
 Pendiente real:
 
-- Motor real de notificaciones.
+- Proveedor externo de email/notificaciones push si se decide salir del canal in-app.
 - Rotacion operacional de secretos historicos en servidor/password manager.
 
 ## Principios de trabajo
@@ -63,9 +65,9 @@ La app ya tiene:
 
 La app todavia conserva como pendiente de roadmap:
 
-- Notificaciones operativas reales.
+- Proveedor externo de email/notificaciones push si se decide salir del canal in-app.
 - Profundizar analisis posterior sobre exports si se pide un formato especifico externo.
-- Profundizar coaching/tendencias sobre los targets ya activos.
+- Refinamientos visuales de coaching con datos productivos si se detectan patrones nuevos.
 
 ## Riesgos criticos originales
 
@@ -720,6 +722,8 @@ En Configuracion:
 
 - Alertas respetan campaña y rol.
 - No hay notificaciones tecnicas visibles para QA Manager.
+
+Estado al 2026-06-29: cerrado repo-side para canal in-app. Queda como extension futura conectar email/push con proveedor externo.
 
 ## Menu final de Configuracion
 

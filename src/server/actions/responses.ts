@@ -7,6 +7,7 @@ import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
 import type { ResponseStatus } from "@/lib/response-status";
 import { getCampaignScoringSettings } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
+import { emitNotification } from "@/server/notifications";
 import {
   assertCampaignPermissionForUser,
   getCampaignFilterForPermission,
@@ -571,7 +572,7 @@ async function saveEvaluation(
   const [agent, disposition, scoringSettings] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: input.agentId },
-      select: { campaignId: true, active: true },
+      select: { campaignId: true, active: true, name: true, agentCode: true },
     }),
     prisma.disposition.findUnique({
       where: { id: input.dispositionId },
@@ -719,6 +720,33 @@ async function saveEvaluation(
     });
   }
 
+  if (status === RESPONSE_STATUS.SUBMITTED && (hasFatalFail || result === "FAIL")) {
+    const fatalAnswerCount = sanitizedAnswers.filter((answer) => answer.isFatalFail).length;
+    await emitNotification({
+      type: hasFatalFail ? "fatal_evaluation" : "evaluation_failed",
+      severity: hasFatalFail ? "CRITICAL" : "WARNING",
+      campaignId: form.campaignId,
+      permission: "canViewReports",
+      title: hasFatalFail ? "Evaluacion con falla fatal" : "Evaluacion bajo umbral",
+      body: `${agent.name ?? "Agente"}${agent.agentCode ? ` (${agent.agentCode})` : ""} obtuvo ${score.toFixed(
+        1,
+      )}% en ${form.title}.`,
+      href: `/analytics/responses/${response.id}`,
+      entityType: "response",
+      entityId: response.id,
+      metadata: {
+        formId: form.id,
+        formTitle: form.title,
+        campaignName: form.campaign?.name ?? null,
+        score,
+        result,
+        hasFatalFail,
+        fatalAnswerCount,
+        passThreshold: scoringSettings.passThreshold,
+      },
+    });
+  }
+
   revalidateEvaluationPaths();
   return { ...response, score: Number(response.score) };
 }
@@ -775,6 +803,23 @@ export async function cancelResponse(data: unknown) {
       cancellationReason: input.reason,
     },
     impact: "Evaluacion anulada y excluida de Dashboard, KPIs, reportes y exportaciones.",
+  });
+
+  await emitNotification({
+    type: "evaluation_cancelled",
+    severity: "WARNING",
+    campaignId: existing.form.campaignId,
+    permission: "canViewReports",
+    title: "Evaluacion anulada",
+    body: `Una evaluacion fue anulada: ${input.reason}`,
+    href: `/analytics/responses/${existing.id}`,
+    entityType: "response",
+    entityId: existing.id,
+    metadata: {
+      reason: input.reason,
+      cancelledById: session.user.id,
+      cancelledAt: cancelledAt.toISOString(),
+    },
   });
 
   revalidateEvaluationPaths();
