@@ -5,8 +5,9 @@ import { readOperationalSettings, readSettings } from "@/server/actions/settings
 import { readCampaignScoringSettings } from "@/server/actions/campaign-scoring";
 import { readOperationalAudit } from "@/server/actions/audit";
 import { readQACategories } from "@/server/actions/qa-categories";
-import { getCampaigns } from "@/server/actions/campaigns";
+import { getCampaigns, getCampaignsForPermission } from "@/server/actions/campaigns";
 import { getUsers } from "@/server/actions/users";
+import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { SettingsClient } from "./settings-client";
 
 async function getProfileOrLogin() {
@@ -29,11 +30,16 @@ export default async function SettingsPage() {
 
   const profile = await getProfileOrLogin();
   const isAdmin = profile.role === "ADMIN";
+  const canViewAudit = isAdmin || (await hasAnyCampaignPermission("canViewAudit"));
   const [settings, operationalSettings, users, campaigns] = await Promise.all([
     readSettings(),
     isAdmin ? readOperationalSettings() : Promise.resolve(null),
     isAdmin ? getUsers() : Promise.resolve([]),
-    isAdmin ? getCampaigns() : Promise.resolve([]),
+    isAdmin
+      ? getCampaigns()
+      : canViewAudit
+        ? getCampaignsForPermission("canViewAudit")
+        : Promise.resolve([]),
   ]);
   const [campaignScoring, auditEvents, qaCategories] = isAdmin
     ? await Promise.all([
@@ -41,7 +47,13 @@ export default async function SettingsPage() {
         readOperationalAudit({ page: 1, pageSize: 25 }),
         readQACategories(),
       ])
-    : [[], { events: [], total: 0, page: 1, pageSize: 25, pageCount: 1 }, []];
+    : [
+        [],
+        canViewAudit
+          ? await readOperationalAudit({ page: 1, pageSize: 25 })
+          : { events: [], total: 0, page: 1, pageSize: 25, pageCount: 1 },
+        [],
+      ];
 
   return (
     <SettingsClient
@@ -49,6 +61,7 @@ export default async function SettingsPage() {
       settings={settings}
       operationalSettings={operationalSettings}
       isAdmin={isAdmin}
+      canViewAudit={canViewAudit}
       accessUsers={users.map((u) => ({
         id: u.id,
         email: u.email,

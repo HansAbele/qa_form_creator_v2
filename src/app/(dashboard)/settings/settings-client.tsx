@@ -94,6 +94,7 @@ interface SettingsClientProps {
   settings: AppSettings;
   operationalSettings: OperationalSettings | null;
   isAdmin: boolean;
+  canViewAudit: boolean;
   accessUsers: AccessUser[];
   accessCampaigns: { id: string; name: string }[];
   campaignScoring: CampaignScoringSettings[];
@@ -105,7 +106,7 @@ interface AccessUser {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "QA";
+  role: "ADMIN" | "QA" | "SUPERVISOR";
   active: boolean;
   campaigns: AccessCampaign[];
 }
@@ -219,7 +220,7 @@ const PERMISSION_GROUPS: {
 }[] = [
   {
     title: "Lectura y analítica",
-    keys: ["canViewDashboard", "canViewKPIs", "canViewForms", "canViewReports"],
+    keys: ["canViewDashboard", "canViewKPIs", "canViewForms", "canViewReports", "canViewAudit"],
   },
   {
     title: "Formularios y evaluaciones",
@@ -242,13 +243,16 @@ export function SettingsClient({
   settings,
   operationalSettings,
   isAdmin,
+  canViewAudit,
   accessUsers,
   accessCampaigns,
   campaignScoring,
   auditPage,
   qaCategories,
 }: SettingsClientProps) {
-  const visibleSections = SETTINGS_SECTIONS.filter((section) => !section.adminOnly || isAdmin);
+  const visibleSections = SETTINGS_SECTIONS.filter(
+    (section) => !section.adminOnly || isAdmin || (section.id === "audit" && canViewAudit),
+  );
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("account");
   const currentSection =
     visibleSections.find((section) => section.id === activeSection) ?? visibleSections[0];
@@ -342,7 +346,7 @@ export function SettingsClient({
           {isAdmin && currentSection.id === "reports-export" && (
             <ReportsExportTab settings={operationalSettings} />
           )}
-          {isAdmin && currentSection.id === "audit" && (
+          {(isAdmin || canViewAudit) && currentSection.id === "audit" && (
             <OperationalAuditTab
               initialPage={auditPage}
               users={accessUsers}
@@ -370,9 +374,11 @@ function AccessTab({
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | "ADMIN" | "QA">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | "ADMIN" | "QA" | "SUPERVISOR">("all");
   const [campaignFilter, setCampaignFilter] = useState("all");
-  const configurableUsers = users.filter((user) => user.role === "QA" && user.campaigns.length > 0);
+  const configurableUsers = users.filter(
+    (user) => (user.role === "QA" || user.role === "SUPERVISOR") && user.campaigns.length > 0,
+  );
   const [selectedUserId, setSelectedUserId] = useState(configurableUsers[0]?.id ?? "");
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [draft, setDraft] = useState<{
@@ -402,8 +408,9 @@ function AccessTab({
   const activeCount = users.filter((user) => user.active).length;
   const adminCount = users.filter((user) => user.role === "ADMIN").length;
   const qaCount = users.filter((user) => user.role === "QA").length;
+  const supervisorCount = users.filter((user) => user.role === "SUPERVISOR").length;
   const unassignedCount = users.filter(
-    (user) => user.role === "QA" && user.campaigns.length === 0,
+    (user) => user.role !== "ADMIN" && user.campaigns.length === 0,
   ).length;
 
   const campaignStats = campaigns.map((campaign) => ({
@@ -421,23 +428,26 @@ function AccessTab({
     null;
   const selectedKey =
     selectedUser && selectedAccess ? `${selectedUser.id}:${selectedAccess.campaign.id}` : "";
-  const permissionState =
-    draft?.key === selectedKey && draft.permissions
+  const selectedUserIsSupervisor = selectedUser?.role === "SUPERVISOR";
+  const permissionState = selectedUserIsSupervisor
+    ? getCampaignAccessPreset("SUPERVISOR")
+    : draft?.key === selectedKey && draft.permissions
       ? draft.permissions
       : selectedAccess
         ? getPermissionStateFromAccess(selectedAccess)
         : null;
-  const roleInCampaign =
-    draft?.key === selectedKey && draft.roleInCampaign
+  const roleInCampaign = selectedUserIsSupervisor
+    ? "SUPERVISOR"
+    : draft?.key === selectedKey && draft.roleInCampaign
       ? draft.roleInCampaign
       : (selectedAccess?.roleInCampaign ?? "EVALUATOR");
-  const hasDraft = draft?.key === selectedKey;
+  const hasDraft = !selectedUserIsSupervisor && draft?.key === selectedKey;
 
   const setPermissionDraft = (
     nextRole: CampaignAccessLevel,
     nextPermissions: CampaignPermissionState,
   ) => {
-    if (!selectedKey) return;
+    if (!selectedKey || selectedUserIsSupervisor) return;
     setDraft({
       key: selectedKey,
       roleInCampaign: nextRole,
@@ -447,6 +457,10 @@ function AccessTab({
 
   const handleSaveAccess = () => {
     if (!selectedUser || !selectedAccess || !permissionState) return;
+    if (selectedUserIsSupervisor) {
+      toast.info("Supervisor mantiene permisos de solo lectura por campana.");
+      return;
+    }
 
     startSavingAccess(async () => {
       try {
@@ -488,9 +502,9 @@ function AccessTab({
         />
         <AccessMetricCard
           icon={<Building2 className="h-4 w-4 text-orange-500" />}
-          label="Sin campaña"
-          value={unassignedCount}
-          detail="Requiere asignación"
+          label="Supervisores"
+          value={supervisorCount}
+          detail={`${unassignedCount} usuarios sin campaña`}
         />
       </div>
 
@@ -526,7 +540,7 @@ function AccessTab({
               value={roleFilter}
               onValueChange={(value) => {
                 if (!value) return;
-                setRoleFilter(value as "all" | "ADMIN" | "QA");
+                setRoleFilter(value as "all" | "ADMIN" | "QA" | "SUPERVISOR");
               }}
             >
               <SelectTrigger>
@@ -536,6 +550,7 @@ function AccessTab({
                 <SelectItem value="all">Todos los roles</SelectItem>
                 <SelectItem value="ADMIN">QA Manager</SelectItem>
                 <SelectItem value="QA">QA campaña</SelectItem>
+                <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
               </SelectContent>
             </Select>
             <Select
@@ -580,7 +595,7 @@ function AccessTab({
                     </TableCell>
                     <TableCell>
                       <Badge variant={user.role === "ADMIN" ? "default" : "secondary"}>
-                        {user.role === "ADMIN" ? "QA Manager" : "QA campa�a"}
+                        {getBaseRoleLabel(user.role)}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -702,9 +717,11 @@ function AccessTab({
                     value={roleInCampaign}
                     onValueChange={(value) => {
                       if (!value) return;
+                      if (selectedUserIsSupervisor) return;
                       const nextRole = value as CampaignAccessLevel;
                       setPermissionDraft(nextRole, getCampaignAccessPreset(nextRole));
                     }}
+                    disabled={selectedUserIsSupervisor}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Nivel" />
@@ -732,6 +749,7 @@ function AccessTab({
                             <Checkbox
                               id={checkboxId}
                               checked={permissionState[permissionKey]}
+                              disabled={selectedUserIsSupervisor}
                               onCheckedChange={(checked) =>
                                 setPermissionDraft(roleInCampaign, {
                                   ...permissionState,
@@ -752,9 +770,11 @@ function AccessTab({
 
               <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-xs text-muted-foreground">
-                  {hasDraft
-                    ? "Hay cambios pendientes para esta campa�a."
-                    : "Los permisos mostrados son los guardados actualmente."}
+                  {selectedUserIsSupervisor
+                    ? "Supervisor siempre conserva permisos de lectura: dashboards, KPIs, formularios y reportes."
+                    : hasDraft
+                      ? "Hay cambios pendientes para esta campa�a."
+                      : "Los permisos mostrados son los guardados actualmente."}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -770,7 +790,7 @@ function AccessTab({
                     type="button"
                     size="sm"
                     onClick={handleSaveAccess}
-                    disabled={!hasDraft || savingAccess}
+                    disabled={!hasDraft || savingAccess || selectedUserIsSupervisor}
                   >
                     {savingAccess ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -784,7 +804,7 @@ function AccessTab({
             </>
           ) : (
             <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-              Asigna un usuario QA a una campaña para configurar permisos granulares.
+              Asigna un usuario QA o Supervisor a una campaña para configurar permisos granulares.
             </div>
           )}
         </CardContent>
@@ -827,7 +847,7 @@ function AccessTab({
             <PermissionSummary
               icon={<BarChart3 className="h-4 w-4" />}
               title="Dashboard & KPIs"
-              text="Global para QA Manager; campañas asignadas para QA."
+              text="Global para QA Manager; campañas asignadas para QA y Supervisor."
             />
             <PermissionSummary
               icon={<ClipboardCheck className="h-4 w-4" />}
@@ -837,7 +857,7 @@ function AccessTab({
             <PermissionSummary
               icon={<FileSpreadsheet className="h-4 w-4" />}
               title="Reportes"
-              text="La exportación queda limitada al scope visible."
+              text="Supervisor puede ver reportes de sus campañas sin exportar."
             />
             <PermissionSummary
               icon={<Target className="h-4 w-4" />}
@@ -898,6 +918,7 @@ function PermissionSummary({
 
 function getAccessLevelLabelV2(user: AccessUser): string {
   if (user.role === "ADMIN") return "Global";
+  if (user.role === "SUPERVISOR") return "Supervisor";
   if (user.campaigns.length === 0) return "Sin campaña";
 
   const labels = [
@@ -907,12 +928,21 @@ function getAccessLevelLabelV2(user: AccessUser): string {
   return labels.length === 1 ? labels[0] : "Mixto";
 }
 
+function getBaseRoleLabel(role: AccessUser["role"]): string {
+  if (role === "ADMIN") return "QA Manager";
+  if (role === "SUPERVISOR") return "Supervisor";
+  return "QA campaña";
+}
+
 function getEffectivePermissionsV2(user: AccessUser): string[] {
   if (!user.active) return ["Sin acceso activo"];
   if (user.role === "ADMIN") {
     return ["Usuarios", "Todas las campañas", "Scoring global", "Exportación"];
   }
   if (user.campaigns.length === 0) return ["Sin campaña asignada"];
+  if (user.role === "SUPERVISOR") {
+    return ["Dashboard/KPIs", "Formularios lectura", "Reportes", "Solo lectura"];
+  }
 
   const hasAny = (permission: CampaignPermissionKey) =>
     user.campaigns.some((access) => access[permission]);
@@ -1011,7 +1041,7 @@ function AccountTab({ profile }: { profile: ProfileInfo }) {
               label="Rol"
               value={
                 <Badge variant={profile.role === "ADMIN" ? "default" : "secondary"}>
-                  {profile.role === "ADMIN" ? "QA Manager" : "QA campa�a"}
+                  {getBaseRoleLabel(profile.role)}
                 </Badge>
               }
             />
@@ -1754,7 +1784,8 @@ function DashboardKpisTab({ settings }: { settings: OperationalSettings | null }
           key: "supervisorView",
           label: "Vista Supervisor",
           detail: "Lectura de tendencias, coaching y evaluaciones dentro de su campaña.",
-          badge: "Configurable",
+          badge: "Enforced",
+          locked: true,
         },
         {
           key: "widgetPreferences",
@@ -1793,8 +1824,9 @@ function ReportsExportTab({ settings }: { settings: OperationalSettings | null }
         {
           key: "supervisorExports",
           label: "Exportación supervisor",
-          detail: "Supervisor no exporta por defecto salvo permiso especial por campaña.",
-          badge: "Configurable",
+          detail: "Supervisor no exporta datos; conserva lectura por campaña.",
+          badge: "Enforced",
+          locked: true,
         },
         {
           key: "fieldSelection",

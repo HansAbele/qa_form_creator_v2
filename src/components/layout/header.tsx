@@ -18,6 +18,12 @@ export function Header() {
 
   const current = mounted ? (theme === "system" ? resolvedTheme : theme) : undefined;
   const isDark = current === "dark";
+  const roleLabel =
+    session?.user.role === "ADMIN"
+      ? "QA Manager"
+      : session?.user.role === "SUPERVISOR"
+        ? "Supervisor"
+        : "QA";
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-card px-6">
@@ -60,9 +66,7 @@ export function Header() {
           <div className="flex items-center gap-3">
             <div className="text-right">
               <p className="text-sm font-medium text-foreground">{session.user.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {session.user.role === "ADMIN" ? "QA Manager" : "QA"}
-              </p>
+              <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
             <button
               type="button"

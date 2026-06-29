@@ -3,10 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -101,7 +113,12 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
           </div>
           <div className="space-y-2">
             <Label htmlFor="user-email">Email</Label>
-            <Input id="user-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input
+              id="user-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="user-password">
@@ -122,6 +139,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
                   {(value: string | null) => {
                     if (value === "ADMIN") return "Administrador";
                     if (value === "QA") return "QA";
+                    if (value === "SUPERVISOR") return "Supervisor";
                     return "Seleccionar rol";
                   }}
                 </SelectValue>
@@ -129,6 +147,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
               <SelectContent>
                 <SelectItem value="ADMIN">Administrador</SelectItem>
                 <SelectItem value="QA">QA</SelectItem>
+                <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
               </SelectContent>
             </Select>
           </div>

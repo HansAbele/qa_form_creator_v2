@@ -4,6 +4,8 @@
 > 
 > Esta guía aplica para cualquier proyecto nuevo que quiera subirse al mismo servidor donde ya corren **Qore** (qa-form-creator) y **Osiris Reporting**.
 
+> Nota para Qore: para deploy y seguridad de este repo usa primero `docs/production-security-runbook.md`. Este archivo queda como guia generica para proyectos nuevos.
+
 ---
 
 ## Tabla de contenido
@@ -396,7 +398,7 @@ git clone https://github.com/tu-usuario/mi-proyecto.git .
 3. Copiar el token
 
 ```bash
-git clone https://<TOKEN>@github.com/tu-usuario/mi-proyecto.git .
+git clone git@github.com:tu-usuario/mi-proyecto.git .
 ```
 
 #### Opción B: SSH Deploy Key (más segura, recomendada)
@@ -527,10 +529,11 @@ Crear `scripts/deploy.py` en el proyecto para automatizar:
 #!/usr/bin/env python3
 """deploy.py — update project on server"""
 import paramiko
+import os
 
 HOST = "192.168.80.243"
 USER = "root"
-PASS = "<password-ssh>"
+PASS = os.environ["DEPLOY_SSH_PASSWORD"]
 PROJECT_DIR = "/opt/mi-proyecto"
 COMPOSE_FILE = "docker-compose.prod.yml"
 ENV_FILE = ".env.production"
@@ -567,6 +570,7 @@ if __name__ == "__main__":
 Correr desde local:
 
 ```bash
+export DEPLOY_SSH_PASSWORD="<password-from-password-manager>"
 python scripts/deploy.py
 ```
 
@@ -688,7 +692,7 @@ const response = await fetch("http://backend:8000/api/users");
 
 ```python
 # Python
-DATABASE_URL = "postgresql://mi_user:pass@db:5432/mi_proyecto"
+DATABASE_URL = env("DATABASE_URL")
 #                                        ^^
 #                                        nombre del servicio
 ```

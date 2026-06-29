@@ -2,6 +2,7 @@
 
 import { Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -36,6 +37,8 @@ interface QuestionRendererProps {
   onChange: (value: string) => void;
   comment?: string;
   onCommentChange?: (value: string) => void;
+  notApplicable?: boolean;
+  onNotApplicableChange?: (value: boolean) => void;
   error?: string;
   commentError?: string;
 }
@@ -46,6 +49,8 @@ export function QuestionRenderer({
   onChange,
   comment = "",
   onCommentChange,
+  notApplicable = false,
+  onNotApplicableChange,
   error,
   commentError,
 }: QuestionRendererProps) {
@@ -85,6 +90,21 @@ export function QuestionRenderer({
             Comentario si falla
           </Badge>
         )}
+        {notApplicable && (
+          <Badge variant="secondary" className="text-xs">
+            N/A
+          </Badge>
+        )}
+        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          <Checkbox
+            id={`${question.id}-not-applicable`}
+            checked={notApplicable}
+            onCheckedChange={(checked) => onNotApplicableChange?.(checked === true)}
+          />
+          <Label htmlFor={`${question.id}-not-applicable`} className="text-xs font-normal">
+            No aplica
+          </Label>
+        </div>
       </div>
 
       {question.type === "TEXT" && (
@@ -92,19 +112,21 @@ export function QuestionRenderer({
           placeholder="Escribe tu respuesta..."
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          disabled={notApplicable}
           rows={3}
           className="resize-none"
         />
       )}
 
       {question.type === "RATING" && (
-        <div className="flex gap-1">
+        <div className={cn("flex gap-1", notApplicable && "opacity-50")}>
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={star}
               type="button"
+              disabled={notApplicable}
               onClick={() => onChange(String(star))}
-              className="rounded p-1 transition-colors hover:bg-accent"
+              className="rounded p-1 transition-colors hover:bg-accent disabled:cursor-not-allowed"
             >
               <Star
                 className={cn(
@@ -123,7 +145,7 @@ export function QuestionRenderer({
       )}
 
       {question.type === "SELECT" && (
-        <Select value={value} onValueChange={(v) => v && onChange(v)}>
+        <Select value={value} onValueChange={(v) => v && onChange(v)} disabled={notApplicable}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Seleccionar..." />
           </SelectTrigger>
@@ -138,7 +160,11 @@ export function QuestionRenderer({
       )}
 
       {question.type === "RADIO" && (
-        <RadioGroup value={value} onValueChange={(v) => onChange(v as string)}>
+        <RadioGroup
+          value={value}
+          onValueChange={(v) => onChange(v as string)}
+          disabled={notApplicable}
+        >
           {options.map((opt) => (
             <div key={opt} className="flex items-center gap-2">
               <RadioGroupItem value={opt} id={`${question.id}-${opt}`} />

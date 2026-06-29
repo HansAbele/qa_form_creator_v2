@@ -12,6 +12,7 @@ datasource db {
 enum Role {
   ADMIN
   QA
+  SUPERVISOR
 }
 
 enum CampaignAccessLevel {
@@ -124,6 +125,7 @@ model UserCampaign {
   canManageAgents          Boolean             @default(true)
   canManageDispositions    Boolean             @default(true)
   canManageCampaignScoring Boolean             @default(false)
+  canViewAudit             Boolean             @default(false)
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -297,7 +299,15 @@ model Response {
   result        String?
   hasFatalFail  Boolean  @default(false)
   status        String   @default("SUBMITTED")
+  scoringSnapshot Json?
+  settingsSnapshot Json?
+  formSnapshot     Json?
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+  submittedAt   DateTime?
+  cancelledAt   DateTime?
+  cancelledById String?
+  cancellationReason String?
 
   form        Form         @relation(fields: [formId], references: [id])
   agent       Agent        @relation(fields: [agentId], references: [id])
@@ -310,6 +320,8 @@ model Response {
   @@index([evaluatorId])
   @@index([dispositionId])
   @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([cancelledById])
 }
 
 model Answer {
@@ -321,6 +333,7 @@ model Answer {
   score      Decimal? @db.Decimal(5, 2)
   comment    String?
   isFatalFail Boolean @default(false)
+  notApplicable Boolean @default(false)
 
   response Response    @relation(fields: [responseId], references: [id], onDelete: Cascade)
   question Question    @relation(fields: [questionId], references: [id])

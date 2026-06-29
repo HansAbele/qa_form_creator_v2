@@ -1,21 +1,46 @@
 # Propuesta integral de mejoras ajustada a Qore
 
-Last updated: 2026-05-04
+Last updated: 2026-05-18
 
 ## 1. Proposito del documento
 
 Este documento toma la propuesta integral de mejoras para Qore / QA Form Creator y la ajusta al estado real del proyecto despues del analisis del codigo, los modulos existentes, el schema Prisma, las Server Actions, la UI actual y el despliegue.
 
-La propuesta original tiene una direccion correcta: Qore debe evolucionar hacia una plataforma seria de gobierno operativo QA por campana. Sin embargo, varias ideas dependen de cimientos que aun no existen en el proyecto: permisos granulares, rol Supervisor, scoring por categoria, auditoria, formularios versionados y evaluaciones con reglas avanzadas.
+La propuesta original tiene una direccion correcta: Qore debe evolucionar hacia una plataforma seria de gobierno operativo QA por campana. Varias ideas dependian de cimientos que no existian al redactar el plan; al 2026-05-13 ya se implemento una parte importante de esos cimientos.
 
 Este documento organiza la propuesta en una hoja de ruta realista para nuestro proyecto.
+
+## Estado de implementacion al 2026-05-13
+
+Cerrado desde la redaccion original:
+
+- RBAC y aislamiento por campana en backend, UI y exports.
+- Auditoria operativa base y auditoria visible en Configuracion con filtros avanzados, detalle before/after y paginacion.
+- Scoring por campana con `passThreshold` efectivo.
+- Categorias QA, pesos y reglas por pregunta.
+- Versionado/publicacion de formularios y proteccion de historico.
+- Evaluaciones con score ponderado, resultado, falla fatal, comentario requerido y metadata por respuesta.
+- Fallas fatales para opciones `SELECT` y `RADIO`.
+- KPIs/reportes por categoria QA con datos reales validados visualmente.
+- Export auditado y enriquecido con `Resultado` y `Falla fatal`.
+- Controles avanzados de Settings persistidos en `AppSetting.operationalConfig`.
+- Rol `SUPERVISOR` global agregado con lectura por campana y bloqueo central de mutaciones.
+- Auditoria para no-admins expuesta por permiso `canViewAudit` y limitada por campana en servidor.
+- Evaluaciones avanzadas cerradas: N/A, draft/autosave, editar/anular con auditoria, snapshots historicos completos y exclusion de drafts/anuladas en metricas/export.
+- Targets operativos completos en Dashboard/KPIs/Reports: `targetPassRate`, `targetAvgScore`, `targetDailyRate` y `fatalFailuresAllowed` aplicados en metricas, badges, alertas y comparativos.
+- Export configurable cerrado repo-side: campos seleccionables, Excel enriquecido con resumen/evaluaciones/detalle de respuestas y auditoria preservada.
+
+Pendiente real:
+
+- Motor real de notificaciones.
+- Rotacion operacional de secretos historicos en servidor/password manager.
 
 ## 2. Contexto actual de Qore
 
 Qore es una aplicacion interna para control de calidad en operaciones de call center. Hoy permite:
 
 - Autenticacion con credenciales usando Auth.js.
-- Usuarios con roles `ADMIN` y `QA`.
+- Usuarios con roles `ADMIN`, `QA` y `SUPERVISOR`.
 - Asignacion de usuarios a campanas mediante `UserCampaign`.
 - Administracion de campanas.
 - Administracion de usuarios.
@@ -33,6 +58,12 @@ Qore es una aplicacion interna para control de calidad en operaciones de call ce
 - Configuracion actual con:
   - Mi cuenta.
   - Scoring global basico.
+- RBAC por campana.
+- Auditoria operativa visible en Configuracion.
+- Scoring por campana con `passThreshold` efectivo.
+- Categorias QA, pesos y versionado/publicacion de formularios.
+- Evaluaciones con resultado, falla fatal, comentarios requeridos y opciones fatales `SELECT`/`RADIO`.
+- Settings operativos persistidos.
 
 La aplicacion ya tiene una base funcional fuerte, pero todavia no tiene una capa completa de gobierno operativo.
 
@@ -56,12 +87,11 @@ La propuesta es apropiada y aporta valor real para Qore, con ajustes.
 ### Se ajusta para el proyecto actual
 
 - En base de datos, hoy `ADMIN` representa al futuro "QA Manager". No conviene renombrarlo sin migracion planificada. Primero se puede cambiar la etiqueta en UI.
-- El rol `SUPERVISOR` no existe. Debe agregarse despues de fortalecer RBAC.
-- No existe `CampaignAccess` granular. Hoy solo existe `UserCampaign`.
-- No existen categorias QA para scoring. Hoy existen categorias de disposiciones, que son otra cosa.
-- No existe versionado de formularios.
-- No existe N/A, fatal fail, pesos, snapshots de scoring o edicion de evaluaciones.
-- Configuracion actual debe crecer por fases, no reemplazarse de golpe.
+- El rol `SUPERVISOR` ya existe como lectura por campana. El modelo booleano actual en `UserCampaign` queda aceptado como modelo oficial de esta etapa.
+- No existe `CampaignAccess` flexible; hoy se usa `UserCampaign` con permisos booleanos. Hay que decidir si basta o si conviene migrar a una tabla de permisos.
+- Categorias QA, pesos, fallas fatales, comentarios requeridos y versionado de formularios ya existen en el primer corte operativo.
+- N/A, snapshots historicos completos y edicion/anulacion controlada de evaluaciones ya quedaron implementados repo-side el 2026-05-18.
+- Configuracion ya crecio por fases sin reemplazar Admin Usuarios/Campanas; debe seguir complementandolos.
 
 ### Se elimina del alcance funcional
 
@@ -407,7 +437,7 @@ No valida suficientemente:
 
 ### Ajuste recomendado
 
-Antes de agregar N/A, fatal fails o borradores, hay que corregir validacion server-side.
+La validacion server-side ya quedo como base y sobre ella se implementaron N/A, fatal fails, borradores y edicion/anulacion controlada.
 
 ### Cambios aplicables ahora
 
@@ -798,18 +828,30 @@ SUPERVISOR  -> lectura por campana
 
 ### 8.2 Permisos por campana
 
-En vez de muchas columnas booleanas, se recomienda un modelo flexible de permisos:
+Decision cerrada el 2026-05-14: se mantiene el modelo actual de permisos booleanos en `UserCampaign`. La tabla flexible queda diferida hasta que existan roles o permisos dinamicos reales. Ver `docs/decisions/2026-05-14-campaign-permissions-model.md`.
 
 ```text
-UserCampaignPermission
+UserCampaign
 userId
 campaignId
-permission
-grantedAt
-grantedBy
+roleInCampaign
+canViewDashboard
+canViewKPIs
+canViewForms
+canCreateForms
+canEditForms
+canPublishForms
+canEvaluate
+canEditEvaluations
+canViewReports
+canExport
+canManageAgents
+canManageDispositions
+canManageCampaignScoring
+canViewAudit
 ```
 
-Permisos:
+La alternativa flexible podria reabrirse si aparecen permisos dinamicos o scopes adicionales.
 
 ```text
 VIEW_DASHBOARD
@@ -1156,6 +1198,8 @@ Debe incluir:
 - privacidad,
 - auditoria.
 
+Estado al 2026-05-18: cerrado repo-side. CSV/JSON/Excel aceptan seleccion de campos, Excel agrega hojas de resumen y detalle, y la auditoria registra formato, filtros, campos y volumen exportado.
+
 ## 9.10 Notificaciones
 
 Fase posterior.
@@ -1233,7 +1277,7 @@ Version tecnica
 | Exportar reportes              | Si         | Segun permiso              | Segun permiso especial  |
 | Configurar scoring global      | Si         | No                         | No                      |
 | Configurar scoring por campana | Si         | Segun permiso              | No                      |
-| Ver auditoria operativa        | Si         | Solo su campana si permiso | No o limitado           |
+| Ver auditoria operativa        | Si         | Solo su campana si permiso | Solo su campana si permiso |
 | Cambiar logo/colores           | No         | No                         | No                      |
 | Ver estado tecnico             | No         | No                         | No                      |
 
@@ -1268,7 +1312,7 @@ Resultado:
 
 Incluye:
 
-- Rol Supervisor en schema.
+- Rol Supervisor en schema/Auth/UI con lectura por campana.
 - Modelo de permisos por campana.
 - Matriz de Accesos y permisos.
 - AuditLog.
@@ -1287,6 +1331,7 @@ Incluye:
 - Overrides por campana.
 - Settings efectivos por campana.
 - Dashboard, KPIs y Reports consumen settings efectivos.
+- Targets de pass rate, score promedio, tasa diaria y fatales permitidas se usan en comparativos reales.
 
 Resultado:
 
@@ -1322,6 +1367,8 @@ Incluye:
 Resultado:
 
 - Evaluaciones historicas son confiables y trazables.
+
+Estado al 2026-05-18: cerrado repo-side. Quedan como trabajo futuro notificaciones y refinamientos de coaching/tendencias.
 
 ## Fase 6 - Dashboard y KPIs avanzados
 
@@ -1419,12 +1466,12 @@ Auditoria muestra eventos operativos.
 ## 13. Diferencias principales contra la propuesta original
 
 1. `ADMIN` se mantiene inicialmente en base de datos, pero se presenta como QA Manager en UI.
-2. Supervisor se agrega despues de RBAC, no antes.
+2. Supervisor ya se agrego despues de fortalecer RBAC, con bloqueo central de mutaciones.
 3. Permisos se modelan como permisos granulares, no solo como columnas booleanas fijas.
 4. Categorias QA no son las mismas que categorias de disposicion.
-5. Dashboard puede mejorar visualmente ahora, pero categorias criticas esperan schema nuevo.
-6. Formularios por categorias requieren migracion importante y versionado.
-7. Evaluaciones avanzadas requieren validacion server-side primero.
+5. Dashboard/KPIs ya pueden usar categorias QA y targets operativos efectivos; el trabajo pendiente es profundizar tendencias, coaching y calibracion visual con mas datos reales.
+6. Formularios por categorias ya cuentan con migracion, versionado y publicacion; queda profundizar UX/export si aplica.
+7. Evaluaciones ya tienen validacion server-side para score, fatal y comentarios, ademas de N/A, draft/autosave, editar/anular y snapshots completos.
 8. Notificaciones quedan para fase posterior.
 9. Configuracion no reemplaza Admin Usuarios/Campanas; lo complementa.
 10. Auditoria se implementa antes de cambios sensibles avanzados.

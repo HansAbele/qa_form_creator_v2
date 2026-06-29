@@ -27,6 +27,8 @@ import { Search, Eye } from "lucide-react";
 
 interface ReportResponse {
   id: string;
+  campaignId: string;
+  campaignName: string;
   formTitle: string;
   agentName: string;
   agentCode: string | null;
@@ -34,6 +36,13 @@ interface ReportResponse {
   score: number;
   result: string | null;
   hasFatalFail: boolean;
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
+  passesThreshold: boolean;
+  scoreTargetDelta: number;
   createdAt: string;
   answers: {
     question: string;
@@ -54,10 +63,68 @@ interface ReportsClientProps {
   forms: { id: string; title: string; campaignId: string }[];
 }
 
-function isPassingResponse(response: Pick<ReportResponse, "score" | "result" | "hasFatalFail">) {
-  if (response.result === "PASS") return true;
-  if (response.result === "FAIL") return false;
-  return !response.hasFatalFail && response.score >= 80;
+function getRangeDays(dateFrom?: string, dateTo?: string) {
+  if (dateFrom && dateTo) {
+    return Math.max(
+      1,
+      Math.ceil(
+        (new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24),
+      ) + 1,
+    );
+  }
+
+  if (dateFrom) {
+    return Math.max(
+      1,
+      Math.ceil((Date.now() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24)),
+    );
+  }
+
+  return 30;
+}
+
+function aggregateTargets(responses: ReportResponse[]) {
+  const totalResponses = responses.length;
+  const campaignTargets = new Map<
+    string,
+    {
+      targetPassRate: number;
+      targetAvgScore: number;
+      targetDailyRate: number;
+      fatalFailuresAllowed: number;
+    }
+  >();
+
+  for (const response of responses) {
+    campaignTargets.set(response.campaignId, {
+      targetPassRate: response.targetPassRate,
+      targetAvgScore: response.targetAvgScore,
+      targetDailyRate: response.targetDailyRate,
+      fatalFailuresAllowed: response.fatalFailuresAllowed,
+    });
+  }
+
+  const weightedAvg = (key: "targetPassRate" | "targetAvgScore") => {
+    if (totalResponses === 0) return 0;
+    return (
+      Math.round(
+        (responses.reduce((sum, response) => sum + response[key], 0) / totalResponses) * 100,
+      ) / 100
+    );
+  };
+
+  return {
+    targetPassRate: weightedAvg("targetPassRate"),
+    targetAvgScore: weightedAvg("targetAvgScore"),
+    targetDailyRate: Array.from(campaignTargets.values()).reduce(
+      (sum, target) => sum + target.targetDailyRate,
+      0,
+    ),
+    fatalFailuresAllowed: Array.from(campaignTargets.values()).reduce(
+      (sum, target) => sum + target.fatalFailuresAllowed,
+      0,
+    ),
+  };
 }
 
 export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
@@ -107,7 +174,11 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
   const totalResponses = responses.length;
   const avgScore =
     totalResponses > 0 ? responses.reduce((sum, r) => sum + r.score, 0) / totalResponses : 0;
-  const passCount = responses.filter((r) => isPassingResponse(r)).length;
+  const passCount = responses.filter((r) => r.passesThreshold).length;
+  const passRate = totalResponses > 0 ? Math.round((passCount / totalResponses) * 100) : 0;
+  const fatalFailCount = responses.filter((r) => r.hasFatalFail).length;
+  const dailyRate = Math.round((totalResponses / getRangeDays(dateFrom, dateTo)) * 100) / 100;
+  const targets = aggregateTargets(responses);
 
   return (
     <div className="space-y-6">
@@ -196,25 +267,39 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
       </Card>
 
       {/* Summary */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-sm text-muted-foreground">Evaluaciones</p>
             <p className="text-2xl font-bold">{totalResponses}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={avgScore >= targets.targetAvgScore ? "border-green-200" : "border-red-200"}>
           <CardContent className="p-4 text-center">
             <p className="text-sm text-muted-foreground">Score Promedio</p>
             <p className="text-2xl font-bold">{avgScore.toFixed(1)}%</p>
+            <p className="text-xs text-muted-foreground">Target: {targets.targetAvgScore}%</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={passRate >= targets.targetPassRate ? "border-green-200" : "border-red-200"}>
           <CardContent className="p-4 text-center">
             <p className="text-sm text-muted-foreground">Pass Rate</p>
-            <p className="text-2xl font-bold">
-              {totalResponses > 0 ? Math.round((passCount / totalResponses) * 100) : 0}%
-            </p>
+            <p className="text-2xl font-bold">{passRate}%</p>
+            <p className="text-xs text-muted-foreground">Target: {targets.targetPassRate}%</p>
+          </CardContent>
+        </Card>
+        <Card className={dailyRate >= targets.targetDailyRate ? "border-green-200" : "border-amber-200"}>
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">Tasa Diaria</p>
+            <p className="text-2xl font-bold">{dailyRate.toFixed(1)}</p>
+            <p className="text-xs text-muted-foreground">Target: {targets.targetDailyRate}/día</p>
+          </CardContent>
+        </Card>
+        <Card className={fatalFailCount <= targets.fatalFailuresAllowed ? "border-green-200" : "border-red-200"}>
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">Fatales</p>
+            <p className="text-2xl font-bold">{fatalFailCount}</p>
+            <p className="text-xs text-muted-foreground">Permitidas: {targets.fatalFailuresAllowed}</p>
           </CardContent>
         </Card>
       </div>
@@ -247,10 +332,17 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
               <TableCell>{r.evaluatorName}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant={isPassingResponse(r) ? "default" : "destructive"}>
+                  <Badge variant={r.passesThreshold ? "default" : "destructive"}>
                     {r.score.toFixed(1)}%
                   </Badge>
-                  {!isPassingResponse(r) && (
+                  <Badge
+                    variant={r.score >= r.targetAvgScore ? "outline" : "secondary"}
+                    className="tabular-nums"
+                  >
+                    Target {r.scoreTargetDelta >= 0 ? "+" : ""}
+                    {r.scoreTargetDelta.toFixed(1)}
+                  </Badge>
+                  {!r.passesThreshold && (
                     <Badge variant="destructive">{r.hasFatalFail ? "Fatal" : "Fail"}</Badge>
                   )}
                 </div>
@@ -287,15 +379,23 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Score: </span>
-                  <Badge variant={isPassingResponse(selectedResponse) ? "default" : "destructive"}>
+                  <Badge variant={selectedResponse.passesThreshold ? "default" : "destructive"}>
                     {selectedResponse.score.toFixed(1)}%
                   </Badge>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Resultado: </span>
-                  <Badge variant={isPassingResponse(selectedResponse) ? "default" : "destructive"}>
-                    {isPassingResponse(selectedResponse) ? "PASS" : "FAIL"}
+                  <Badge variant={selectedResponse.passesThreshold ? "default" : "destructive"}>
+                    {selectedResponse.passesThreshold ? "PASS" : "FAIL"}
                   </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Target score: </span>
+                  {selectedResponse.targetAvgScore}%
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Umbral pass: </span>
+                  {selectedResponse.passThreshold}%
                 </div>
                 <div>
                   <span className="text-muted-foreground">Falla fatal: </span>

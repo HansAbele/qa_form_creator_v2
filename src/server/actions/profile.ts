@@ -10,7 +10,7 @@ export interface ProfileInfo {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "QA";
+  role: "ADMIN" | "QA" | "SUPERVISOR";
   hasPassword: boolean;
   campaignCount: number;
   campaigns: { id: string; name: string }[];
@@ -104,9 +104,7 @@ export async function changeMyPassword(
   if (!user) throw new Error("Usuario no encontrado");
 
   if (!user.password) {
-    throw new Error(
-      "Esta cuenta usa inicio de sesión externo (SSO) y no tiene contraseña.",
-    );
+    throw new Error("Esta cuenta usa inicio de sesión externo (SSO) y no tiene contraseña.");
   }
 
   const valid = await compare(currentPassword, user.password);

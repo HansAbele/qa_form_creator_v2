@@ -2,35 +2,37 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   CAMPAIGN_PERMISSION_KEYS,
+  isSupervisorRole,
+  normalizeCampaignPermissionsForRole,
   type CampaignPermissionKey,
   type CampaignPermissionState,
 } from "@/lib/campaign-permissions";
 
 export type UiAccess = CampaignPermissionState & {
   isAdmin: boolean;
+  isSupervisor: boolean;
   canOpenSettings: boolean;
 };
 
-const ALL_CAMPAIGN_PERMISSIONS = CAMPAIGN_PERMISSION_KEYS.reduce(
-  (access, permission) => {
-    access[permission] = true;
-    return access;
-  },
-  {} as CampaignPermissionState,
-);
+const ALL_CAMPAIGN_PERMISSIONS = CAMPAIGN_PERMISSION_KEYS.reduce((access, permission) => {
+  access[permission] = true;
+  return access;
+}, {} as CampaignPermissionState);
 
-const NO_CAMPAIGN_PERMISSIONS = CAMPAIGN_PERMISSION_KEYS.reduce(
-  (access, permission) => {
-    access[permission] = false;
-    return access;
-  },
-  {} as CampaignPermissionState,
-);
+const NO_CAMPAIGN_PERMISSIONS = CAMPAIGN_PERMISSION_KEYS.reduce((access, permission) => {
+  access[permission] = false;
+  return access;
+}, {} as CampaignPermissionState);
 
-function toUiAccess(isAdmin: boolean, permissions: CampaignPermissionState): UiAccess {
+function toUiAccess(
+  isAdmin: boolean,
+  isSupervisor: boolean,
+  permissions: CampaignPermissionState,
+): UiAccess {
   return {
     ...permissions,
     isAdmin,
+    isSupervisor,
     canOpenSettings: true,
   };
 }
@@ -45,11 +47,11 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
   });
 
   if (!user) {
-    return toUiAccess(false, NO_CAMPAIGN_PERMISSIONS);
+    return toUiAccess(false, false, NO_CAMPAIGN_PERMISSIONS);
   }
 
   if (user.role === "ADMIN") {
-    return toUiAccess(true, ALL_CAMPAIGN_PERMISSIONS);
+    return toUiAccess(true, false, ALL_CAMPAIGN_PERMISSIONS);
   }
 
   const campaignAccess = await prisma.userCampaign.findMany({
@@ -68,6 +70,7 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
       canManageAgents: true,
       canManageDispositions: true,
       canManageCampaignScoring: true,
+      canViewAudit: true,
     },
   });
 
@@ -78,7 +81,8 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
     }
   }
 
-  return toUiAccess(false, permissions);
+  const normalizedPermissions = normalizeCampaignPermissionsForRole(user.role, permissions);
+  return toUiAccess(false, isSupervisorRole(user.role), normalizedPermissions);
 }
 
 export async function hasAnyCampaignPermission(permission: CampaignPermissionKey) {

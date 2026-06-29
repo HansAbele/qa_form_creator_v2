@@ -67,13 +67,72 @@ async function main() {
         campaignId: campaign.id,
       },
     },
-    update: {},
+    update: { canViewAudit: true },
     create: {
       userId: qaUser.id,
       campaignId: campaign.id,
+      canViewAudit: true,
     },
   });
   console.log(`QA user: ${qaUser.email}`);
+
+  const supervisorPassword = await hash("Supervisor.2026", 12);
+  const supervisorUser = await prisma.user.upsert({
+    where: { email: "supervisor@qa.local" },
+    update: { role: Role.SUPERVISOR },
+    create: {
+      email: "supervisor@qa.local",
+      name: "QA Supervisor",
+      password: supervisorPassword,
+      role: Role.SUPERVISOR,
+    },
+  });
+
+  await prisma.userCampaign.upsert({
+    where: {
+      userId_campaignId: {
+        userId: supervisorUser.id,
+        campaignId: campaign.id,
+      },
+    },
+    update: {
+      roleInCampaign: "SUPERVISOR",
+      canViewDashboard: true,
+      canViewKPIs: true,
+      canViewForms: true,
+      canCreateForms: false,
+      canEditForms: false,
+      canPublishForms: false,
+      canEvaluate: false,
+      canEditEvaluations: false,
+      canViewReports: true,
+      canExport: false,
+      canManageAgents: false,
+      canManageDispositions: false,
+      canManageCampaignScoring: false,
+      canViewAudit: true,
+    },
+    create: {
+      userId: supervisorUser.id,
+      campaignId: campaign.id,
+      roleInCampaign: "SUPERVISOR",
+      canViewDashboard: true,
+      canViewKPIs: true,
+      canViewForms: true,
+      canCreateForms: false,
+      canEditForms: false,
+      canPublishForms: false,
+      canEvaluate: false,
+      canEditEvaluations: false,
+      canViewReports: true,
+      canExport: false,
+      canManageAgents: false,
+      canManageDispositions: false,
+      canManageCampaignScoring: false,
+      canViewAudit: true,
+    },
+  });
+  console.log(`Supervisor user: ${supervisorUser.email}`);
 
   // ─── Sample agents ───────────────────────────────────
   const agentNames = [
@@ -268,6 +327,7 @@ async function main() {
   console.log("─────────────────────────────");
   console.log("Admin login:  admin@qa.local / Admin.2026");
   console.log("QA login:     qa@qa.local / Qa.2026");
+  console.log("Supervisor:   supervisor@qa.local / Supervisor.2026");
 }
 
 main()
