@@ -8,6 +8,9 @@ import { writeAuditLog } from "@/server/audit-log";
 import type { Role } from "@prisma/client";
 import {
   CAMPAIGN_PERMISSION_KEYS,
+  getCampaignAccessPreset,
+  getDefaultCampaignAccessForUserRole,
+  normalizeCampaignPermissionsForRole,
   type CampaignAccessLevel,
   type CampaignPermissionKey,
 } from "@/lib/campaign-permissions";
@@ -80,10 +83,12 @@ export async function createUser(data: {
     });
 
     if (data.campaignIds.length > 0) {
+      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(data.role);
       await tx.userCampaign.createMany({
         data: data.campaignIds.map((campaignId) => ({
           userId: newUser.id,
           campaignId,
+          ...defaultCampaignAccess,
         })),
       });
     }
@@ -169,19 +174,26 @@ export async function updateUser(
       where: { userId: id },
       select: { campaignId: true },
     });
-    const existingCampaignIds = new Set(
-      existingAccess.map((access) => access.campaignId),
-    );
+    const existingCampaignIds = new Set(existingAccess.map((access) => access.campaignId));
     const campaignIdsToCreate = nextCampaignIds.filter(
       (campaignId) => !existingCampaignIds.has(campaignId),
     );
 
     if (campaignIdsToCreate.length > 0) {
+      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(data.role);
       await tx.userCampaign.createMany({
         data: campaignIdsToCreate.map((campaignId) => ({
           userId: id,
           campaignId,
+          ...defaultCampaignAccess,
         })),
+      });
+    }
+
+    if (data.role === "SUPERVISOR" && nextCampaignIds.length > 0) {
+      await tx.userCampaign.updateMany({
+        where: { userId: id, campaignId: { in: nextCampaignIds } },
+        data: getDefaultCampaignAccessForUserRole(data.role),
       });
     }
 
@@ -251,9 +263,14 @@ export async function updateCampaignAccess(data: {
     throw new Error("El usuario no está asignado a esta campaña");
   }
 
-  const permissionPatch = Object.fromEntries(
+  const rawPermissionPatch = Object.fromEntries(
     CAMPAIGN_PERMISSION_KEYS.map((key) => [key, Boolean(data.permissions[key])]),
   ) as Record<CampaignPermissionKey, boolean>;
+  const permissionPatch =
+    user.role === "SUPERVISOR"
+      ? getCampaignAccessPreset("SUPERVISOR")
+      : normalizeCampaignPermissionsForRole(user.role, rawPermissionPatch);
+  const roleInCampaign = user.role === "SUPERVISOR" ? "SUPERVISOR" : data.roleInCampaign;
 
   const access = await prisma.userCampaign.update({
     where: {
@@ -263,7 +280,7 @@ export async function updateCampaignAccess(data: {
       },
     },
     data: {
-      roleInCampaign: data.roleInCampaign,
+      roleInCampaign,
       ...permissionPatch,
     },
     include: { campaign: { select: { id: true, name: true } } },

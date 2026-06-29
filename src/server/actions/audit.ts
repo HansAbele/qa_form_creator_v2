@@ -47,13 +47,15 @@ export async function readOperationalAudit(
   filters: OperationalAuditFilters = {},
 ): Promise<OperationalAuditPage> {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
+  if (!session?.user) {
     throw new Error("No autorizado");
   }
 
   const page = clampInt(filters.page, 1, 10_000, 1);
   const pageSize = clampInt(filters.pageSize, 1, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE);
+  const allowedCampaignIds = await getAllowedAuditCampaignIds(session.user);
   const where = buildAuditWhere(filters);
+  applyAuditScope(where, filters, allowedCampaignIds);
 
   try {
     const [total, rows] = await prisma.$transaction([
@@ -100,6 +102,46 @@ export async function readOperationalAudit(
       pageCount: 1,
     };
   }
+}
+
+async function getAllowedAuditCampaignIds(user: {
+  id: string;
+  role: "ADMIN" | "QA" | "SUPERVISOR";
+}): Promise<string[] | null> {
+  if (user.role === "ADMIN") return null;
+
+  const access = await prisma.userCampaign.findMany({
+    where: {
+      userId: user.id,
+      canViewAudit: true,
+    },
+    select: { campaignId: true },
+  });
+
+  const campaignIds = access.map((item) => item.campaignId);
+  if (campaignIds.length === 0) {
+    throw new Error("No autorizado");
+  }
+
+  return campaignIds;
+}
+
+function applyAuditScope(
+  where: Prisma.AuditLogWhereInput,
+  filters: OperationalAuditFilters,
+  allowedCampaignIds: string[] | null,
+) {
+  if (!allowedCampaignIds) return;
+
+  if (isActiveFilter(filters.campaignId)) {
+    const campaignId = filters.campaignId;
+    if (!campaignId || !allowedCampaignIds.includes(campaignId)) {
+      throw new Error("No autorizado para esta campana");
+    }
+    return;
+  }
+
+  where.campaignId = { in: allowedCampaignIds };
 }
 
 function buildAuditWhere(filters: OperationalAuditFilters): Prisma.AuditLogWhereInput {

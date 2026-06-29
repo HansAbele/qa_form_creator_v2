@@ -5,7 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
 import { assertCampaignAccessForUser } from "@/server/queries/campaign-filter";
-import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import {
+  isSupervisorBlockedPermission,
+  isSupervisorRole,
+  type CampaignPermissionKey,
+} from "@/lib/campaign-permissions";
 import type { Prisma } from "@prisma/client";
 
 export async function getCampaigns() {
@@ -13,9 +17,7 @@ export async function getCampaigns() {
   if (!session?.user) throw new Error("No autorizado");
 
   const where =
-    session.user.role === "ADMIN"
-      ? {}
-      : { users: { some: { userId: session.user.id } } };
+    session.user.role === "ADMIN" ? {} : { users: { some: { userId: session.user.id } } };
 
   return prisma.campaign.findMany({
     where,
@@ -30,15 +32,17 @@ export async function getCampaignsForPermission(permission: CampaignPermissionKe
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
+  if (isSupervisorRole(session.user.role) && isSupervisorBlockedPermission(permission)) {
+    return [];
+  }
+
   const userCampaignWhere: Prisma.UserCampaignWhereInput = {
     userId: session.user.id,
     [permission]: true,
   };
 
   const where: Prisma.CampaignWhereInput =
-    session.user.role === "ADMIN"
-      ? {}
-      : { users: { some: userCampaignWhere } };
+    session.user.role === "ADMIN" ? {} : { users: { some: userCampaignWhere } };
 
   return prisma.campaign.findMany({
     where,

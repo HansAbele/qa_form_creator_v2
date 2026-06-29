@@ -1,6 +1,10 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import {
+  isSupervisorBlockedPermission,
+  isSupervisorRole,
+  type CampaignPermissionKey,
+} from "@/lib/campaign-permissions";
 import type { Session } from "next-auth";
 
 type SessionUser = Session["user"];
@@ -28,6 +32,9 @@ export async function assertCampaignPermissionForUser(
   permission: CampaignPermissionKey,
 ) {
   if (user.role === "ADMIN") return;
+  if (isSupervisorRole(user.role) && isSupervisorBlockedPermission(permission)) {
+    throw new Error("No autorizado para esta accion en esta campana");
+  }
 
   assertCampaignAccessForUser(user, campaignId);
 
@@ -81,6 +88,12 @@ export async function getCampaignFilterForPermission(
 
   if (session.user.role === "ADMIN") {
     return campaignId ? { campaignId } : {};
+  }
+  if (isSupervisorRole(session.user.role) && isSupervisorBlockedPermission(permission)) {
+    if (campaignId) {
+      await assertCampaignPermissionForUser(session.user, campaignId, permission);
+    }
+    return { campaignId: { in: [] } };
   }
 
   if (campaignId) {

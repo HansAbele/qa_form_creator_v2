@@ -15,6 +15,7 @@ export default async function FormsPage() {
     getCampaignsForPermission("canCreateForms"),
   ]);
   const isAdmin = session.user.role === "ADMIN";
+  const isSupervisor = session.user.role === "SUPERVISOR";
 
   return (
     <FormsListClient
@@ -29,10 +30,10 @@ export default async function FormsPage() {
         questionCount: f._count.questions,
         responseCount: f._count.responses,
         createdAt: f.createdAt.toISOString(),
-        canEvaluate: isAdmin || Boolean(f.campaign.users[0]?.canEvaluate),
-        canEdit: isAdmin || Boolean(f.campaign.users[0]?.canEditForms),
+        canEvaluate: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
+        canEdit: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEditForms)),
       }))}
-      canCreate={isAdmin || creatableCampaigns.length > 0}
+      canCreate={!isSupervisor && (isAdmin || creatableCampaigns.length > 0)}
     />
   );
 }

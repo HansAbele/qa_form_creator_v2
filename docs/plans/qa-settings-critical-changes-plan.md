@@ -1,12 +1,38 @@
 # Plan de cambios criticos: Configuracion, permisos y gobierno QA
 
-Last updated: 2026-05-04
+Last updated: 2026-05-18
 
 ## Objetivo
 
 Evolucionar Qore desde una app de evaluaciones QA con configuracion global basica hacia una plataforma de gobierno operativo por campaña, con permisos reales, scoring configurable, auditoria y una UI de Configuracion alineada al trabajo diario de QA Managers, QA de campaña y Supervisores.
 
 Este plan prioriza seguridad y consistencia de datos antes de agregar pantallas nuevas. El panel de Configuracion debe reflejar reglas que el backend ya aplica, no promesas visuales que puedan saltarse llamando Server Actions directamente.
+
+## Estado de implementacion al 2026-05-13
+
+Este documento empezo como plan. Varias fases ya fueron implementadas y validadas despues de su redaccion original.
+
+Cerrado:
+
+- RBAC y aislamiento por campana en Server Actions, queries, UI y exports.
+- Auditoria operativa base y UI de auditoria en Configuracion con filtros avanzados, detalle before/after y paginacion.
+- Scoring por campana con `passThreshold` efectivo.
+- Categorias QA, pesos, flags de fatal/comment y versionado/publicacion de formularios.
+- Evaluaciones con score ponderado, `formVersion`, `result`, `hasFatalFail`, metadata por respuesta, comentarios requeridos y opciones fatales `SELECT`/`RADIO`.
+- KPIs/reportes por categoria QA y conteo de fallas fatales.
+- Exportaciones auditadas y enriquecidas con `Resultado` y `Falla fatal`.
+- Controles operativos avanzados en Settings persistidos via `AppSetting.operationalConfig`.
+- Validacion visual final en navegador para Settings, formularios, evaluacion fatal, reportes, KPIs y export con datos reales.
+- Rol `SUPERVISOR` global agregado en Prisma/Auth/UI, con lectura por campana y mutaciones bloqueadas en servidor.
+- Auditoria para no-admins expuesta por permiso `canViewAudit` y limitada por campana en servidor.
+- Evaluaciones avanzadas: draft/autosave, editar/anular con auditoria, N/A, snapshots historicos de scoring/config/form y exclusion de drafts/anuladas en metricas/export.
+- Targets operativos completos en Dashboard/KPIs/Reports: `targetPassRate`, `targetAvgScore`, `targetDailyRate` y `fatalFailuresAllowed` usados en metricas, badges, alertas y comparativos.
+- Export configurable cerrado repo-side: seleccion de campos para CSV/JSON/Excel, Excel enriquecido con resumen/evaluaciones/detalle de respuestas y auditoria con campos seleccionados.
+
+Pendiente real:
+
+- Motor real de notificaciones.
+- Rotacion operacional de secretos historicos en servidor/password manager.
 
 ## Principios de trabajo
 
@@ -22,7 +48,7 @@ Este plan prioriza seguridad y consistencia de datos antes de agregar pantallas 
 
 La app ya tiene:
 
-- Roles `ADMIN` y `QA`.
+- Roles `ADMIN`, `QA` y `SUPERVISOR`.
 - Usuarios asignados a campañas mediante `UserCampaign`.
 - Formularios con preguntas `TEXT`, `RATING`, `SELECT` y `RADIO`.
 - Evaluaciones con respuestas y score.
@@ -30,24 +56,22 @@ La app ya tiene:
 - Dashboard, KPIs, reports, exportaciones y analytics.
 - Configuracion actual con `Mi cuenta` y `Scoring` global.
 - `AppSetting` como key/value global para `passThreshold`, `targetPassRate`, `targetAvgScore` y `targetDailyRate`.
+- RBAC por campana, auditoria operativa, scoring por campana, categorias QA, pesos y versionado/publicacion de formularios.
+- Auditoria no-admin por campana mediante `canViewAudit`.
+- Evaluaciones con resultado, falla fatal, comentarios requeridos y opciones fatales `SELECT`/`RADIO`.
+- Settings operativos persistidos en `AppSetting.operationalConfig`.
 
-La app todavia no tiene:
+La app todavia conserva como pendiente de roadmap:
 
-- Rol Supervisor.
-- Permisos granulares por campaña.
-- Auditoria operativa.
-- Scoring por campaña.
-- Categorias QA para preguntas/scoring.
-- Pesos por pregunta o categoria.
-- N/A, reglas fatales o comentarios obligatorios por regla.
-- Versionado de formularios.
-- Evaluaciones editables/anulables con historial.
-- Notificaciones operativas.
-- Exportaciones auditadas.
+- Notificaciones operativas reales.
+- Profundizar analisis posterior sobre exports si se pide un formato especifico externo.
+- Profundizar coaching/tendencias sobre los targets ya activos.
 
-## Riesgos criticos que bloquean el panel avanzado
+## Riesgos criticos originales
 
-Antes de ampliar Configuracion, hay que corregir estos riesgos:
+Estos riesgos bloquearon el panel avanzado al inicio del plan. Al 2026-05-13, los riesgos de codigo ya fueron mitigados; queda pendiente la validacion operacional de produccion y la rotacion de cualquier secreto que haya estado expuesto historicamente:
+
+Nota posterior: el runbook de produccion quedo creado en `docs/production-security-runbook.md`. La accion que no puede cerrarse desde el repo es rotar secretos reales en servidor/password manager.
 
 - Filtros de campaña sobrescribibles por parametros externos.
 - Acciones mutantes que solo validan sesion, no permiso sobre la entidad.
@@ -86,7 +110,9 @@ No debe:
 
 Usuario operativo con permisos dentro de campañas asignadas.
 
-Puede, segun permisos:
+Estado: implementado el 2026-05-14 como rol global `SUPERVISOR` con lectura por campana asignada y bloqueo central de mutaciones.
+
+Puede:
 
 - Ver Dashboard/KPIs de sus campañas.
 - Crear, editar o publicar formularios de sus campañas.
@@ -110,7 +136,8 @@ Rol de lectura y coaching.
 Puede, segun permisos:
 
 - Ver Dashboard/KPIs/reportes de su campaña.
-- Ver agentes, evaluaciones y tendencias.
+- Ver formularios publicados/listados y datos analiticos dentro de sus campanas.
+- Ver agentes, evaluaciones y tendencias por medio de vistas de lectura.
 - Consultar coaching list.
 
 No debe:
@@ -118,7 +145,7 @@ No debe:
 - Crear o publicar formularios.
 - Evaluar agentes.
 - Cambiar scoring.
-- Exportar salvo permiso especial.
+- Exportar datos.
 - Ver campañas ajenas.
 
 ## Arquitectura funcional objetivo
@@ -175,9 +202,11 @@ Dejar el proyecto listo para cambios estructurales sin aumentar riesgo en produc
 
 Crear una base de permisos confiable antes de agregar Configuracion avanzada.
 
-### Schema propuesto
+### Schema vigente
 
-Agregar permisos granulares por campaña:
+Decision cerrada el 2026-05-14: se mantiene el modelo de permisos booleanos en `UserCampaign`. La alternativa de tabla flexible `UserCampaignPermission` queda diferida hasta que existan roles o permisos dinamicos reales. Ver `docs/decisions/2026-05-14-campaign-permissions-model.md`.
+
+Modelo actual:
 
 ```prisma
 enum Role {
@@ -186,36 +215,30 @@ enum Role {
   SUPERVISOR
 }
 
-enum CampaignPermission {
-  VIEW_DASHBOARD
-  VIEW_KPIS
-  VIEW_FORMS
-  CREATE_FORMS
-  EDIT_FORMS
-  PUBLISH_FORMS
-  EVALUATE_AGENTS
-  EDIT_EVALUATIONS
-  VIEW_REPORTS
-  EXPORT_REPORTS
-  MANAGE_AGENTS
-  MANAGE_TEAMS
-  MANAGE_DISPOSITIONS
-  MANAGE_CAMPAIGN_SCORING
-  VIEW_AUDIT
+enum CampaignAccessLevel {
+  CAMPAIGN_ADMIN
+  EVALUATOR
+  SUPERVISOR
 }
 
-model UserCampaignPermission {
-  userId     String
-  campaignId String
-  permission CampaignPermission
-  grantedAt  DateTime @default(now())
-  grantedBy  String?
-
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-
-  @@id([userId, campaignId, permission])
-  @@index([campaignId, permission])
+model UserCampaign {
+  userId                   String
+  campaignId               String
+  roleInCampaign           CampaignAccessLevel
+  canViewDashboard         Boolean
+  canViewKPIs              Boolean
+  canViewForms             Boolean
+  canCreateForms           Boolean
+  canEditForms             Boolean
+  canPublishForms          Boolean
+  canEvaluate              Boolean
+  canEditEvaluations       Boolean
+  canViewReports           Boolean
+  canExport                Boolean
+  canManageAgents          Boolean
+  canManageDispositions    Boolean
+  canManageCampaignScoring Boolean
+  canViewAudit             Boolean
 }
 ```
 
@@ -339,7 +362,7 @@ Crear en Configuracion:
 - Cada accion critica deja registro.
 - QA Manager ve auditoria global.
 - QA de campaña solo ve auditoria de sus campañas si tiene permiso.
-- Supervisor no ve auditoria por defecto.
+- Supervisor solo ve auditoria de sus campañas con `canViewAudit`.
 
 ## Fase 3 - Configuracion: Mi cuenta y Accesos
 
@@ -532,6 +555,8 @@ En modulo Formularios:
 
 Hacer que las evaluaciones sean auditables, editables bajo regla y compatibles con scoring avanzado.
 
+Estado al 2026-05-18: cerrado repo-side. Se implementaron drafts/autosave, N/A, edicion/anulacion con auditoria, snapshots historicos completos por respuesta y filtros para que solo `SUBMITTED` alimente Dashboard/KPIs/reportes/export.
+
 ### Schema sugerido
 
 Extender `Response`:
@@ -583,6 +608,7 @@ En formulario de evaluacion:
 - No se aceptan evaluaciones inconsistentes.
 - Ediciones quedan auditadas.
 - Score historico es trazable.
+- Drafts y anuladas no impactan metricas ni exportaciones.
 
 ## Fase 7 - Dashboard, KPIs, Reports y Exportacion gobernados
 
@@ -633,6 +659,7 @@ Reglas:
 - Un usuario solo exporta lo que puede ver.
 - Exportar requiere permiso.
 - Cada export queda auditado.
+- Estado al 2026-05-18: cerrado repo-side. La auditoria registra formato, filtros, campos seleccionados, filas exportadas y filas de detalle.
 
 Campos configurables:
 
@@ -654,6 +681,7 @@ Campos configurables:
 - No hay widgets que revelen campañas ajenas.
 - Exports estan auditados.
 - Reports usan settings efectivos.
+- Dashboard/KPIs/Reports comparan contra targets efectivos por campana.
 
 ## Fase 8 - Notificaciones operativas
 
@@ -749,6 +777,7 @@ Configuracion
 - Validar answers.
 - Guardar snapshots.
 - Agregar status y edicion controlada.
+- Estado: cerrado al 2026-05-18; mantener pruebas al tocar scoring o auditoria.
 
 ### Admin Usuarios
 
@@ -785,10 +814,9 @@ Configuracion
 7. Scoring por campaña.
 8. Categorias QA.
 9. Versionado de formularios.
-10. Evaluaciones avanzadas.
-11. Dashboard/KPIs configurables.
-12. Exportaciones auditadas.
-13. Notificaciones.
+10. Dashboard/KPIs configurables.
+11. Exportaciones configurables.
+12. Notificaciones.
 
 ## Estrategia de pruebas
 

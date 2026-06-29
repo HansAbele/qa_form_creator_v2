@@ -5,9 +5,16 @@ import { toast } from "sonner";
 import { Download, FileSpreadsheet, FileJson, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  ALL_EXPORT_FIELDS,
+  DEFAULT_EXPORT_FIELDS,
+  EXPORT_FIELD_GROUPS,
+  type ExportFieldKey,
+} from "@/lib/export-fields";
 import { exportToCsv, exportToJson, exportToExcel } from "@/server/actions/exports";
 
 interface ExportClientProps {
@@ -20,6 +27,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
   const [formId, setFormId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [selectedFields, setSelectedFields] = useState<ExportFieldKey[]>(DEFAULT_EXPORT_FIELDS);
   const [exporting, setExporting] = useState<string | null>(null);
 
   const filteredForms = campaignId
@@ -31,7 +39,16 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
     formId: formId || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
+    fields: selectedFields,
   });
+
+  const toggleField = (field: ExportFieldKey, checked: boolean) => {
+    setSelectedFields((current) => {
+      if (checked) return current.includes(field) ? current : [...current, field];
+      if (current.length === 1) return current;
+      return current.filter((item) => item !== field);
+    });
+  };
 
   const downloadFile = (content: string, filename: string, mimeType: string) => {
     const bom = mimeType.includes("csv") ? "\uFEFF" : "";
@@ -188,6 +205,67 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Field Selection */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-base">Campos exportables</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedFields(DEFAULT_EXPORT_FIELDS)}
+              >
+                Default
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedFields(ALL_EXPORT_FIELDS)}
+              >
+                Todos
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-5 lg:grid-cols-3">
+            {EXPORT_FIELD_GROUPS.map((group) => (
+              <div key={group.id} className="space-y-3">
+                <div className="flex items-center justify-between gap-3 border-b pb-2">
+                  <p className="text-sm font-medium">{group.label}</p>
+                  <span className="text-xs text-muted-foreground">
+                    {
+                      group.fields.filter((field) => selectedFields.includes(field.key)).length
+                    }
+                    /{group.fields.length}
+                  </span>
+                </div>
+                <div className="grid gap-2">
+                  {group.fields.map((field) => {
+                    const id = `export-field-${field.key}`;
+                    return (
+                      <div key={field.key} className="flex items-center gap-2">
+                        <Checkbox
+                          id={id}
+                          checked={selectedFields.includes(field.key)}
+                          onCheckedChange={(checked) => toggleField(field.key, checked === true)}
+                        />
+                        <Label htmlFor={id} className="text-sm font-normal">
+                          {field.label}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

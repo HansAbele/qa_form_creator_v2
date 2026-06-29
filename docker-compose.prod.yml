@@ -9,9 +9,9 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      - DATABASE_URL=postgresql://qa_user:${DB_PASSWORD}@db:5432/qa_form_creator
-      - AUTH_SECRET=${AUTH_SECRET}
-      - AUTH_URL=${AUTH_URL:-http://localhost:3000}
+      - DATABASE_URL=postgresql://qa_user:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/qa_form_creator
+      - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET is required}
+      - AUTH_URL=${AUTH_URL:?AUTH_URL is required}
       - AUTH_TRUST_HOST=true
       - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: qa_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_DB: qa_form_creator
     volumes:
       - pgdata:/var/lib/postgresql/data

@@ -8,7 +8,7 @@
     "start": "next start",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
+    "db:push": "node scripts/guard-db-push.mjs",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "lint": "biome lint .",

@@ -24,6 +24,7 @@ import {
   ClipboardCheck,
   FileText,
   Filter,
+  ShieldAlert,
   Sparkles,
   Tag,
   TrendingUp,
@@ -60,7 +61,6 @@ import {
   getScoreDistribution,
   getTopBottomPerformers,
 } from "@/server/queries/analytics";
-import type { AppSettings } from "@/lib/settings";
 import type { UiAccess } from "@/server/queries/ui-access";
 
 // ─── Chart configs (theme-aware via CSS vars) ─────────────────────────────────
@@ -106,6 +106,13 @@ interface DashboardStats {
   passRate: number;
   passCount: number;
   failCount: number;
+  fatalFailCount: number;
+  dailyRate: number;
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
   recentResponses: {
     id: string;
     formTitle: string;
@@ -137,12 +144,10 @@ function Section({
 
 export function DashboardClient({
   userName,
-  settings,
   access,
   campaigns,
 }: {
   userName: string;
-  settings: AppSettings;
   access: UiAccess;
   campaigns: { id: string; name: string }[];
 }) {
@@ -183,7 +188,20 @@ export function DashboardClient({
     { id: string; name: string; count: number }[]
   >([]);
   const [campaignPerf, setCampaignPerf] = useState<
-    { id: string; name: string; totalAgents: number; totalEvaluations: number; avgScore: number; passRate: number }[]
+    {
+      id: string;
+      name: string;
+      totalAgents: number;
+      totalEvaluations: number;
+      avgScore: number;
+      passRate: number;
+      dailyRate: number;
+      fatalFailCount: number;
+      targetPassRate: number;
+      targetAvgScore: number;
+      targetDailyRate: number;
+      fatalFailuresAllowed: number;
+    }[]
   >([]);
   const [dispAnalytics, setDispAnalytics] = useState<
     { id: string; name: string; code: string | null; categoryName: string | null; totalEvaluations: number; avgScore: number; passRate: number }[]
@@ -371,7 +389,7 @@ export function DashboardClient({
       )}
 
       {/* ─── KPI Cards (animated, with sparklines) ─────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Total Formularios"
           value={stats.formCount}
@@ -388,28 +406,43 @@ export function DashboardClient({
           index={1}
         />
         <KpiCard
-          label="Score Promedio"
+          label={`Score Promedio (target ${stats.targetAvgScore}%)`}
           value={stats.avgScore}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={stats.avgScore >= settings.passThreshold ? "emerald" : "amber"}
+          tone={stats.avgScore >= stats.targetAvgScore ? "emerald" : "rose"}
           trend={scoreTrend}
           index={2}
         />
         <KpiCard
-          label={`Pass Rate (≥${settings.passThreshold}%)`}
+          label={`Pass Rate (target ${stats.targetPassRate}%)`}
           value={stats.passRate}
           suffix="%"
           icon={Award}
           tone={
-            stats.passRate >= settings.targetPassRate
+            stats.passRate >= stats.targetPassRate
               ? "emerald"
-              : stats.passRate >= settings.passThreshold
+              : stats.passRate >= stats.passThreshold
                 ? "amber"
                 : "rose"
           }
           index={3}
+        />
+        <KpiCard
+          label={`Tasa diaria (target ${stats.targetDailyRate}/d)`}
+          value={stats.dailyRate}
+          decimals={1}
+          icon={Calendar}
+          tone={stats.dailyRate >= stats.targetDailyRate ? "emerald" : "amber"}
+          index={4}
+        />
+        <KpiCard
+          label={`Fatales permitidas ${stats.fatalFailuresAllowed}`}
+          value={stats.fatalFailCount}
+          icon={ShieldAlert}
+          tone={stats.fatalFailCount <= stats.fatalFailuresAllowed ? "emerald" : "rose"}
+          index={5}
         />
       </div>
 
@@ -570,7 +603,7 @@ export function DashboardClient({
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                Pass / Fail (≥{settings.passThreshold}%)
+                Pass / Fail (≥{stats.passThreshold}%)
                 <span className="ml-auto text-[10px] font-normal text-muted-foreground">
                   {canOpenReportDetails ? "Click para ver detalles" : "Resumen"}
                 </span>
@@ -607,12 +640,12 @@ export function DashboardClient({
                                     if (entry.name === "Pass") {
                                       params.set(
                                         "minScore",
-                                        String(settings.passThreshold),
+                                        String(stats.passThreshold),
                                       );
                                     } else {
                                       params.set(
                                         "maxScore",
-                                        String(settings.passThreshold - 0.01),
+                                        String(stats.passThreshold - 0.01),
                                       );
                                     }
                                     if (campaignId) params.set("campaignId", campaignId);
@@ -877,20 +910,45 @@ export function DashboardClient({
                           <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted/60">
                             {hasData && (
                               <div
-                                className="h-full rounded-full bg-violet-500 transition-all"
+                                className={`h-full rounded-full transition-all ${
+                                  entry.avgScore >= entry.targetAvgScore
+                                    ? "bg-emerald-500"
+                                    : "bg-rose-500"
+                                }`}
                                 style={{ width: `${Math.min(100, entry.avgScore)}%` }}
                               />
                             )}
                           </div>
-                          <span
-                            className={`w-14 shrink-0 text-right text-xs tabular-nums ${
-                              hasData
-                                ? "font-semibold"
-                                : "italic text-muted-foreground/60"
-                            }`}
-                          >
-                            {hasData ? `${entry.avgScore.toFixed(1)}%` : "—"}
-                          </span>
+                          <div className="flex w-[190px] shrink-0 items-center justify-end gap-1.5">
+                            <Badge
+                              variant={
+                                entry.avgScore >= entry.targetAvgScore ? "default" : "destructive"
+                              }
+                              className="tabular-nums"
+                            >
+                              {hasData
+                                ? `${entry.avgScore.toFixed(1)}/${entry.targetAvgScore}%`
+                                : "-"}
+                            </Badge>
+                            <Badge
+                              variant={
+                                entry.passRate >= entry.targetPassRate ? "outline" : "destructive"
+                              }
+                              className="tabular-nums"
+                            >
+                              PR {entry.passRate}%
+                            </Badge>
+                            <Badge
+                              variant={
+                                entry.fatalFailCount <= entry.fatalFailuresAllowed
+                                  ? "outline"
+                                  : "destructive"
+                              }
+                              className="tabular-nums"
+                            >
+                              F {entry.fatalFailCount}/{entry.fatalFailuresAllowed}
+                            </Badge>
+                          </div>
                         </button>
                       );
                     })}
@@ -1076,7 +1134,7 @@ export function DashboardClient({
                         <div className="flex justify-center">
                           <Badge
                             variant={
-                              ev.avgScore >= settings.passThreshold
+                              ev.avgScore >= stats.targetAvgScore
                                 ? "default"
                                 : "destructive"
                             }
@@ -1141,7 +1199,7 @@ export function DashboardClient({
                         <div className="ml-3 flex items-center gap-2">
                           <Badge
                             variant={
-                              r.score >= settings.passThreshold
+                              r.score >= stats.passThreshold
                                 ? "default"
                                 : "destructive"
                             }

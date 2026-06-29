@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prismaMock, resetPrismaMock } from "@/test/prisma-mock";
 
-const { authMock, getPassThresholdForCampaignMock, revalidatePathMock } = vi.hoisted(() => ({
+const { authMock, getCampaignScoringSettingsMock, revalidatePathMock } = vi.hoisted(() => ({
   authMock: vi.fn(),
-  getPassThresholdForCampaignMock: vi.fn(),
+  getCampaignScoringSettingsMock: vi.fn(),
   revalidatePathMock: vi.fn(),
 }));
 
@@ -12,7 +12,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/settings", () => ({
-  getPassThresholdForCampaign: getPassThresholdForCampaignMock,
+  getCampaignScoringSettings: getCampaignScoringSettingsMock,
 }));
 
 vi.mock("@/lib/prisma", async () => {
@@ -25,7 +25,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { submitResponse } from "./responses";
+import { cancelResponse, saveResponseDraft, submitResponse } from "./responses";
 
 const qaUser = {
   id: "qa-1",
@@ -87,10 +87,18 @@ describe("submitResponse validation and RBAC", () => {
   beforeEach(() => {
     resetPrismaMock();
     authMock.mockReset();
-    getPassThresholdForCampaignMock.mockReset();
+    getCampaignScoringSettingsMock.mockReset();
     revalidatePathMock.mockReset();
     authMock.mockResolvedValue({ user: qaUser });
-    getPassThresholdForCampaignMock.mockResolvedValue(70);
+    getCampaignScoringSettingsMock.mockResolvedValue({
+      campaignId: "campaign-1",
+      usesGlobalDefaults: true,
+      passThreshold: 70,
+      targetPassRate: 85,
+      targetAvgScore: 80,
+      targetDailyRate: 20,
+      fatalFailuresAllowed: 0,
+    });
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canEvaluate: true,
@@ -106,6 +114,7 @@ describe("submitResponse validation and RBAC", () => {
     });
     prismaMock.$transaction.mockImplementation((callback) => callback(prismaMock));
     prismaMock.response.create.mockResolvedValue({ id: "response-1", score: 80 });
+    prismaMock.response.update.mockResolvedValue({ id: "response-1", score: 80 });
   });
 
   it("creates a response only when form, agent and disposition share the campaign", async () => {
@@ -246,6 +255,183 @@ describe("submitResponse validation and RBAC", () => {
               }),
             ],
           },
+        }),
+      }),
+    );
+  });
+
+  it("excludes N/A rating answers from the score denominator", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-resolution",
+          type: "RATING",
+          label: "Resolution",
+          required: true,
+          options: null,
+          fatalOptions: null,
+          weight: 80,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-resolution" },
+        },
+        {
+          id: "q-soft",
+          type: "RATING",
+          label: "Soft skills",
+          required: true,
+          options: null,
+          fatalOptions: null,
+          weight: 20,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-soft" },
+        },
+      ],
+    });
+
+    await submitResponse({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        { questionId: "q-resolution", value: "5" },
+        { questionId: "q-soft", value: "", notApplicable: true },
+      ],
+    });
+
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          score: 100,
+          result: "PASS",
+          answers: {
+            create: [
+              expect.objectContaining({
+                questionId: "q-resolution",
+                score: 100,
+                notApplicable: false,
+              }),
+              expect.objectContaining({
+                questionId: "q-soft",
+                score: undefined,
+                notApplicable: true,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+  });
+
+  it("saves incomplete evaluations as drafts without publishing to KPIs", async () => {
+    await saveResponseDraft({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [{ questionId: "q-rating", value: "4" }],
+    });
+
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "DRAFT",
+          result: null,
+          submittedAt: null,
+        }),
+      }),
+    );
+  });
+
+  it("edits submitted evaluations only with canEditEvaluations and audits before/after", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEditEvaluations: true,
+    });
+    prismaMock.response.findUnique.mockResolvedValue({
+      id: "response-1",
+      formId: "form-1",
+      agentId: "agent-1",
+      evaluatorId: "qa-2",
+      dispositionId: "disp-1",
+      score: 60,
+      result: "FAIL",
+      hasFatalFail: false,
+      status: "SUBMITTED",
+      createdAt: new Date("2026-05-01T00:00:00Z"),
+      submittedAt: new Date("2026-05-01T00:00:00Z"),
+      cancellationReason: null,
+      form: { campaignId: "campaign-1" },
+      answers: [
+        {
+          questionId: "q-rating",
+          value: "3",
+          score: 60,
+          comment: null,
+          isFatalFail: false,
+          notApplicable: false,
+        },
+      ],
+    });
+
+    await submitResponse({
+      responseId: "response-1",
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        { questionId: "q-rating", value: "5" },
+        { questionId: "q-select", value: "Good" },
+      ],
+    });
+
+    expect(prismaMock.response.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "response-1" },
+        data: expect.objectContaining({
+          status: "SUBMITTED",
+          score: 100,
+          result: "PASS",
+          answers: expect.objectContaining({
+            deleteMany: {},
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("cancels submitted evaluations with canEditEvaluations", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEditEvaluations: true,
+    });
+    prismaMock.response.findUnique.mockResolvedValue({
+      id: "response-1",
+      formId: "form-1",
+      agentId: "agent-1",
+      evaluatorId: "qa-2",
+      dispositionId: "disp-1",
+      score: 80,
+      result: "PASS",
+      hasFatalFail: false,
+      status: "SUBMITTED",
+      createdAt: new Date("2026-05-01T00:00:00Z"),
+      submittedAt: new Date("2026-05-01T00:00:00Z"),
+      cancellationReason: null,
+      form: { campaignId: "campaign-1" },
+      answers: [],
+    });
+
+    await cancelResponse({ id: "response-1", reason: "Duplicated evaluation" });
+
+    expect(prismaMock.response.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "response-1" },
+        data: expect.objectContaining({
+          status: "CANCELLED",
+          cancelledById: "qa-1",
+          cancellationReason: "Duplicated evaluation",
         }),
       }),
     );

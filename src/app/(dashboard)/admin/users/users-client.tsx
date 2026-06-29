@@ -86,7 +86,7 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
               <TableCell className="text-muted-foreground">{u.email}</TableCell>
               <TableCell>
                 <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
-                  {u.role === "ADMIN" ? "Admin" : "QA"}
+                  {getRoleLabel(u.role)}
                 </Badge>
               </TableCell>
               <TableCell>
@@ -139,4 +139,10 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
       />
     </div>
   );
+}
+
+function getRoleLabel(role: Role) {
+  if (role === "ADMIN") return "Admin";
+  if (role === "SUPERVISOR") return "Supervisor";
+  return "QA";
 }

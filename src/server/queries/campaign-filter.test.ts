@@ -23,13 +23,19 @@ import {
 
 const adminUser = {
   id: "admin-1",
-  role: "ADMIN",
+  role: "ADMIN" as const,
   campaignIds: [],
 };
 
 const qaUser = {
   id: "qa-1",
-  role: "QA",
+  role: "QA" as const,
+  campaignIds: ["campaign-1", "campaign-2"],
+};
+
+const supervisorUser = {
+  id: "supervisor-1",
+  role: "SUPERVISOR" as const,
   campaignIds: ["campaign-1", "campaign-2"],
 };
 
@@ -88,5 +94,29 @@ describe("campaign RBAC filters", () => {
     await expect(
       assertCampaignPermissionForUser(qaUser, "campaign-1", "canManageAgents"),
     ).rejects.toThrow("No autorizado para esta accion en esta campana");
+  });
+
+  it("keeps Supervisor scoped to assigned campaigns for read permissions", async () => {
+    authMock.mockResolvedValue({ user: supervisorUser });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewReports: true },
+      { campaignId: "campaign-2", canViewReports: true },
+    ]);
+
+    await expect(getCampaignFilterForPermission("canViewReports")).resolves.toEqual({
+      campaignId: { in: ["campaign-1", "campaign-2"] },
+    });
+  });
+
+  it("blocks Supervisor write permissions even when legacy rows contain writes", async () => {
+    authMock.mockResolvedValue({ user: supervisorUser });
+
+    await expect(getCampaignFilterForPermission("canEvaluate")).resolves.toEqual({
+      campaignId: { in: [] },
+    });
+    await expect(
+      assertCampaignPermissionForUser(supervisorUser, "campaign-1", "canEvaluate"),
+    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    expect(prismaMock.userCampaign.findUnique).not.toHaveBeenCalled();
   });
 });

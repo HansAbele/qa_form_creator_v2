@@ -16,6 +16,9 @@ export const prismaMock = {
     findUnique: vi.fn(),
     findMany: vi.fn(),
   },
+  campaignScoringSettings: {
+    findUnique: vi.fn(),
+  },
   team: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
@@ -51,6 +54,7 @@ export const prismaMock = {
     findUnique: vi.fn(),
     findMany: vi.fn(),
     findUniqueOrThrow: vi.fn(),
+    count: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     updateMany: vi.fn(),
@@ -68,9 +72,12 @@ export const prismaMock = {
     findMany: vi.fn(),
   },
   response: {
+    findUnique: vi.fn(),
     findMany: vi.fn(),
     count: vi.fn(),
+    aggregate: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
   },
   answer: {
     findMany: vi.fn(),
@@ -81,6 +88,8 @@ export const prismaMock = {
   },
   auditLog: {
     create: vi.fn(),
+    count: vi.fn(),
+    findMany: vi.fn(),
   },
   $transaction: vi.fn(),
 };
