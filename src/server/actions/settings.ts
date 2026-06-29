@@ -4,6 +4,7 @@ import { updateTag, revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
+import { emitNotification } from "@/server/notifications";
 import type { Prisma } from "@prisma/client";
 import {
   DEFAULT_SETTINGS,
@@ -77,6 +78,16 @@ export async function updateSettings(
     impact: "Dashboard, KPIs, reportes y evaluaciones futuras usan los nuevos parametros globales.",
   });
 
+  await emitNotification({
+    type: "settings_changed",
+    severity: "INFO",
+    title: "Settings globales actualizados",
+    body: "Los targets globales de scoring fueron actualizados.",
+    href: "/settings",
+    entityType: "app_settings",
+    metadata: { beforeSettings, afterSettings },
+  });
+
   return afterSettings;
 }
 
@@ -140,6 +151,17 @@ export async function updateOperationalSettings(
     afterValue: afterSettings,
     impact:
       "Controles operativos de Settings actualizados para evaluaciones, formularios, KPIs, reportes y notificaciones.",
+  });
+
+  await emitNotification({
+    type: "settings_changed",
+    severity: "INFO",
+    title: "Controles operativos actualizados",
+    body: "La configuracion operativa de Settings fue actualizada.",
+    href: "/settings",
+    entityType: "app_settings",
+    entityId: OPERATIONAL_SETTINGS_KEY,
+    metadata: { beforeSettings, afterSettings },
   });
 
   return afterSettings;

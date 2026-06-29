@@ -4,6 +4,7 @@ import { signOut, useSession } from "next-auth/react";
 import { LogOut, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/theme-provider";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 import { cn } from "@/lib/utils";
 
 export function Header() {
@@ -64,6 +65,7 @@ export function Header() {
 
         {session?.user && (
           <div className="flex items-center gap-3">
+            <NotificationCenter />
             <div className="text-right">
               <p className="text-sm font-medium text-foreground">{session.user.name}</p>
               <p className="text-xs text-muted-foreground">{roleLabel}</p>

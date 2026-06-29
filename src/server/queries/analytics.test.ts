@@ -24,7 +24,12 @@ vi.mock("@/lib/prisma", async () => {
   return { prisma: mockedPrisma };
 });
 
-import { getCampaignKpis, getQACategoryMetrics, getReportData } from "./analytics";
+import {
+  getCampaignKpis,
+  getDashboardCoachingInsights,
+  getQACategoryMetrics,
+  getReportData,
+} from "./analytics";
 
 const qaUser = {
   id: "qa-1",
@@ -268,6 +273,95 @@ describe("QA category analytics", () => {
         fatalFailuresAllowed: 1,
         passesThreshold: false,
         scoreTargetDelta: -11,
+      }),
+    ]);
+  });
+
+  it("returns actionable coaching insights for agents, categories and campaigns under target", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewDashboard: true },
+    ]);
+    prismaMock.campaign.findMany.mockResolvedValue([
+      {
+        id: "campaign-1",
+        name: "Retencion",
+        forms: [{ id: "form-1" }],
+        agents: [{ id: "agent-1" }],
+        _count: { users: 2 },
+      },
+    ]);
+    prismaMock.response.count
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+    prismaMock.response.aggregate.mockResolvedValue({ _avg: { score: 66 } });
+    prismaMock.agent.findMany.mockResolvedValue([
+      {
+        id: "agent-1",
+        name: "Ana",
+        agentCode: "A-1",
+        campaignId: "campaign-1",
+        campaign: { name: "Retencion" },
+        responses: [
+          {
+            score: 50,
+            result: "FAIL",
+            hasFatalFail: true,
+            createdAt: new Date("2026-05-05T12:00:00Z"),
+          },
+          {
+            score: 58,
+            result: "FAIL",
+            hasFatalFail: false,
+            createdAt: new Date("2026-05-04T12:00:00Z"),
+          },
+          {
+            score: 65,
+            result: "FAIL",
+            hasFatalFail: false,
+            createdAt: new Date("2026-05-03T12:00:00Z"),
+          },
+        ],
+      },
+    ]);
+    prismaMock.answer.findMany.mockResolvedValue([
+      {
+        score: 45,
+        isFatalFail: true,
+        category: {
+          id: "cat-1",
+          name: "Cumplimiento",
+          systemColor: "#dc2626",
+          visibleInDashboard: true,
+        },
+        response: {
+          agentId: "agent-1",
+          form: { campaignId: "campaign-1" },
+        },
+      },
+    ]);
+
+    const insights = await getDashboardCoachingInsights(undefined, "2026-05-01", "2026-05-05");
+
+    expect(insights.summary.criticalCount).toBeGreaterThan(0);
+    expect(insights.agentRisks).toEqual([
+      expect.objectContaining({
+        id: "agent-1",
+        severity: "CRITICAL",
+        fatalFailCount: 1,
+      }),
+    ]);
+    expect(insights.categoryOpportunities).toEqual([
+      expect.objectContaining({
+        id: "cat-1",
+        severity: "CRITICAL",
+        affectedAgents: 1,
+      }),
+    ]);
+    expect(insights.campaignRisks).toEqual([
+      expect.objectContaining({
+        id: "campaign-1",
+        missedTargets: expect.arrayContaining(["score", "pass rate", "volumen diario"]),
       }),
     ]);
   });

@@ -1,6 +1,6 @@
 # Propuesta integral de mejoras ajustada a Qore
 
-Last updated: 2026-05-18
+Last updated: 2026-06-29
 
 ## 1. Proposito del documento
 
@@ -29,10 +29,12 @@ Cerrado desde la redaccion original:
 - Evaluaciones avanzadas cerradas: N/A, draft/autosave, editar/anular con auditoria, snapshots historicos completos y exclusion de drafts/anuladas en metricas/export.
 - Targets operativos completos en Dashboard/KPIs/Reports: `targetPassRate`, `targetAvgScore`, `targetDailyRate` y `fatalFailuresAllowed` aplicados en metricas, badges, alertas y comparativos.
 - Export configurable cerrado repo-side: campos seleccionables, Excel enriquecido con resumen/evaluaciones/detalle de respuestas y auditoria preservada.
+- Motor real de notificaciones in-app cerrado repo-side: persistencia, preferencias por tipo, inbox en header, acciones de lectura/archivo y eventos desde evaluaciones, exports y Settings.
+- Coaching/tendencias profundas cerrado repo-side: Dashboard muestra agentes, categorias QA y campanas fuera de target con razon accionable.
 
 Pendiente real:
 
-- Motor real de notificaciones.
+- Proveedor externo de email/notificaciones push si se decide salir del canal in-app.
 - Rotacion operacional de secretos historicos en servidor/password manager.
 
 ## 2. Contexto actual de Qore
@@ -1368,7 +1370,7 @@ Resultado:
 
 - Evaluaciones historicas son confiables y trazables.
 
-Estado al 2026-05-18: cerrado repo-side. Quedan como trabajo futuro notificaciones y refinamientos de coaching/tendencias.
+Estado al 2026-06-29: cerrado repo-side. Notificaciones in-app y coaching/tendencias accionables ya quedaron implementados; email/push queda como extension futura si se requiere proveedor externo.
 
 ## Fase 6 - Dashboard y KPIs avanzados
 
@@ -1469,10 +1471,10 @@ Auditoria muestra eventos operativos.
 2. Supervisor ya se agrego despues de fortalecer RBAC, con bloqueo central de mutaciones.
 3. Permisos se modelan como permisos granulares, no solo como columnas booleanas fijas.
 4. Categorias QA no son las mismas que categorias de disposicion.
-5. Dashboard/KPIs ya pueden usar categorias QA y targets operativos efectivos; el trabajo pendiente es profundizar tendencias, coaching y calibracion visual con mas datos reales.
+5. Dashboard/KPIs ya usan categorias QA, targets operativos efectivos y coaching/tendencias accionables; queda calibracion visual con mas datos reales si aparece una necesidad operativa.
 6. Formularios por categorias ya cuentan con migracion, versionado y publicacion; queda profundizar UX/export si aplica.
 7. Evaluaciones ya tienen validacion server-side para score, fatal y comentarios, ademas de N/A, draft/autosave, editar/anular y snapshots completos.
-8. Notificaciones quedan para fase posterior.
+8. Notificaciones in-app ya estan implementadas; email/push queda para fase posterior si se define proveedor externo.
 9. Configuracion no reemplaza Admin Usuarios/Campanas; lo complementa.
 10. Auditoria se implementa antes de cambios sensibles avanzados.
 
@@ -1488,7 +1490,7 @@ Luego auditoria.
 Luego scoring por campana.
 Luego categorias QA.
 Luego formularios y evaluaciones avanzadas.
-Luego Dashboard, KPIs, Reports y notificaciones enriquecidas.
+Luego Dashboard, KPIs, Reports, coaching accionable y notificaciones in-app.
 ```
 
 La regla central debe mantenerse durante todo el proyecto:

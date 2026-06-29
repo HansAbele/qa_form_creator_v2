@@ -1005,6 +1005,315 @@ export async function getDispositionAnalytics(
 
 // ─── Agent Detail (drill-down) ────────────────────
 
+type CoachingSeverity = "CRITICAL" | "WARNING" | "INFO";
+
+function compareSeverity(a: CoachingSeverity, b: CoachingSeverity) {
+  const rank: Record<CoachingSeverity, number> = { CRITICAL: 3, WARNING: 2, INFO: 1 };
+  return rank[b] - rank[a];
+}
+
+function getCoachingSeverity(args: {
+  avgScore: number;
+  passRate: number;
+  trendDelta: number;
+  fatalFailCount: number;
+  passThreshold: number;
+  targetAvgScore: number;
+  targetPassRate: number;
+}): CoachingSeverity {
+  if (
+    args.fatalFailCount > 0 ||
+    args.avgScore < args.passThreshold ||
+    args.passRate < args.targetPassRate - 15
+  ) {
+    return "CRITICAL" satisfies CoachingSeverity;
+  }
+
+  if (
+    args.avgScore < args.targetAvgScore ||
+    args.passRate < args.targetPassRate ||
+    args.trendDelta <= -5
+  ) {
+    return "WARNING" satisfies CoachingSeverity;
+  }
+
+  return "INFO" satisfies CoachingSeverity;
+}
+
+function buildCoachingReason(args: {
+  avgScore: number;
+  passRate: number;
+  trendDelta: number;
+  fatalFailCount: number;
+  targetAvgScore: number;
+  targetPassRate: number;
+}) {
+  const reasons: string[] = [];
+  if (args.fatalFailCount > 0) reasons.push(`${args.fatalFailCount} falla(s) fatal(es)`);
+  if (args.avgScore < args.targetAvgScore) {
+    reasons.push(`${round2(args.targetAvgScore - args.avgScore)} pts bajo target de score`);
+  }
+  if (args.passRate < args.targetPassRate) {
+    reasons.push(`${round2(args.targetPassRate - args.passRate)} pts bajo target de pass rate`);
+  }
+  if (args.trendDelta <= -5) reasons.push(`tendencia reciente ${args.trendDelta.toFixed(1)} pts`);
+  return reasons.join(" · ") || "Dentro de target";
+}
+
+export async function getDashboardCoachingInsights(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+
+  const [campaignIds, campaignKpis, agents, answers] = await Promise.all([
+    getCampaignIdsForFilter(campaignFilter),
+    getDashboardCampaignKpis(campaignId, dateFrom, dateTo),
+    prisma.agent.findMany({
+      where: { ...campaignFilter, active: true },
+      include: {
+        campaign: { select: { name: true } },
+        responses: {
+          where: { ...dw, ...submittedResponseWhere() },
+          select: {
+            score: true,
+            result: true,
+            hasFatalFail: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 30,
+        },
+      },
+    }),
+    prisma.answer.findMany({
+      where: {
+        categoryId: { not: null },
+        notApplicable: false,
+        response: { form: campaignFilter, ...dw, ...submittedResponseWhere() },
+      },
+      include: {
+        category: {
+          select: {
+            id: true,
+            name: true,
+            systemColor: true,
+            visibleInDashboard: true,
+          },
+        },
+        response: {
+          select: {
+            agentId: true,
+            form: { select: { campaignId: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const settingsMap = await getTargetSettingsMap(campaignIds);
+
+  const agentRisks = agents
+    .map((agent) => {
+      const settings =
+        settingsMap.get(agent.campaignId) ?? {
+          passThreshold: 70,
+          targetPassRate: 85,
+          targetAvgScore: 80,
+          targetDailyRate: 20,
+          fatalFailuresAllowed: 0,
+        };
+      const scores = agent.responses.map((response) => Number(response.score));
+      const totalEvaluations = scores.length;
+      if (totalEvaluations === 0) return null;
+
+      const avgScore = round2(scores.reduce((sum, score) => sum + score, 0) / totalEvaluations);
+      const passCount = agent.responses.filter((response) =>
+        isPassingResponse(
+          Number(response.score),
+          response.result,
+          response.hasFatalFail,
+          settings.passThreshold,
+        ),
+      ).length;
+      const passRate = totalEvaluations > 0 ? round2((passCount / totalEvaluations) * 100) : 0;
+      const fatalFailCount = agent.responses.filter((response) => response.hasFatalFail).length;
+      const recentScores = scores.slice(0, 5);
+      const previousScores = scores.slice(5, 10);
+      const recentAvg =
+        recentScores.length > 0
+          ? recentScores.reduce((sum, score) => sum + score, 0) / recentScores.length
+          : avgScore;
+      const previousAvg =
+        previousScores.length > 0
+          ? previousScores.reduce((sum, score) => sum + score, 0) / previousScores.length
+          : recentAvg;
+      const trendDelta = round2(recentAvg - previousAvg);
+      const severity = getCoachingSeverity({
+        avgScore,
+        passRate,
+        trendDelta,
+        fatalFailCount,
+        passThreshold: settings.passThreshold,
+        targetAvgScore: settings.targetAvgScore,
+        targetPassRate: settings.targetPassRate,
+      });
+
+      return {
+        id: agent.id,
+        name: agent.name,
+        agentCode: agent.agentCode,
+        campaignName: agent.campaign.name,
+        totalEvaluations,
+        avgScore,
+        passRate,
+        trendDelta,
+        fatalFailCount,
+        severity,
+        reason: buildCoachingReason({
+          avgScore,
+          passRate,
+          trendDelta,
+          fatalFailCount,
+          targetAvgScore: settings.targetAvgScore,
+          targetPassRate: settings.targetPassRate,
+        }),
+        href: `/analytics/agents/${agent.id}`,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .filter((item) => item.severity !== "INFO")
+    .sort((a, b) => compareSeverity(a.severity, b.severity) || a.avgScore - b.avgScore)
+    .slice(0, 8);
+
+  const categoryMap = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      color: string | null;
+      totalScore: number;
+      scoredCount: number;
+      totalAnswers: number;
+      fatalFailCount: number;
+      affectedAgents: Set<string>;
+      campaignIds: Set<string>;
+    }
+  >();
+
+  for (const answer of answers) {
+    if (!answer.category?.visibleInDashboard) continue;
+    const entry =
+      categoryMap.get(answer.category.id) ??
+      {
+        id: answer.category.id,
+        name: answer.category.name,
+        color: answer.category.systemColor,
+        totalScore: 0,
+        scoredCount: 0,
+        totalAnswers: 0,
+        fatalFailCount: 0,
+        affectedAgents: new Set<string>(),
+        campaignIds: new Set<string>(),
+      };
+
+    entry.totalAnswers++;
+    entry.affectedAgents.add(answer.response.agentId);
+    entry.campaignIds.add(answer.response.form.campaignId);
+    if (answer.score !== null) {
+      entry.totalScore += Number(answer.score);
+      entry.scoredCount++;
+    }
+    if (answer.isFatalFail) entry.fatalFailCount++;
+    categoryMap.set(answer.category.id, entry);
+  }
+
+  const categoryOpportunities = Array.from(categoryMap.values())
+    .map((category) => {
+      const avgScore =
+        category.scoredCount > 0 ? round2(category.totalScore / category.scoredCount) : 0;
+      const targetAvg =
+        Array.from(category.campaignIds)
+          .map((id) => settingsMap.get(id)?.targetAvgScore ?? 80)
+          .reduce((sum, target) => sum + target, 0) / Math.max(category.campaignIds.size, 1);
+      const severity: CoachingSeverity =
+        category.fatalFailCount > 0 || avgScore < targetAvg - 15
+          ? "CRITICAL"
+          : avgScore < targetAvg
+            ? "WARNING"
+            : "INFO";
+
+      return {
+        id: category.id,
+        name: category.name,
+        color: category.color,
+        totalAnswers: category.totalAnswers,
+        avgScore,
+        fatalFailCount: category.fatalFailCount,
+        affectedAgents: category.affectedAgents.size,
+        severity,
+        reason:
+          severity === "INFO"
+            ? "Dentro de target"
+            : `${round2(targetAvg - avgScore)} pts bajo target en ${category.affectedAgents.size} agente(s)`,
+      };
+    })
+    .filter((category) => category.severity !== "INFO")
+    .sort((a, b) => compareSeverity(a.severity, b.severity) || a.avgScore - b.avgScore)
+    .slice(0, 6);
+
+  const campaignRisks = campaignKpis
+    .map((campaign) => {
+      const missedTargets = [
+        campaign.avgScore < campaign.targetAvgScore ? "score" : null,
+        campaign.passRate < campaign.targetPassRate ? "pass rate" : null,
+        campaign.dailyRate < campaign.targetDailyRate ? "volumen diario" : null,
+        campaign.fatalFailCount > campaign.fatalFailuresAllowed ? "fallas fatales" : null,
+      ].filter((target): target is string => Boolean(target));
+
+      if (missedTargets.length === 0) return null;
+
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        avgScore: campaign.avgScore,
+        passRate: campaign.passRate,
+        dailyRate: campaign.dailyRate,
+        fatalFailCount: campaign.fatalFailCount,
+        missedTargets,
+        severity:
+          campaign.fatalFailCount > campaign.fatalFailuresAllowed ||
+          campaign.avgScore < campaign.passThreshold
+            ? ("CRITICAL" as CoachingSeverity)
+            : ("WARNING" as CoachingSeverity),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((a, b) => compareSeverity(a.severity, b.severity));
+
+  return {
+    summary: {
+      criticalCount:
+        agentRisks.filter((item) => item.severity === "CRITICAL").length +
+        categoryOpportunities.filter((item) => item.severity === "CRITICAL").length +
+        campaignRisks.filter((item) => item.severity === "CRITICAL").length,
+      warningCount:
+        agentRisks.filter((item) => item.severity === "WARNING").length +
+        categoryOpportunities.filter((item) => item.severity === "WARNING").length +
+        campaignRisks.filter((item) => item.severity === "WARNING").length,
+      generatedAt: new Date().toISOString(),
+    },
+    agentRisks,
+    categoryOpportunities,
+    campaignRisks,
+  };
+}
+
 export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");

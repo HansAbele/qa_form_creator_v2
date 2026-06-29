@@ -24,9 +24,12 @@ import {
   ClipboardCheck,
   FileText,
   Filter,
+  Lightbulb,
   ShieldAlert,
   Sparkles,
   Tag,
+  Target,
+  TrendingDown,
   TrendingUp,
   Users,
   UsersRound,
@@ -54,6 +57,7 @@ import {
 import {
   getDashboardStats,
   getDashboardCampaignKpis,
+  getDashboardCoachingInsights,
   getDashboardDispositionAnalytics,
   getDashboardEvaluatorActivity,
   getEvaluationsPerAgent,
@@ -122,6 +126,8 @@ interface DashboardStats {
     createdAt: string;
   }[];
 }
+
+type CoachingInsights = Awaited<ReturnType<typeof getDashboardCoachingInsights>>;
 
 // Fade + slide wrapper for sections
 function Section({
@@ -206,6 +212,7 @@ export function DashboardClient({
   const [dispAnalytics, setDispAnalytics] = useState<
     { id: string; name: string; code: string | null; categoryName: string | null; totalEvaluations: number; avgScore: number; passRate: number }[]
   >([]);
+  const [coachingInsights, setCoachingInsights] = useState<CoachingInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const canOpenKpiDetails = access.canViewKPIs;
@@ -218,7 +225,7 @@ export function DashboardClient({
       const df = dateFrom || undefined;
       const dt = dateTo || undefined;
 
-      const [s, t, d, tb, ev, ea, tp, da] = await Promise.all([
+      const [s, t, d, tb, ev, ea, tp, da, ci] = await Promise.all([
         getDashboardStats(cid, df, dt),
         getResponseTrends(cid, df, dt),
         getScoreDistribution(cid, df, dt),
@@ -227,6 +234,7 @@ export function DashboardClient({
         getEvaluationsPerAgent(cid, df, dt),
         getDashboardCampaignKpis(cid, df, dt),
         getDashboardDispositionAnalytics(cid, df, dt),
+        getDashboardCoachingInsights(cid, df, dt),
       ]);
       setStats(s);
       setTrends(t);
@@ -236,6 +244,7 @@ export function DashboardClient({
       setEvalsPerAgent(ea);
       setCampaignPerf(tp);
       setDispAnalytics(da);
+      setCoachingInsights(ci);
     } catch (e) {
       console.error(e);
     } finally {
@@ -447,6 +456,143 @@ export function DashboardClient({
       </div>
 
       {/* ─── Row 1: Trends ─────────────────────────────────────────────── */}
+      {coachingInsights && (
+        <Section delay={0.08}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Lightbulb className="h-4 w-4 text-amber-500" />
+                Coaching accionable
+                <span className="ml-auto flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
+                  <Badge variant={coachingInsights.summary.criticalCount > 0 ? "destructive" : "outline"}>
+                    {coachingInsights.summary.criticalCount} criticas
+                  </Badge>
+                  <Badge variant="outline">{coachingInsights.summary.warningCount} alertas</Badge>
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                    <TrendingDown className="h-3.5 w-3.5" />
+                    Agentes
+                  </div>
+                  {coachingInsights.agentRisks.length > 0 ? (
+                    <div className="space-y-2">
+                      {coachingInsights.agentRisks.slice(0, 5).map((agent) => (
+                        <button
+                          key={agent.id}
+                          type="button"
+                          className="w-full rounded-md border border-border/70 p-2 text-left transition-colors hover:bg-muted/50"
+                          onClick={() => router.push(agent.href)}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">{agent.name}</span>
+                            <Badge
+                              variant={agent.severity === "CRITICAL" ? "destructive" : "outline"}
+                              className="shrink-0"
+                            >
+                              {agent.avgScore.toFixed(1)}%
+                            </Badge>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {agent.reason}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span>{agent.campaignName}</span>
+                            <span>PR {agent.passRate.toFixed(1)}%</span>
+                            <span>
+                              {agent.trendDelta > 0 ? "+" : ""}
+                              {agent.trendDelta.toFixed(1)} pts
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <MiniEmptyState label="Sin agentes fuera de target" />
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                    <Target className="h-3.5 w-3.5" />
+                    Categorias QA
+                  </div>
+                  {coachingInsights.categoryOpportunities.length > 0 ? (
+                    <div className="space-y-2">
+                      {coachingInsights.categoryOpportunities.slice(0, 5).map((category) => (
+                        <div key={category.id} className="rounded-md border border-border/70 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">{category.name}</span>
+                            <Badge
+                              variant={category.severity === "CRITICAL" ? "destructive" : "outline"}
+                              className="shrink-0"
+                            >
+                              {category.avgScore.toFixed(1)}%
+                            </Badge>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {category.reason}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span>{category.totalAnswers} respuestas</span>
+                            <span>{category.affectedAgents} agentes</span>
+                            {category.fatalFailCount > 0 && <span>{category.fatalFailCount} fatales</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <MiniEmptyState label="Sin categorias fuera de target" />
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    Campanas
+                  </div>
+                  {coachingInsights.campaignRisks.length > 0 ? (
+                    <div className="space-y-2">
+                      {coachingInsights.campaignRisks.slice(0, 5).map((campaign) => (
+                        <button
+                          key={campaign.id}
+                          type="button"
+                          className="w-full rounded-md border border-border/70 p-2 text-left transition-colors hover:bg-muted/50"
+                          onClick={() => setCampaignId(campaign.id)}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">{campaign.name}</span>
+                            <Badge
+                              variant={campaign.severity === "CRITICAL" ? "destructive" : "outline"}
+                              className="shrink-0"
+                            >
+                              {campaign.missedTargets.length} target(s)
+                            </Badge>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            Fuera de {campaign.missedTargets.join(", ")}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span>Score {campaign.avgScore.toFixed(1)}%</span>
+                            <span>PR {campaign.passRate.toFixed(1)}%</span>
+                            <span>{campaign.dailyRate.toFixed(1)}/d</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <MiniEmptyState label="Campanas dentro de target" />
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </Section>
+      )}
+
       <Section delay={0.1}>
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Responses Trend */}
@@ -1229,6 +1375,14 @@ export function DashboardClient({
 function EmptyState({ label = "Sin datos" }: { label?: string }) {
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
+function MiniEmptyState({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-24 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
       {label}
     </div>
   );
