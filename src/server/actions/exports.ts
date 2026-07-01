@@ -10,6 +10,7 @@ import {
 } from "@/lib/export-fields";
 import { submittedResponseWhere } from "@/lib/response-status";
 import { getCampaignScoringSettings } from "@/lib/settings";
+import { questionTypeLabel } from "@/types/form-builder";
 import { writeAuditLog } from "@/server/audit-log";
 import { emitNotificationToUser } from "@/server/notifications";
 import { getCampaignFilterForPermission } from "@/server/queries/campaign-filter";
@@ -568,7 +569,7 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
           response.evaluator.name,
           answer.category?.name ?? "",
           answer.question.label,
-          answer.question.type,
+          questionTypeLabel(answer.question.type),
           getAnswerValue(answer),
           answer.score === null ? null : Number(answer.score),
           answer.question.weight,
@@ -612,7 +613,7 @@ export async function exportToJson(filters: ExportFilters): Promise<string> {
     if (includeAnswers) {
       row.answers = response.answers.map((answer) => ({
         question: answer.question.label,
-        type: answer.question.type,
+        type: questionTypeLabel(answer.question.type),
         category: answer.category?.name ?? null,
         value: getAnswerValue(answer),
         score: answer.score === null ? null : Number(answer.score),

@@ -1401,15 +1401,16 @@ export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?
     .map(([date, d]) => ({ date, avgScore: Math.round((d.total / d.count) * 100) / 100 }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Score by question (RATING only)
+  // Score by question (RATING only). Uses the engine-computed per-answer score
+  // (already a 0-100 %, correct for any rating scale) instead of value/5.
   const questionMap = new Map<string, { total: number; count: number }>();
   for (const r of agent.responses) {
     for (const a of r.answers) {
-      if (a.question.type !== "RATING" || a.notApplicable) continue;
-      const val = Number(a.value);
-      if (Number.isNaN(val)) continue;
+      if (a.question.type !== "RATING" || a.notApplicable || a.score === null) continue;
+      const pct = Number(a.score);
+      if (Number.isNaN(pct)) continue;
       const ex = questionMap.get(a.question.label) ?? { total: 0, count: 0 };
-      ex.total += val;
+      ex.total += pct;
       ex.count++;
       questionMap.set(a.question.label, ex);
     }
@@ -1417,7 +1418,7 @@ export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?
   const scoreByQuestion = Array.from(questionMap.entries())
     .map(([question, d]) => ({
       question,
-      avgScore: Math.round((d.total / d.count / 5) * 100 * 100) / 100,
+      avgScore: Math.round((d.total / d.count) * 100) / 100,
     }))
     .sort((a, b) => a.avgScore - b.avgScore);
 
@@ -1767,15 +1768,16 @@ export async function getDispositionDetail(
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  // Score por pregunta (solo RATING, normalizado a %)
+  // Score por pregunta (solo RATING). Usa el score por respuesta ya calculado
+  // por el motor (0-100 %, correcto para cualquier escala) en vez de value/5.
   const questionMap = new Map<string, { total: number; count: number }>();
   for (const r of responses) {
     for (const a of r.answers) {
-      if (a.question.type !== "RATING" || a.notApplicable) continue;
-      const val = Number(a.value);
-      if (Number.isNaN(val)) continue;
+      if (a.question.type !== "RATING" || a.notApplicable || a.score === null) continue;
+      const pct = Number(a.score);
+      if (Number.isNaN(pct)) continue;
       const ex = questionMap.get(a.question.label) ?? { total: 0, count: 0 };
-      ex.total += val;
+      ex.total += pct;
       ex.count++;
       questionMap.set(a.question.label, ex);
     }
@@ -1783,7 +1785,7 @@ export async function getDispositionDetail(
   const scoreByQuestion = Array.from(questionMap.entries())
     .map(([question, d]) => ({
       question,
-      avgScore: Math.round((d.total / d.count / 5) * 100 * 100) / 100,
+      avgScore: Math.round((d.total / d.count) * 100) / 100,
     }))
     .sort((a, b) => a.avgScore - b.avgScore);
 
@@ -1902,6 +1904,7 @@ export async function getResponseDetail(responseId: string) {
               weight: true,
               fatal: true,
               requiresCommentOnFail: true,
+              ratingMax: true,
             },
           },
           category: { select: { id: true, name: true, systemColor: true, systemIcon: true } },
@@ -1980,6 +1983,7 @@ export async function getResponseDetail(responseId: string) {
       questionWeight: a.question.weight,
       fatal: a.question.fatal,
       requiresCommentOnFail: a.question.requiresCommentOnFail,
+      ratingMax: a.question.ratingMax ?? null,
     })),
   };
 }

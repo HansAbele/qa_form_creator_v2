@@ -46,7 +46,7 @@ export interface QuestionData {
 }
 
 const RATING_STYLE_LABELS: Record<RatingStyleValue, string> = {
-  numeric: "Numerica (1-N con color)",
+  numeric: "Numerica (con color)",
   stars: "Estrellas",
 };
 

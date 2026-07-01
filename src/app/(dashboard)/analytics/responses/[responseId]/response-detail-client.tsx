@@ -46,6 +46,7 @@ interface Answer {
   questionWeight: number;
   fatal: boolean;
   requiresCommentOnFail: boolean;
+  ratingMax: number | null;
 }
 
 interface ResponseDetailData {
@@ -330,10 +331,12 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                         <Badge variant="secondary">N/A</Badge>
                       ) : answer.questionType === "RATING" ? (
                         <Badge
-                          variant={scoreBadgeVariant((Number(answer.value) / 5) * 100)}
+                          variant={
+                            answer.score !== null ? scoreBadgeVariant(answer.score) : "secondary"
+                          }
                           className="tabular-nums"
                         >
-                          {answer.value} / 5
+                          {answer.value} / {answer.ratingMax ?? 5}
                         </Badge>
                       ) : (
                         <span className="whitespace-pre-wrap text-sm">

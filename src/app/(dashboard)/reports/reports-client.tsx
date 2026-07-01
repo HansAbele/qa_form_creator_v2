@@ -453,7 +453,7 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
                     </div>
                     <p className="font-medium">{a.question}</p>
                     <p className="text-muted-foreground">
-                      {a.questionType === "RATING" ? `${a.value}/5 ★` : a.value}
+                      {a.questionType === "RATING" ? `${a.value} ★` : a.value}
                     </p>
                     {a.comment && (
                       <p className="mt-2 whitespace-pre-wrap border-l-2 border-orange-500/50 pl-2 text-xs text-muted-foreground">

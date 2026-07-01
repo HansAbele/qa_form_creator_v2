@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { RatingStyleValue } from "@/types/form-builder";
+import { isScoredQuestionType, type RatingStyleValue } from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 import { RatingScale } from "./rating-scale";
 
@@ -82,7 +82,7 @@ export function QuestionRenderer({
           {question.label}
           {question.required && <span className="ml-1 text-destructive">*</span>}
         </Label>
-        {question.type === "RATING" && question.weight > 0 && (
+        {isScoredQuestionType(question.type) && question.weight > 0 && (
           <Badge variant="outline" className="text-xs">
             Peso {question.weight}%
           </Badge>
@@ -145,8 +145,8 @@ export function QuestionRenderer({
           {(optionPairs.length > 0
             ? optionPairs
             : [
-                { label: "Si", value: "yes" },
-                { label: "No", value: "no" },
+                { label: "Si", value: "Si" },
+                { label: "No", value: "No" },
               ]
           ).map((opt) => {
             const isFatalOption = fatalOptions.includes(opt.value);
