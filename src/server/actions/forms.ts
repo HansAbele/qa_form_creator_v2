@@ -9,7 +9,11 @@ import {
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
-import { type FormMutationInput, formMutationSchema } from "@/types/form-builder";
+import {
+  type FormMutationInput,
+  formMutationSchema,
+  isScoredQuestionType,
+} from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 
 const FORM_STATUS = {
@@ -490,12 +494,12 @@ function validatePublishableForm(questions: PublishableQuestion[]) {
     throw new Error("Selecciona al menos una opcion fatal valida antes de publicar");
   }
 
-  const ratingQuestions = questions.filter((question) => question.type === "RATING");
-  if (ratingQuestions.length === 0) return;
+  const scoredQuestions = questions.filter((question) => isScoredQuestionType(question.type));
+  if (scoredQuestions.length === 0) return;
 
-  const ratingWeightTotal = ratingQuestions.reduce((sum, question) => sum + question.weight, 0);
-  if (ratingWeightTotal !== 100) {
-    throw new Error("Los pesos de preguntas rating deben sumar 100% antes de publicar");
+  const scoredWeightTotal = scoredQuestions.reduce((sum, question) => sum + question.weight, 0);
+  if (scoredWeightTotal !== 100) {
+    throw new Error("Los pesos de las preguntas puntuables deben sumar 100% antes de publicar");
   }
 }
 
@@ -559,7 +563,7 @@ async function createFormQuestionStructure(
       (question) => question.qaCategoryId === qaCategoryId,
     );
     const weight = categoryQuestions.reduce(
-      (sum, question) => sum + (question.type === "RATING" ? question.weight : 0),
+      (sum, question) => sum + (isScoredQuestionType(question.type) ? question.weight : 0),
       0,
     );
 
@@ -583,13 +587,13 @@ async function createFormQuestionStructure(
       formCategoryId: formCategoryIds.get(question.qaCategoryId),
       type: question.type as QuestionType,
       label: question.label,
-      options: question.options ?? undefined,
+      options: buildOptionsJson(question),
       fatalOptions:
         question.fatal && isOptionQuestion(question.type)
           ? (question.fatalOptions ?? undefined)
           : undefined,
       required: question.required,
-      weight: question.type === "RATING" ? question.weight : 0,
+      weight: isScoredQuestionType(question.type) ? question.weight : 0,
       fatal: question.fatal,
       criticalType: question.fatal ? (question.criticalType ?? null) : null,
       ratingFailThreshold:
@@ -604,6 +608,15 @@ async function createFormQuestionStructure(
 
 function isOptionQuestion(type: QuestionType) {
   return type === "SELECT" || type === "RADIO" || type === "BOOLEAN";
+}
+
+/** Option types persist weighted options `[{value, points}]`; other types keep plain options. */
+function buildOptionsJson(question: FormQuestionInput) {
+  if (!isOptionQuestion(question.type)) return question.options ?? undefined;
+  const options = question.options ?? [];
+  if (options.length === 0) return undefined;
+  const points = question.optionPoints ?? [];
+  return options.map((value, index) => ({ value, points: points[index] ?? 0 }));
 }
 
 function getStringOptions(options: unknown) {

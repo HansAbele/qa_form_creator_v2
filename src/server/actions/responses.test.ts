@@ -632,4 +632,57 @@ describe("submitResponse validation and RBAC", () => {
       }),
     );
   });
+
+  it("scores a weighted select alongside a rating (weight-model migration)", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-rate",
+          type: "RATING",
+          label: "Quality",
+          required: true,
+          options: null,
+          fatalOptions: null,
+          weight: 60,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-quality" },
+        },
+        {
+          id: "q-sel",
+          type: "SELECT",
+          label: "Resolution",
+          required: true,
+          options: [
+            { value: "full", points: 2 },
+            { value: "partial", points: 1 },
+            { value: "no", points: 0 },
+          ],
+          fatalOptions: null,
+          weight: 40,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-resolution" },
+        },
+      ],
+    });
+
+    await submitResponse({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        { questionId: "q-rate", value: "5" },
+        { questionId: "q-sel", value: "partial" },
+      ],
+    });
+
+    // rating 5/5=100% × 60 + select partial (1/2=50%) × 40 = 60 + 20 = 80
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ score: 80, result: "PASS" }),
+      }),
+    );
+  });
 });

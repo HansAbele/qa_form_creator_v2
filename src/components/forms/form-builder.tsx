@@ -33,7 +33,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { createForm, updateForm } from "@/server/actions/forms";
-import { type CriticalTypeValue, isOptionQuestionType } from "@/types/form-builder";
+import {
+  type CriticalTypeValue,
+  isOptionQuestionType,
+  isScoredQuestionType,
+} from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 import { FormPreview } from "./form-preview";
 import { QuestionCard, type QuestionData } from "./question-card";
@@ -97,20 +101,24 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [campaignId, setCampaignId] = useState(initialData?.campaignId ?? "");
   const [questions, setQuestions] = useState<QuestionData[]>(
-    initialData?.questions.map((q) => ({
-      id: q.id,
-      type: q.type,
-      label: q.label,
-      options: Array.isArray(q.options) ? (q.options as string[]) : [],
-      fatalOptions: Array.isArray(q.fatalOptions) ? (q.fatalOptions as string[]) : [],
-      required: q.required,
-      qaCategoryId: q.formCategory?.qaCategoryId ?? "",
-      weight: q.weight,
-      fatal: q.fatal,
-      criticalType: q.criticalType ?? null,
-      ratingFailThreshold: q.ratingFailThreshold ?? null,
-      requiresCommentOnFail: q.requiresCommentOnFail,
-    })) ?? [],
+    initialData?.questions.map((q) => {
+      const { options, optionPoints } = parseStoredOptions(q.options);
+      return {
+        id: q.id,
+        type: q.type,
+        label: q.label,
+        options,
+        optionPoints,
+        fatalOptions: Array.isArray(q.fatalOptions) ? (q.fatalOptions as string[]) : [],
+        required: q.required,
+        qaCategoryId: q.formCategory?.qaCategoryId ?? "",
+        weight: q.weight,
+        fatal: q.fatal,
+        criticalType: q.criticalType ?? null,
+        ratingFailThreshold: q.ratingFailThreshold ?? null,
+        requiresCommentOnFail: q.requiresCommentOnFail,
+      };
+    }) ?? [],
   );
   const editingPublished = initialData?.status === "PUBLISHED";
   const statusText =
@@ -120,8 +128,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
         ? "Archivado"
         : "Borrador";
 
-  const ratingWeightTotal = questions.reduce(
-    (sum, question) => sum + (question.type === "RATING" ? question.weight : 0),
+  const scoredWeightTotal = questions.reduce(
+    (sum, question) => sum + (isScoredQuestionType(question.type) ? question.weight : 0),
     0,
   );
 
@@ -153,6 +161,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
           type: "RATING" as QuestionType,
           label: "",
           options: [],
+          optionPoints: [],
           required: true,
           qaCategoryId: defaultCategory?.id ?? "",
           weight: hasRatingQuestion ? 0 : 100,
@@ -224,8 +233,11 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       toast.error("Selecciona al menos una opcion fatal en preguntas criticas");
       return;
     }
-    if (questions.some((question) => question.type === "RATING") && ratingWeightTotal !== 100) {
-      toast.error("Los pesos de preguntas rating deben sumar 100%");
+    if (
+      questions.some((question) => isScoredQuestionType(question.type)) &&
+      scoredWeightTotal !== 100
+    ) {
+      toast.error("Los pesos de las preguntas puntuables deben sumar 100%");
       return;
     }
 
@@ -235,26 +247,34 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
         title: title.trim(),
         description: description.trim() || undefined,
         campaignId,
-        questions: questions.map((q) => ({
-          type: q.type,
-          label: q.label.trim(),
-          options:
-            q.options.length > 0
-              ? q.options.map((option) => option.trim()).filter(Boolean)
-              : undefined,
-          fatalOptions:
-            q.fatal && isOptionQuestionType(q.type)
-              ? getValidFatalOptions(q.fatalOptions, q.options)
-              : undefined,
-          required: q.required,
-          qaCategoryId: q.qaCategoryId,
-          weight: q.type === "RATING" ? q.weight : 0,
-          fatal: q.fatal,
-          criticalType: q.fatal ? (q.criticalType ?? undefined) : undefined,
-          ratingFailThreshold:
-            q.fatal && q.type === "RATING" ? (q.ratingFailThreshold ?? undefined) : undefined,
-          requiresCommentOnFail: q.requiresCommentOnFail,
-        })),
+        questions: questions.map((q) => {
+          // Keep options and their points aligned after dropping blanks.
+          const keptIndexes = q.options
+            .map((option, index) => (option.trim() ? index : -1))
+            .filter((index) => index >= 0);
+          const options = keptIndexes.map((index) => q.options[index].trim());
+          const optionPoints = keptIndexes.map((index) => q.optionPoints[index] ?? 0);
+
+          return {
+            type: q.type,
+            label: q.label.trim(),
+            options: options.length > 0 ? options : undefined,
+            optionPoints:
+              isOptionQuestionType(q.type) && options.length > 0 ? optionPoints : undefined,
+            fatalOptions:
+              q.fatal && isOptionQuestionType(q.type)
+                ? getValidFatalOptions(q.fatalOptions, q.options)
+                : undefined,
+            required: q.required,
+            qaCategoryId: q.qaCategoryId,
+            weight: isScoredQuestionType(q.type) ? q.weight : 0,
+            fatal: q.fatal,
+            criticalType: q.fatal ? (q.criticalType ?? undefined) : undefined,
+            ratingFailThreshold:
+              q.fatal && q.type === "RATING" ? (q.ratingFailThreshold ?? undefined) : undefined,
+            requiresCommentOnFail: q.requiresCommentOnFail,
+          };
+        }),
       };
 
       if (initialData) {
@@ -428,6 +448,25 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       </Tabs>
     </div>
   );
+}
+
+/** Parses stored options (legacy `string[]` or weighted `[{value, points}]`). */
+function parseStoredOptions(raw: unknown): { options: string[]; optionPoints: number[] } {
+  if (!Array.isArray(raw)) return { options: [], optionPoints: [] };
+  const options: string[] = [];
+  const optionPoints: number[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") {
+      options.push(item);
+      optionPoints.push(0);
+    } else if (item && typeof item === "object" && "value" in item) {
+      options.push(String((item as { value: unknown }).value));
+      optionPoints.push(
+        "points" in item ? Number((item as { points: unknown }).points) || 0 : 0,
+      );
+    }
+  }
+  return { options, optionPoints };
 }
 
 function normalizeOptions(options: string[]) {
