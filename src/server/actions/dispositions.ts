@@ -217,6 +217,75 @@ export async function createDisposition(data: {
   return disposition;
 }
 
+const DEFAULT_TAXONOMIES: Record<
+  "inbound" | "outbound",
+  { name: string; code: string; outcomeType: DispositionOutcomeValue; isSystem?: boolean }[]
+> = {
+  inbound: [
+    { name: "Resuelto", code: "RES", outcomeType: "RESOLVED" },
+    { name: "Escalado a supervisor", code: "ESC", outcomeType: "ESCALATED" },
+    { name: "Transferido", code: "TRF", outcomeType: "TRANSFERRED" },
+    { name: "Seguimiento", code: "FUP", outcomeType: "FOLLOW_UP" },
+    { name: "Rellamada agendada", code: "CBK", outcomeType: "CALLBACK" },
+    { name: "Queja", code: "CMP", outcomeType: "OTHER" },
+    { name: "Abandonada", code: "ABD", outcomeType: "SYSTEM", isSystem: true },
+    { name: "Numero equivocado", code: "WRG", outcomeType: "SYSTEM", isSystem: true },
+  ],
+  outbound: [
+    { name: "Venta", code: "SAL", outcomeType: "SALE" },
+    { name: "Sin venta", code: "NSL", outcomeType: "NO_SALE" },
+    { name: "No interesado", code: "NIN", outcomeType: "NO_SALE" },
+    { name: "Rellamada agendada", code: "CBK", outcomeType: "CALLBACK" },
+    { name: "Sin respuesta", code: "NOA", outcomeType: "NO_CONTACT" },
+    { name: "Buzon de voz", code: "VML", outcomeType: "NO_CONTACT" },
+    { name: "Ocupado", code: "BSY", outcomeType: "NO_CONTACT" },
+    { name: "Numero invalido", code: "INV", outcomeType: "SYSTEM", isSystem: true },
+    { name: "No contactar (DNC)", code: "DNC", outcomeType: "DNC", isSystem: true },
+  ],
+};
+
+/** Seeds a starter inbound/outbound disposition taxonomy, skipping existing names. */
+export async function seedDefaultDispositions(campaignId: string, kind: "inbound" | "outbound") {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+  await assertCampaignPermissionForUser(session.user, campaignId, "canManageDispositions");
+
+  const existing = await prisma.disposition.findMany({
+    where: { campaignId },
+    select: { name: true },
+  });
+  const existingNames = new Set(existing.map((d) => d.name.toLowerCase()));
+  const toCreate = DEFAULT_TAXONOMIES[kind].filter(
+    (d) => !existingNames.has(d.name.toLowerCase()),
+  );
+
+  if (toCreate.length === 0) return { created: 0 };
+
+  await prisma.disposition.createMany({
+    data: toCreate.map((d) => ({
+      name: d.name,
+      code: d.code,
+      campaignId,
+      outcomeType: d.outcomeType,
+      isSystem: Boolean(d.isSystem),
+      createdById: session.user.id,
+    })),
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId,
+    module: "dispositions",
+    action: "seeded",
+    entityType: "disposition",
+    afterValue: { kind, created: toCreate.length },
+    impact: `Sembradas ${toCreate.length} disposiciones (${kind}).`,
+  });
+  revalidatePath("/operations/dispositions");
+  revalidatePath("/admin/campaigns");
+  return { created: toCreate.length };
+}
+
 export async function createDispositionInline(data: {
   name: string;
   campaignId: string;

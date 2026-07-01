@@ -33,6 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { createForm, updateForm } from "@/server/actions/forms";
+import { type CriticalTypeValue, isOptionQuestionType } from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 import { FormPreview } from "./form-preview";
 import { QuestionCard, type QuestionData } from "./question-card";
@@ -73,6 +74,8 @@ interface FormBuilderProps {
       required: boolean;
       weight: number;
       fatal: boolean;
+      criticalType?: CriticalTypeValue | null;
+      ratingFailThreshold?: number | null;
       requiresCommentOnFail: boolean;
       order: number;
       formCategory?: {
@@ -104,6 +107,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       qaCategoryId: q.formCategory?.qaCategoryId ?? "",
       weight: q.weight,
       fatal: q.fatal,
+      criticalType: q.criticalType ?? null,
+      ratingFailThreshold: q.ratingFailThreshold ?? null,
       requiresCommentOnFail: q.requiresCommentOnFail,
     })) ?? [],
   );
@@ -153,6 +158,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
           weight: hasRatingQuestion ? 0 : 100,
           fatal: false,
           fatalOptions: [],
+          criticalType: null,
+          ratingFailThreshold: null,
           requiresCommentOnFail: Boolean(defaultCategory?.requiresCommentOnFail),
         },
       ];
@@ -201,7 +208,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       return;
     }
     const optionQuestionWithoutOptions = questions.some((question) => {
-      if (question.type !== "SELECT" && question.type !== "RADIO") return false;
+      if (!isOptionQuestionType(question.type)) return false;
       return question.options.filter((option) => option.trim()).length < 2;
     });
     if (optionQuestionWithoutOptions) {
@@ -209,7 +216,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       return;
     }
     const fatalOptionQuestionWithoutRules = questions.some((question) => {
-      if (!question.fatal || !isOptionQuestion(question.type)) return false;
+      if (!question.fatal || !isOptionQuestionType(question.type)) return false;
       const validFatalOptions = getValidFatalOptions(question.fatalOptions, question.options);
       return validFatalOptions.length === 0;
     });
@@ -236,13 +243,16 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
               ? q.options.map((option) => option.trim()).filter(Boolean)
               : undefined,
           fatalOptions:
-            q.fatal && isOptionQuestion(q.type)
+            q.fatal && isOptionQuestionType(q.type)
               ? getValidFatalOptions(q.fatalOptions, q.options)
               : undefined,
           required: q.required,
           qaCategoryId: q.qaCategoryId,
           weight: q.type === "RATING" ? q.weight : 0,
           fatal: q.fatal,
+          criticalType: q.fatal ? (q.criticalType ?? undefined) : undefined,
+          ratingFailThreshold:
+            q.fatal && q.type === "RATING" ? (q.ratingFailThreshold ?? undefined) : undefined,
           requiresCommentOnFail: q.requiresCommentOnFail,
         })),
       };
@@ -418,10 +428,6 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       </Tabs>
     </div>
   );
-}
-
-function isOptionQuestion(type: QuestionType) {
-  return type === "SELECT" || type === "RADIO";
 }
 
 function normalizeOptions(options: string[]) {
