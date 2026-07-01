@@ -91,6 +91,7 @@ export async function updateCampaignScoringSettings(
       targetDailyRate: validatedPatch.targetDailyRate ?? beforeValue.targetDailyRate,
       fatalFailuresAllowed:
         validatedPatch.fatalFailuresAllowed ?? beforeValue.fatalFailuresAllowed,
+      fatalZeroesScore: validatedPatch.fatalZeroesScore ?? beforeValue.fatalZeroesScore,
       updatedBy: session.user.id,
     },
     update: {

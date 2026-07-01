@@ -98,6 +98,7 @@ describe("submitResponse validation and RBAC", () => {
       targetAvgScore: 80,
       targetDailyRate: 20,
       fatalFailuresAllowed: 0,
+      fatalZeroesScore: false,
     });
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",

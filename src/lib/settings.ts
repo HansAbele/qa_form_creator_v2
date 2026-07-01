@@ -29,12 +29,15 @@ export interface CampaignScoringSettings extends AppSettings {
   campaignId: string;
   usesGlobalDefaults: boolean;
   fatalFailuresAllowed: number;
+  /** When a critical/fatal question fails: true → force score to 0; false → keep score, mark FAIL. */
+  fatalZeroesScore: boolean;
 }
 
 export type CampaignScoringPatch = Partial<
   AppSettings & {
     usesGlobalDefaults: boolean;
     fatalFailuresAllowed: number;
+    fatalZeroesScore: boolean;
   }
 >;
 
@@ -172,6 +175,10 @@ export function validateCampaignScoringPatch(patch: CampaignScoringPatch): Campa
     );
   }
 
+  if (patch.fatalZeroesScore !== undefined) {
+    validated.fatalZeroesScore = Boolean(patch.fatalZeroesScore);
+  }
+
   return validated;
 }
 
@@ -267,6 +274,7 @@ type CampaignScoringRow = {
   targetAvgScore: number;
   targetDailyRate: number;
   fatalFailuresAllowed: number;
+  fatalZeroesScore: boolean;
 };
 
 function getCampaignScoringDelegate() {
@@ -290,6 +298,7 @@ function mergeCampaignScoring(
       ...globalSettings,
       usesGlobalDefaults: true,
       fatalFailuresAllowed: row?.fatalFailuresAllowed ?? 0,
+      fatalZeroesScore: row?.fatalZeroesScore ?? false,
     };
   }
 
@@ -301,6 +310,7 @@ function mergeCampaignScoring(
     targetAvgScore: row.targetAvgScore,
     targetDailyRate: row.targetDailyRate,
     fatalFailuresAllowed: row.fatalFailuresAllowed,
+    fatalZeroesScore: row.fatalZeroesScore ?? false,
   };
 }
 

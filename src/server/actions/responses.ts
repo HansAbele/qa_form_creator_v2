@@ -594,7 +594,10 @@ async function saveEvaluation(
         },
       ]),
     ),
-    { passThreshold: scoringSettings.passThreshold },
+    {
+      passThreshold: scoringSettings.passThreshold,
+      fatalZeroesScore: scoringSettings.fatalZeroesScore,
+    },
   );
 
   if (requireComplete && scoreResult.blockers > 0) {

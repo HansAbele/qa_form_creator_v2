@@ -1424,6 +1424,7 @@ function CampaignScoringTab({
           targetAvgScore: draft.targetAvgScore,
           targetDailyRate: draft.targetDailyRate,
           fatalFailuresAllowed: draft.fatalFailuresAllowed,
+          fatalZeroesScore: draft.fatalZeroesScore,
         });
         setDrafts((current) => ({ ...current, [selectedCampaignId]: saved }));
         toast.success("Scoring de campaña actualizado");
@@ -1572,6 +1573,22 @@ function CampaignScoringTab({
                   className="w-28 text-right tabular-nums"
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="campaign-fatal-zeroes">Falla fatal pone el score en 0%</Label>
+                <p className="text-xs text-muted-foreground">
+                  Si se activa, una pregunta critica fallida fuerza el score a 0. Si no, se conserva
+                  el score calculado y solo se marca FAIL.
+                </p>
+              </div>
+              <Switch
+                id="campaign-fatal-zeroes"
+                checked={draft.fatalZeroesScore}
+                disabled={usesGlobalDefaults}
+                onCheckedChange={(value) => setDraftValue("fatalZeroesScore", Boolean(value))}
+              />
             </div>
           </div>
 
