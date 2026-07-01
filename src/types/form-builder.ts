@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-export const QUESTION_TYPES = ["TEXT", "RATING", "SELECT", "RADIO"] as const;
+export const QUESTION_TYPES = ["TEXT", "RATING", "SELECT", "RADIO", "BOOLEAN"] as const;
+
+// Types the builder UI currently lets you create. BOOLEAN is supported by the
+// schema/scoring engine but its Sí/No option editor lands with the C4 redesign.
+export const SELECTABLE_QUESTION_TYPES = ["TEXT", "RATING", "SELECT", "RADIO"] as const;
 
 export const formQuestionInputSchema = z
   .object({

@@ -39,6 +39,7 @@ export async function getFormsForPermission(permission: CampaignPermissionKey) {
             select: {
               canCreateForms: true,
               canEditForms: true,
+              canPublishForms: true,
               canEvaluate: true,
             },
           },
@@ -74,10 +75,16 @@ export async function getFormByIdForPermission(id: string, permission: CampaignP
           formCategory: {
             select: {
               qaCategoryId: true,
+              weight: true,
+              fatalIfFailed: true,
+              requiresComment: true,
+              sortOrder: true,
               qaCategory: {
                 select: {
                   id: true,
                   name: true,
+                  systemColor: true,
+                  systemIcon: true,
                   canBeFatal: true,
                   requiresCommentOnFail: true,
                 },
@@ -296,7 +303,7 @@ export async function publishForm(id: string) {
     },
   });
   if (!form) throw new Error("Formulario no encontrado");
-  await assertCampaignPermissionForUser(session.user, form.campaignId, "canEditForms");
+  await assertCampaignPermissionForUser(session.user, form.campaignId, "canPublishForms");
 
   if (form.status === FORM_STATUS.ARCHIVED) {
     throw new Error("No se puede publicar un formulario archivado");
@@ -369,7 +376,7 @@ export async function archiveForm(id: string) {
     },
   });
   if (!form) throw new Error("Formulario no encontrado");
-  await assertCampaignPermissionForUser(session.user, form.campaignId, "canEditForms");
+  await assertCampaignPermissionForUser(session.user, form.campaignId, "canPublishForms");
 
   if (form.status !== FORM_STATUS.PUBLISHED) {
     throw new Error("Solo se pueden archivar formularios publicados");

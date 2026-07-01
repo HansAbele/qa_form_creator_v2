@@ -28,6 +28,7 @@ const typeLabels: Record<QuestionType, string> = {
   RATING: "Calificacion",
   SELECT: "Seleccion",
   RADIO: "Opcion multiple",
+  BOOLEAN: "Si / No",
 };
 
 export function FormPreview({ title, description, questions }: FormPreviewProps) {

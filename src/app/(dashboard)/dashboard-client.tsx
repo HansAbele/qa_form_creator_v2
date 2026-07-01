@@ -24,19 +24,19 @@ import {
   ClipboardCheck,
   FileText,
   Filter,
-  Lightbulb,
+  PhoneForwarded,
+  PhoneOutgoing,
   ShieldAlert,
   Sparkles,
   Tag,
-  Target,
-  TrendingDown,
   TrendingUp,
   Users,
   UsersRound,
   X,
 } from "lucide-react";
+import { AgentLeaderboard } from "@/components/dashboard/agent-leaderboard";
+import { DateRangeFilter } from "@/components/dashboard/date-range-filter";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
@@ -44,7 +44,6 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Label } from "@/components/ui/label";
 import {
@@ -57,9 +56,9 @@ import {
 import {
   getDashboardStats,
   getDashboardCampaignKpis,
-  getDashboardCoachingInsights,
   getDashboardDispositionAnalytics,
   getDashboardEvaluatorActivity,
+  getDashboardOutcomeKpis,
   getEvaluationsPerAgent,
   getResponseTrends,
   getScoreDistribution,
@@ -86,21 +85,13 @@ const performerConfig = {
   avgScore: { label: "Score Promedio", color: "#10b981" },
 } satisfies ChartConfig;
 
-const volumeConfig = {
-  count: { label: "Evaluaciones", color: "#ff6600" },
-} satisfies ChartConfig;
-
-const dispChartConfig = {
-  totalEvaluations: { label: "Evaluaciones", color: "#06b6d4" },
-} satisfies ChartConfig;
-
 const BAR_COLORS = [
-  "#ff6600",
-  "#1a2b45",
-  "#8b5cf6",
-  "#06b6d4",
-  "#f59e0b",
-  "#10b981",
+  "#F2621A", // brand orange
+  "#0FA3BF", // cyan
+  "#12A277", // green
+  "#E8931A", // amber
+  "#7A5AF8", // purple
+  "#0E1A2C", // navy
 ];
 
 interface DashboardStats {
@@ -126,8 +117,6 @@ interface DashboardStats {
     createdAt: string;
   }[];
 }
-
-type CoachingInsights = Awaited<ReturnType<typeof getDashboardCoachingInsights>>;
 
 // Fade + slide wrapper for sections
 function Section({
@@ -212,7 +201,13 @@ export function DashboardClient({
   const [dispAnalytics, setDispAnalytics] = useState<
     { id: string; name: string; code: string | null; categoryName: string | null; totalEvaluations: number; avgScore: number; passRate: number }[]
   >([]);
-  const [coachingInsights, setCoachingInsights] = useState<CoachingInsights | null>(null);
+  const [outcomeKpis, setOutcomeKpis] = useState({
+    classifiedTotal: 0,
+    resolved: 0,
+    escalated: 0,
+    resolutionRate: 0,
+    escalationRate: 0,
+  });
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const canOpenKpiDetails = access.canViewKPIs;
@@ -225,7 +220,7 @@ export function DashboardClient({
       const df = dateFrom || undefined;
       const dt = dateTo || undefined;
 
-      const [s, t, d, tb, ev, ea, tp, da, ci] = await Promise.all([
+      const [s, t, d, tb, ev, ea, tp, da, oc] = await Promise.all([
         getDashboardStats(cid, df, dt),
         getResponseTrends(cid, df, dt),
         getScoreDistribution(cid, df, dt),
@@ -234,7 +229,7 @@ export function DashboardClient({
         getEvaluationsPerAgent(cid, df, dt),
         getDashboardCampaignKpis(cid, df, dt),
         getDashboardDispositionAnalytics(cid, df, dt),
-        getDashboardCoachingInsights(cid, df, dt),
+        getDashboardOutcomeKpis(cid, df, dt),
       ]);
       setStats(s);
       setTrends(t);
@@ -244,7 +239,7 @@ export function DashboardClient({
       setEvalsPerAgent(ea);
       setCampaignPerf(tp);
       setDispAnalytics(da);
-      setCoachingInsights(ci);
+      setOutcomeKpis(oc);
     } catch (e) {
       console.error(e);
     } finally {
@@ -255,14 +250,6 @@ export function DashboardClient({
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  const setQuickRange = (days: number) => {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    setDateFrom(from.toISOString().slice(0, 10));
-    setDateTo(to.toISOString().slice(0, 10));
-  };
 
   if (loading && !stats) {
     return (
@@ -286,6 +273,25 @@ export function DashboardClient({
   // Mini trend series for KPI sparklines
   const countTrend = trends.map((t) => ({ value: t.count }));
   const scoreTrend = trends.map((t) => ({ value: t.avgScore }));
+  const sortedCampaignPerf = [...campaignPerf].sort((a, b) => {
+    const aActive = a.totalEvaluations > 0;
+    const bActive = b.totalEvaluations > 0;
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+    return b.avgScore - a.avgScore;
+  });
+  const activeCampaignCount = sortedCampaignPerf.filter(
+    (entry) => entry.totalEvaluations > 0,
+  ).length;
+  const topDispositions = dispAnalytics.slice(0, 8);
+  const maxDispositionTotal = Math.max(
+    1,
+    ...topDispositions.map((entry) => entry.totalEvaluations),
+  );
+  const totalDispositionEvaluations = dispAnalytics.reduce(
+    (sum, entry) => sum + entry.totalEvaluations,
+    0,
+  );
 
   return (
     <div className="space-y-6">
@@ -315,7 +321,7 @@ export function DashboardClient({
                 value={campaignId || "all"}
                 onValueChange={(v) => setCampaignId(v === "all" || !v ? "" : v)}
               >
-                <SelectTrigger className="h-8 w-44">
+                <SelectTrigger className="h-10 w-44">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -327,48 +333,14 @@ export function DashboardClient({
               </Select>
             </div>
           )}
-          <div className="flex gap-1">
-            {[7, 30, 90].map((d) => (
-              <Button
-                key={d}
-                variant="outline"
-                size="sm"
-                onClick={() => setQuickRange(d)}
-              >
-                {d}d
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-              }}
-            >
-              Todo
-            </Button>
-          </div>
-          <div className="flex items-end gap-2">
-            <div>
-              <Label className="text-xs">Desde</Label>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Hasta</Label>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-          </div>
+          <DateRangeFilter
+            from={dateFrom}
+            to={dateTo}
+            onApply={(f, t) => {
+              setDateFrom(f);
+              setDateTo(t);
+            }}
+          />
         </div>
       </motion.div>
 
@@ -453,145 +425,41 @@ export function DashboardClient({
           tone={stats.fatalFailCount <= stats.fatalFailuresAllowed ? "emerald" : "rose"}
           index={5}
         />
+        {outcomeKpis.classifiedTotal > 0 && (
+          <>
+            <KpiCard
+              label="Resolucion (FCR)"
+              value={outcomeKpis.resolutionRate}
+              decimals={1}
+              suffix="%"
+              icon={PhoneOutgoing}
+              tone={
+                outcomeKpis.resolutionRate >= 80
+                  ? "emerald"
+                  : outcomeKpis.resolutionRate >= 70
+                    ? "amber"
+                    : "rose"
+              }
+              index={6}
+            />
+            <KpiCard
+              label="Tasa de escalacion"
+              value={outcomeKpis.escalationRate}
+              decimals={1}
+              suffix="%"
+              icon={PhoneForwarded}
+              tone={
+                outcomeKpis.escalationRate <= 10
+                  ? "emerald"
+                  : outcomeKpis.escalationRate <= 20
+                    ? "amber"
+                    : "rose"
+              }
+              index={7}
+            />
+          </>
+        )}
       </div>
-
-      {/* ─── Row 1: Trends ─────────────────────────────────────────────── */}
-      {coachingInsights && (
-        <Section delay={0.08}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Lightbulb className="h-4 w-4 text-amber-500" />
-                Coaching accionable
-                <span className="ml-auto flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
-                  <Badge variant={coachingInsights.summary.criticalCount > 0 ? "destructive" : "outline"}>
-                    {coachingInsights.summary.criticalCount} criticas
-                  </Badge>
-                  <Badge variant="outline">{coachingInsights.summary.warningCount} alertas</Badge>
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 lg:grid-cols-3">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                    <TrendingDown className="h-3.5 w-3.5" />
-                    Agentes
-                  </div>
-                  {coachingInsights.agentRisks.length > 0 ? (
-                    <div className="space-y-2">
-                      {coachingInsights.agentRisks.slice(0, 5).map((agent) => (
-                        <button
-                          key={agent.id}
-                          type="button"
-                          className="w-full rounded-md border border-border/70 p-2 text-left transition-colors hover:bg-muted/50"
-                          onClick={() => router.push(agent.href)}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium">{agent.name}</span>
-                            <Badge
-                              variant={agent.severity === "CRITICAL" ? "destructive" : "outline"}
-                              className="shrink-0"
-                            >
-                              {agent.avgScore.toFixed(1)}%
-                            </Badge>
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            {agent.reason}
-                          </p>
-                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span>{agent.campaignName}</span>
-                            <span>PR {agent.passRate.toFixed(1)}%</span>
-                            <span>
-                              {agent.trendDelta > 0 ? "+" : ""}
-                              {agent.trendDelta.toFixed(1)} pts
-                            </span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <MiniEmptyState label="Sin agentes fuera de target" />
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                    <Target className="h-3.5 w-3.5" />
-                    Categorias QA
-                  </div>
-                  {coachingInsights.categoryOpportunities.length > 0 ? (
-                    <div className="space-y-2">
-                      {coachingInsights.categoryOpportunities.slice(0, 5).map((category) => (
-                        <div key={category.id} className="rounded-md border border-border/70 p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium">{category.name}</span>
-                            <Badge
-                              variant={category.severity === "CRITICAL" ? "destructive" : "outline"}
-                              className="shrink-0"
-                            >
-                              {category.avgScore.toFixed(1)}%
-                            </Badge>
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            {category.reason}
-                          </p>
-                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span>{category.totalAnswers} respuestas</span>
-                            <span>{category.affectedAgents} agentes</span>
-                            {category.fatalFailCount > 0 && <span>{category.fatalFailCount} fatales</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <MiniEmptyState label="Sin categorias fuera de target" />
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                    <ShieldAlert className="h-3.5 w-3.5" />
-                    Campanas
-                  </div>
-                  {coachingInsights.campaignRisks.length > 0 ? (
-                    <div className="space-y-2">
-                      {coachingInsights.campaignRisks.slice(0, 5).map((campaign) => (
-                        <button
-                          key={campaign.id}
-                          type="button"
-                          className="w-full rounded-md border border-border/70 p-2 text-left transition-colors hover:bg-muted/50"
-                          onClick={() => setCampaignId(campaign.id)}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium">{campaign.name}</span>
-                            <Badge
-                              variant={campaign.severity === "CRITICAL" ? "destructive" : "outline"}
-                              className="shrink-0"
-                            >
-                              {campaign.missedTargets.length} target(s)
-                            </Badge>
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            Fuera de {campaign.missedTargets.join(", ")}
-                          </p>
-                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span>Score {campaign.avgScore.toFixed(1)}%</span>
-                            <span>PR {campaign.passRate.toFixed(1)}%</span>
-                            <span>{campaign.dailyRate.toFixed(1)}/d</span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <MiniEmptyState label="Campanas dentro de target" />
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Section>
-      )}
 
       <Section delay={0.1}>
         <div className="grid gap-6 lg:grid-cols-2">
@@ -1004,35 +872,43 @@ export function DashboardClient({
 
       {/* ─── Row 4: Team Performance + Disposition Analytics ──────────── */}
       <Section delay={0.22}>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
           {/* Team Performance */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
+          <Card className="flex overflow-hidden lg:h-[clamp(460px,55vh,620px)] lg:flex-col">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                 <UsersRound className="h-4 w-4 text-violet-500" />
                 Rendimiento por Campaña
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para filtrar dashboard</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  Click para filtrar dashboard
+                </span>
               </CardTitle>
+              {campaignPerf.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Badge variant="secondary" className="font-normal">
+                    {activeCampaignCount} con datos
+                  </Badge>
+                  <Badge variant="outline" className="font-normal">
+                    {campaignPerf.length - activeCampaignCount} sin datos
+                  </Badge>
+                  <Badge variant="outline" className="font-normal">
+                    {campaignPerf.length} campañas
+                  </Badge>
+                </div>
+              )}
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-h-0 flex-1">
               {campaignPerf.length > 0 ? (
-                <div className="space-y-0.5 pt-1">
-                  {[...campaignPerf]
-                    .sort((a, b) => {
-                      const aActive = a.totalEvaluations > 0;
-                      const bActive = b.totalEvaluations > 0;
-                      if (aActive && !bActive) return -1;
-                      if (!aActive && bActive) return 1;
-                      return b.avgScore - a.avgScore;
-                    })
-                    .map((entry) => {
+                <div className="scrollbar-reveal h-full overflow-y-auto pr-1">
+                  <div className="space-y-0.5 pt-1">
+                    {sortedCampaignPerf.map((entry) => {
                       const hasData = entry.totalEvaluations > 0;
                       const isSelected = campaignId === entry.id;
                       return (
                         <button
                           type="button"
                           key={entry.id}
-                          className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors ${
+                          className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                             isSelected
                               ? "bg-violet-500/10 ring-1 ring-violet-500/30"
                               : "hover:bg-muted/40"
@@ -1098,6 +974,7 @@ export function DashboardClient({
                         </button>
                       );
                     })}
+                  </div>
                 </div>
               ) : (
                 <EmptyState label="Sin campañas con evaluaciones" />
@@ -1106,9 +983,9 @@ export function DashboardClient({
           </Card>
 
           {/* Disposition Analytics */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
+          <Card className="flex self-start lg:h-[clamp(460px,55vh,620px)] lg:flex-col">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                 <Tag className="h-4 w-4 text-cyan-500" />
                 Disposiciones Más Frecuentes
                 <span className="ml-auto text-[10px] font-normal text-muted-foreground">
@@ -1116,42 +993,33 @@ export function DashboardClient({
                 </span>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-h-0 flex-1">
               {dispAnalytics.length > 0 ? (
-                <ChartContainer config={dispChartConfig} className="h-[300px] w-full">
-                  <BarChart data={dispAnalytics.slice(0, 10)} margin={{ bottom: 8 }}>
-                    <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis
-                      dataKey="name"
-                      angle={-25}
-                      textAnchor="end"
-                      height={90}
-                      interval={0}
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                      tickFormatter={(v: string) =>
-                        v.length > 16 ? `${v.slice(0, 15)}…` : v
-                      }
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                      className="text-xs"
-                    />
-                    <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                    <Bar
-                      dataKey="totalEvaluations"
-                      radius={[6, 6, 0, 0]}
-                      animationDuration={900}
-                    >
-                      {dispAnalytics.slice(0, 10).map((entry, i) => (
-                        <Cell
+                <div className="flex h-full min-h-0 flex-col gap-3">
+                  <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <span>
+                      Top {topDispositions.length} de {dispAnalytics.length}
+                    </span>
+                    <span className="tabular-nums">
+                      {totalDispositionEvaluations} evaluaciones
+                    </span>
+                  </div>
+                  <div className="grid min-h-0 flex-1 auto-rows-fr gap-2">
+                    {topDispositions.map((entry, i) => {
+                      const share =
+                        totalDispositionEvaluations > 0
+                          ? (entry.totalEvaluations / totalDispositionEvaluations) * 100
+                          : 0;
+                      return (
+                        <button
+                          type="button"
                           key={entry.id}
-                          cursor={canOpenKpiDetails ? "pointer" : "default"}
-                          fill={BAR_COLORS[i % BAR_COLORS.length]}
+                          aria-disabled={!canOpenKpiDetails}
+                          className={`group flex min-h-0 w-full flex-col justify-center rounded-md border bg-card px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                            canOpenKpiDetails
+                              ? "cursor-pointer hover:bg-muted/40"
+                              : "cursor-default"
+                          }`}
                           onClick={
                             canOpenKpiDetails
                               ? () =>
@@ -1160,11 +1028,46 @@ export function DashboardClient({
                                   )
                               : undefined
                           }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ChartContainer>
+                          title={`${entry.name} · ${entry.totalEvaluations} evaluaciones`}
+                        >
+                          <div className="mb-2 flex items-center gap-3">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground tabular-nums">
+                              {i + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium">
+                                {entry.name}
+                              </div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {entry.categoryName ?? entry.code ?? "Sin categoría"}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-semibold tabular-nums">
+                                {entry.totalEvaluations}
+                              </div>
+                              <div className="text-xs text-muted-foreground tabular-nums">
+                                {share.toFixed(0)}%
+                              </div>
+                            </div>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${Math.max(
+                                  4,
+                                  (entry.totalEvaluations / maxDispositionTotal) * 100,
+                                )}%`,
+                                backgroundColor: BAR_COLORS[i % BAR_COLORS.length],
+                              }}
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               ) : (
                 <EmptyState label="Sin disposiciones con evaluaciones" />
               )}
@@ -1178,56 +1081,18 @@ export function DashboardClient({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              Evaluaciones por Agente (Top 10 por volumen)
+              Evaluaciones por Agente
               <span className="ml-auto text-[10px] font-normal text-muted-foreground">
                 {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
               </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {evalsPerAgent.length > 0 ? (
-              <ChartContainer config={volumeConfig} className="h-[300px] w-full">
-                <BarChart data={evalsPerAgent} margin={{ bottom: 8 }}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis
-                    dataKey="name"
-                    angle={-25}
-                    textAnchor="end"
-                    height={90}
-                    interval={0}
-                    tickLine={false}
-                    axisLine={false}
-                    className="text-xs"
-                    tickFormatter={(v: string) =>
-                      v.length > 16 ? `${v.slice(0, 15)}…` : v
-                    }
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tickLine={false}
-                    axisLine={false}
-                    className="text-xs"
-                  />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]} animationDuration={900}>
-                    {evalsPerAgent.map((entry, i) => (
-                      <Cell
-                        key={entry.id}
-                        cursor={canOpenKpiDetails ? "pointer" : "default"}
-                        fill={BAR_COLORS[i % BAR_COLORS.length]}
-                        onClick={
-                          canOpenKpiDetails
-                            ? () => router.push(`/analytics/agents/${entry.id}`)
-                            : undefined
-                        }
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ChartContainer>
-            ) : (
-              <EmptyState />
-            )}
+            <AgentLeaderboard
+              rows={evalsPerAgent}
+              interactive={canOpenKpiDetails}
+              onRowClick={(id) => router.push(`/analytics/agents/${id}`)}
+            />
           </CardContent>
         </Card>
       </Section>
@@ -1375,14 +1240,6 @@ export function DashboardClient({
 function EmptyState({ label = "Sin datos" }: { label?: string }) {
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
-    </div>
-  );
-}
-
-function MiniEmptyState({ label }: { label: string }) {
-  return (
-    <div className="flex min-h-24 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
       {label}
     </div>
   );

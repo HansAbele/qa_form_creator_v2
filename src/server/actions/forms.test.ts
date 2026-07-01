@@ -20,7 +20,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { getFormByIdForPermission, publishForm, updateForm } from "./forms";
+import { archiveForm, getFormByIdForPermission, publishForm, updateForm } from "./forms";
 
 const qaUser = {
   id: "qa-1",
@@ -54,6 +54,7 @@ describe("form revision workflow", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canEditForms: true,
+      canPublishForms: true,
       canEvaluate: true,
     });
     prismaMock.qACategory.findMany.mockResolvedValue([
@@ -162,6 +163,60 @@ describe("form revision workflow", () => {
         }),
       }),
     );
+  });
+
+  it("requires publish permission to publish a draft", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValueOnce({
+      campaignId: "campaign-1",
+      canEditForms: true,
+      canPublishForms: false,
+      canEvaluate: true,
+    });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-draft",
+      title: "QA Form",
+      campaignId: "campaign-1",
+      parentFormId: null,
+      status: "DRAFT",
+      version: "1.0.0",
+      questions: [
+        {
+          id: "q-1",
+          type: "RATING",
+          weight: 100,
+          formCategoryId: "form-category-1",
+        },
+      ],
+    });
+
+    await expect(publishForm("form-draft")).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
+
+    expect(prismaMock.form.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.form.update).not.toHaveBeenCalled();
+  });
+
+  it("requires publish permission to archive a published form", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValueOnce({
+      campaignId: "campaign-1",
+      canEditForms: true,
+      canPublishForms: false,
+      canEvaluate: true,
+    });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-1",
+      title: "QA Form",
+      campaignId: "campaign-1",
+      status: "PUBLISHED",
+      version: "1.0.0",
+    });
+
+    await expect(archiveForm("form-1")).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
+
+    expect(prismaMock.form.update).not.toHaveBeenCalled();
   });
 
   it("does not allow evaluating draft forms", async () => {

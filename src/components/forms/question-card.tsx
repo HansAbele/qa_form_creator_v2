@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { SELECTABLE_QUESTION_TYPES } from "@/types/form-builder";
 import type { QACategoryOption } from "./form-builder";
 import type { QuestionType } from "@prisma/client";
 
@@ -44,6 +45,7 @@ const questionTypeLabels: Record<QuestionType, string> = {
   RATING: "Calificacion (1-5)",
   SELECT: "Seleccion",
   RADIO: "Opcion multiple",
+  BOOLEAN: "Si / No",
 };
 
 export function QuestionCard({
@@ -112,7 +114,7 @@ export function QuestionCard({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(questionTypeLabels) as QuestionType[]).map((type) => (
+                  {SELECTABLE_QUESTION_TYPES.map((type) => (
                     <SelectItem key={type} value={type}>
                       {questionTypeLabels[type]}
                     </SelectItem>
@@ -168,6 +170,23 @@ export function QuestionCard({
                   })
                 }
               />
+              {question.type === "RATING" && (
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={question.weight}
+                  aria-label="Peso de la pregunta"
+                  onChange={(event) =>
+                    onUpdate({
+                      ...question,
+                      weight: Number(event.target.value) || 0,
+                    })
+                  }
+                  className="w-full cursor-pointer accent-primary"
+                />
+              )}
             </div>
           </div>
 

@@ -1003,6 +1003,35 @@ export async function getDispositionAnalytics(
   return getDispositionAnalyticsForPermission(KPI_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
+/**
+ * Call-outcome KPIs derived from `Disposition.outcomeType` (COPC vocabulary):
+ * Resolution Rate (FCR) and Escalation Rate over classified evaluations.
+ * FCR excludes transfers/escalations by definition (only RESOLVED counts).
+ */
+export async function getDashboardOutcomeKpis(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
+  const formFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+  const base = { form: formFilter, ...dw, ...submittedResponseWhere() };
+
+  const [classifiedTotal, resolved, escalated] = await Promise.all([
+    prisma.response.count({ where: { ...base, disposition: { outcomeType: { not: null } } } }),
+    prisma.response.count({ where: { ...base, disposition: { outcomeType: "RESOLVED" } } }),
+    prisma.response.count({ where: { ...base, disposition: { outcomeType: "ESCALATED" } } }),
+  ]);
+
+  return {
+    classifiedTotal,
+    resolved,
+    escalated,
+    resolutionRate: classifiedTotal > 0 ? round2((resolved / classifiedTotal) * 100) : 0,
+    escalationRate: classifiedTotal > 0 ? round2((escalated / classifiedTotal) * 100) : 0,
+  };
+}
+
 // ─── Agent Detail (drill-down) ────────────────────
 
 type CoachingSeverity = "CRITICAL" | "WARNING" | "INFO";

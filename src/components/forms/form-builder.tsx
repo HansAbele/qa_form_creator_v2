@@ -36,6 +36,7 @@ import { createForm, updateForm } from "@/server/actions/forms";
 import type { QuestionType } from "@prisma/client";
 import { FormPreview } from "./form-preview";
 import { QuestionCard, type QuestionData } from "./question-card";
+import { WeightBalanceMeter } from "./weight-balance-meter";
 
 interface Campaign {
   id: string;
@@ -46,6 +47,7 @@ export interface QACategoryOption {
   id: string;
   name: string;
   description: string | null;
+  systemColor: string | null;
   canBeFatal: boolean;
   requiresCommentOnFail: boolean;
 }
@@ -296,106 +298,117 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
           <TabsTrigger value="preview">Vista previa</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="editor" className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="title">Titulo</Label>
-              <Input
-                id="title"
-                placeholder="Nombre del formulario"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="campaign">Campana</Label>
-              <Select
-                value={campaignId}
-                onValueChange={(v) => v && setCampaignId(v)}
-                disabled={editingPublished}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar campana">
-                    {(value: string | null) => {
-                      if (!value) return "Seleccionar campana";
-                      return campaigns.find((c) => c.id === value)?.name ?? "Seleccionar campana";
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {campaigns.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="description">Descripcion (opcional)</Label>
-            <Textarea
-              id="description"
-              placeholder="Descripcion del formulario..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-            />
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-lg font-medium">Preguntas ({questions.length})</h3>
-                <p className="text-sm text-muted-foreground">
-                  Peso rating: {ratingWeightTotal}% de 100%
-                </p>
-              </div>
-              <Button type="button" variant="outline" onClick={addQuestion}>
-                <Plus className="mr-1 h-4 w-4" />
-                Agregar pregunta
-              </Button>
-            </div>
-
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={questions.map((q) => q.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <div className="space-y-3">
-                  {questions.map((question, index) => (
-                    <QuestionCard
-                      key={question.id}
-                      question={question}
-                      index={index}
-                      qaCategories={qaCategories}
-                      onUpdate={(updated) => updateQuestion(index, updated)}
-                      onDelete={() => deleteQuestion(index)}
-                    />
-                  ))}
+        <TabsContent value="editor">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+            {/* Canvas */}
+            <div className="min-w-0 flex-1 space-y-5">
+              <div className="grid gap-4 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="title">Titulo</Label>
+                  <Input
+                    id="title"
+                    placeholder="Nombre del formulario"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
                 </div>
-              </SortableContext>
-            </DndContext>
-
-            {questions.length === 0 && (
-              <div className="flex h-32 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
-                Haz clic en &quot;Agregar pregunta&quot; para comenzar
+                <div className="space-y-2">
+                  <Label htmlFor="campaign">Campana</Label>
+                  <Select
+                    value={campaignId}
+                    onValueChange={(v) => v && setCampaignId(v)}
+                    disabled={editingPublished}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar campana">
+                        {(value: string | null) => {
+                          if (!value) return "Seleccionar campana";
+                          return (
+                            campaigns.find((c) => c.id === value)?.name ?? "Seleccionar campana"
+                          );
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {campaigns.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="description">Descripcion (opcional)</Label>
+                  <Textarea
+                    id="description"
+                    placeholder="Descripcion del formulario..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={2}
+                  />
+                </div>
               </div>
-            )}
-          </div>
 
-          <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => router.push("/forms")}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? "Guardando..." : initialData ? "Actualizar" : "Crear formulario"}
-            </Button>
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="font-heading text-lg font-semibold">
+                    Preguntas ({questions.length})
+                  </h3>
+                  <Button type="button" variant="outline" onClick={addQuestion}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    Agregar pregunta
+                  </Button>
+                </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={questions.map((q) => q.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-3">
+                      {questions.map((question, index) => (
+                        <QuestionCard
+                          key={question.id}
+                          question={question}
+                          index={index}
+                          qaCategories={qaCategories}
+                          onUpdate={(updated) => updateQuestion(index, updated)}
+                          onDelete={() => deleteQuestion(index)}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+
+                {questions.length === 0 && (
+                  <div className="flex h-32 items-center justify-center rounded-xl border border-dashed text-muted-foreground">
+                    Haz clic en &quot;Agregar pregunta&quot; para comenzar
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Sticky panel — balance + actions */}
+            <div className="space-y-4 lg:sticky lg:top-[82px] lg:w-[340px] lg:shrink-0">
+              <WeightBalanceMeter questions={questions} qaCategories={qaCategories} />
+              <div className="space-y-2 rounded-xl border border-border bg-card p-4">
+                <Button onClick={handleSave} disabled={saving} className="w-full">
+                  {saving ? "Guardando..." : initialData ? "Actualizar" : "Crear formulario"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push("/forms")}
+                  className="w-full"
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
           </div>
         </TabsContent>
 
