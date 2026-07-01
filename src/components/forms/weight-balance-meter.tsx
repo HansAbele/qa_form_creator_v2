@@ -1,5 +1,6 @@
 "use client";
 
+import { isScoredQuestionType } from "@/types/form-builder";
 import { cn } from "@/lib/utils";
 import type { QACategoryOption } from "./form-builder";
 import type { QuestionData } from "./question-card";
@@ -15,11 +16,11 @@ interface WeightBalanceMeterProps {
  * status message.
  */
 export function WeightBalanceMeter({ questions, qaCategories }: WeightBalanceMeterProps) {
-  const ratingQuestions = questions.filter((q) => q.type === "RATING");
-  const total = ratingQuestions.reduce((sum, q) => sum + q.weight, 0);
+  const scoredQuestions = questions.filter((q) => isScoredQuestionType(q.type));
+  const total = scoredQuestions.reduce((sum, q) => sum + q.weight, 0);
 
   const byCategory = new Map<string, number>();
-  for (const q of ratingQuestions) {
+  for (const q of scoredQuestions) {
     byCategory.set(q.qaCategoryId, (byCategory.get(q.qaCategoryId) ?? 0) + q.weight);
   }
   const segments = Array.from(byCategory.entries())
@@ -44,10 +45,10 @@ export function WeightBalanceMeter({ questions, qaCategories }: WeightBalanceMet
         ? `Asigna ${100 - total}% mas para llegar al 100%`
         : `Excede en ${total - 100}%`;
 
-  if (ratingQuestions.length === 0) {
+  if (scoredQuestions.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-        Agrega preguntas de calificacion para balancear los pesos.
+        Agrega preguntas puntuables para balancear los pesos.
       </div>
     );
   }

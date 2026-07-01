@@ -19,6 +19,7 @@ import {
   CRITICAL_TYPES,
   type CriticalTypeValue,
   isOptionQuestionType,
+  isScoredQuestionType,
   SELECTABLE_QUESTION_TYPES,
 } from "@/types/form-builder";
 import type { QACategoryOption } from "./form-builder";
@@ -29,6 +30,7 @@ export interface QuestionData {
   type: QuestionType;
   label: string;
   options: string[];
+  optionPoints: number[];
   required: boolean;
   qaCategoryId: string;
   weight: number;
@@ -107,15 +109,15 @@ export function QuestionCard({
                 value={question.type}
                 onValueChange={(val) => {
                   if (!val) return;
-                  const nextOptions =
-                    val === "BOOLEAN" && question.options.length < 2
-                      ? ["Si", "No"]
-                      : question.options;
+                  const seedBoolean = val === "BOOLEAN" && question.options.length < 2;
+                  const nextOptions = seedBoolean ? ["Si", "No"] : question.options;
+                  const nextOptionPoints = seedBoolean ? [1, 0] : question.optionPoints;
                   onUpdate({
                     ...question,
                     type: val as QuestionType,
-                    weight: val === "RATING" ? question.weight : 0,
+                    weight: isScoredQuestionType(val) ? question.weight : 0,
                     options: nextOptions,
+                    optionPoints: nextOptionPoints,
                     fatalOptions: isOptionQuestionType(val)
                       ? getValidFatalOptions(question.fatalOptions, nextOptions)
                       : [],
@@ -181,7 +183,7 @@ export function QuestionCard({
                 min={0}
                 max={100}
                 value={question.weight}
-                disabled={question.type !== "RATING"}
+                disabled={!isScoredQuestionType(question.type)}
                 onChange={(event) =>
                   onUpdate({
                     ...question,
@@ -189,7 +191,7 @@ export function QuestionCard({
                   })
                 }
               />
-              {question.type === "RATING" && (
+              {isScoredQuestionType(question.type) && (
                 <input
                   type="range"
                   min={0}
@@ -246,6 +248,22 @@ export function QuestionCard({
                       }}
                       className="flex-1"
                     />
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={question.optionPoints[i] ?? 0}
+                        onChange={(e) => {
+                          const newPoints = [...question.optionPoints];
+                          newPoints[i] = Number(e.target.value) || 0;
+                          onUpdate({ ...question, optionPoints: newPoints });
+                        }}
+                        className="w-16"
+                        aria-label={`Puntos opcion ${i + 1}`}
+                      />
+                      <span className="text-xs text-muted-foreground">pts</span>
+                    </div>
                     {canConfigureFatalOptions && (
                       <SwitchField
                         label="Fatal"
@@ -274,6 +292,7 @@ export function QuestionCard({
                         onUpdate({
                           ...question,
                           options: newOptions,
+                          optionPoints: question.optionPoints.filter((_, idx) => idx !== i),
                           fatalOptions: getValidFatalOptions(
                             question.fatalOptions.filter((option) => option !== optionValue),
                             newOptions,
@@ -290,7 +309,13 @@ export function QuestionCard({
                 type="button"
                 variant="outline"
                 size="xs"
-                onClick={() => onUpdate({ ...question, options: [...question.options, ""] })}
+                onClick={() =>
+                  onUpdate({
+                    ...question,
+                    options: [...question.options, ""],
+                    optionPoints: [...question.optionPoints, 0],
+                  })
+                }
               >
                 + Agregar opcion
               </Button>

@@ -14,6 +14,11 @@ export function isOptionQuestionType(type: string): boolean {
   return OPTION_QUESTION_TYPES.includes(type as QuestionTypeValue);
 }
 
+/** Question types that carry weight and contribute to the score (everything but TEXT). */
+export function isScoredQuestionType(type: string): boolean {
+  return type !== "TEXT";
+}
+
 export const CRITICAL_TYPES = ["CUSTOMER", "BUSINESS", "COMPLIANCE"] as const;
 export type CriticalTypeValue = (typeof CRITICAL_TYPES)[number];
 
@@ -22,6 +27,7 @@ export const formQuestionInputSchema = z
     type: z.enum(QUESTION_TYPES),
     label: z.string().trim().min(1, "La pregunta es obligatoria").max(500),
     options: z.array(z.string().trim().min(1).max(200)).optional(),
+    optionPoints: z.array(z.coerce.number().int().min(0).max(100)).optional(),
     required: z.boolean(),
     qaCategoryId: z.string().trim().min(1, "Selecciona una categoria QA"),
     weight: z.coerce.number().int().min(0).max(100),
@@ -79,15 +85,17 @@ export const formMutationSchema = z
   })
   .strict()
   .superRefine((form, ctx) => {
-    const ratingQuestions = form.questions.filter((question) => question.type === "RATING");
-    if (ratingQuestions.length === 0) return;
+    const scoredQuestions = form.questions.filter((question) =>
+      isScoredQuestionType(question.type),
+    );
+    if (scoredQuestions.length === 0) return;
 
-    const totalWeight = ratingQuestions.reduce((sum, question) => sum + question.weight, 0);
+    const totalWeight = scoredQuestions.reduce((sum, question) => sum + question.weight, 0);
 
     if (totalWeight !== 100) {
       ctx.addIssue({
         code: "custom",
-        message: "Los pesos de preguntas rating deben sumar 100%",
+        message: "Los pesos de las preguntas puntuables deben sumar 100%",
         path: ["questions"],
       });
     }
