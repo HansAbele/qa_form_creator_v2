@@ -3,7 +3,7 @@
 import { isScoredQuestionType } from "@/types/form-builder";
 import { cn } from "@/lib/utils";
 import type { QACategoryOption } from "./form-builder";
-import type { QuestionData } from "./question-card";
+import type { QuestionData } from "./question-panel";
 
 interface WeightBalanceMeterProps {
   questions: QuestionData[];
