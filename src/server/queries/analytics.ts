@@ -2,16 +2,29 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { getPassThreshold } from "@/lib/settings";
-import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import { submittedResponseWhere } from "@/lib/response-status";
 import {
-  assertCampaignPermissionForUser,
-  getCampaignFilterForPermission,
-} from "./campaign-filter";
+  getCampaignScoringSettings,
+  getPassThresholdForCampaign,
+  getSettings,
+} from "@/lib/settings";
+import { buildQACategoryMetrics } from "@/lib/qa-category-metrics";
+import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import { assertCampaignPermissionForUser, getCampaignFilterForPermission } from "./campaign-filter";
 
 const DASHBOARD_READ_PERMISSION = "canViewDashboard" satisfies CampaignPermissionKey;
 const KPI_READ_PERMISSION = "canViewKPIs" satisfies CampaignPermissionKey;
 const REPORT_READ_PERMISSION = "canViewReports" satisfies CampaignPermissionKey;
+
+type CampaignFilter = { campaignId?: string | { in?: string[] } };
+
+type TargetSettings = {
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
+};
 
 // ─── Date filter helper ────────────────────────────────
 
@@ -25,6 +38,137 @@ function dateWhere(dateFrom?: string, dateTo?: string) {
   };
 }
 
+function passingResponseWhere(passThreshold: number) {
+  return {
+    ...submittedResponseWhere(),
+    OR: [{ result: "PASS" }, { result: null, hasFatalFail: false, score: { gte: passThreshold } }],
+  };
+}
+
+function isPassingResponse(
+  score: number,
+  result: string | null,
+  hasFatalFail: boolean,
+  passThreshold: number,
+) {
+  if (result === "PASS") return true;
+  if (result === "FAIL") return false;
+  return !hasFatalFail && score >= passThreshold;
+}
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getRangeDays(dateFrom?: string, dateTo?: string) {
+  if (dateFrom && dateTo) {
+    return Math.max(
+      1,
+      Math.ceil(
+        (new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24),
+      ) + 1,
+    );
+  }
+
+  if (dateFrom) {
+    return Math.max(
+      1,
+      Math.ceil((Date.now() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24)),
+    );
+  }
+
+  return 30;
+}
+
+async function getTargetSettingsForCampaign(campaignId?: string): Promise<TargetSettings> {
+  if (campaignId) {
+    const settings = await getCampaignScoringSettings(campaignId);
+    return {
+      passThreshold: settings.passThreshold,
+      targetPassRate: settings.targetPassRate,
+      targetAvgScore: settings.targetAvgScore,
+      targetDailyRate: settings.targetDailyRate,
+      fatalFailuresAllowed: settings.fatalFailuresAllowed,
+    };
+  }
+
+  const settings = await getSettings();
+  return {
+    ...settings,
+    fatalFailuresAllowed: 0,
+  };
+}
+
+async function getTargetSettingsMap(campaignIds: string[]) {
+  const uniqueCampaignIds = [...new Set(campaignIds.filter(Boolean))];
+  const entries = await Promise.all(
+    uniqueCampaignIds.map(
+      async (campaignId) => [campaignId, await getTargetSettingsForCampaign(campaignId)] as const,
+    ),
+  );
+  return new Map(entries);
+}
+
+async function getCampaignIdsForFilter(campaignFilter: CampaignFilter) {
+  const value = campaignFilter.campaignId;
+
+  if (typeof value === "string") return [value];
+  if (value && Array.isArray(value.in)) return value.in;
+
+  const campaigns = await prisma.campaign.findMany({ select: { id: true } });
+  return campaigns.map((campaign) => campaign.id);
+}
+
+async function getAggregateTargetSettings(
+  campaignFilter: CampaignFilter,
+  campaignId?: string,
+): Promise<TargetSettings> {
+  if (campaignId) return getTargetSettingsForCampaign(campaignId);
+
+  const [globalSettings, visibleCampaignIds] = await Promise.all([
+    getSettings(),
+    getCampaignIdsForFilter(campaignFilter),
+  ]);
+
+  if (visibleCampaignIds.length === 0) {
+    return { ...globalSettings, fatalFailuresAllowed: 0 };
+  }
+
+  const settingsMap = await getTargetSettingsMap(visibleCampaignIds);
+  const settings = visibleCampaignIds
+    .map((id) => settingsMap.get(id))
+    .filter((value): value is TargetSettings => Boolean(value));
+
+  if (settings.length === 0) {
+    return { ...globalSettings, fatalFailuresAllowed: 0 };
+  }
+
+  return {
+    passThreshold: globalSettings.passThreshold,
+    targetPassRate: round2(
+      settings.reduce((sum, item) => sum + item.targetPassRate, 0) / settings.length,
+    ),
+    targetAvgScore: round2(
+      settings.reduce((sum, item) => sum + item.targetAvgScore, 0) / settings.length,
+    ),
+    targetDailyRate: round2(settings.reduce((sum, item) => sum + item.targetDailyRate, 0)),
+    fatalFailuresAllowed: settings.reduce(
+      (sum, item) => sum + item.fatalFailuresAllowed,
+      0,
+    ),
+  };
+}
+
+async function getPassThresholdMap(campaignIds: string[]) {
+  const uniqueCampaignIds = [...new Set(campaignIds.filter(Boolean))];
+  const entries = await Promise.all(
+    uniqueCampaignIds.map(
+      async (campaignId) => [campaignId, await getPassThresholdForCampaign(campaignId)] as const,
+    ),
+  );
+  return new Map(entries);
+}
+
 // ─── Dashboard Stats ────────────────────────────────
 
 export async function getDashboardStats(campaignId?: string, dateFrom?: string, dateTo?: string) {
@@ -33,33 +177,34 @@ export async function getDashboardStats(campaignId?: string, dateFrom?: string, 
 
   const formFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
+  const targetSettings = await getAggregateTargetSettings(formFilter, campaignId);
+  const rangeDays = getRangeDays(dateFrom, dateTo);
 
-  const [formCount, responseCount, avgScore, passCount, failCount, recentResponses] =
-    await Promise.all([
-      prisma.form.count({ where: formFilter }),
-      prisma.response.count({ where: { form: formFilter, ...dw } }),
-      prisma.response.aggregate({
-        where: { form: formFilter, ...dw },
-        _avg: { score: true },
-      }),
-      prisma.response.count({
-        where: { form: formFilter, ...dw, score: { gte: passThreshold } },
-      }),
-      prisma.response.count({
-        where: { form: formFilter, ...dw, score: { lt: passThreshold } },
-      }),
-      prisma.response.findMany({
-        where: { form: formFilter, ...dw },
-        include: {
-          form: { select: { title: true } },
-          agent: { select: { name: true } },
-          evaluator: { select: { name: true } },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      }),
-    ]);
+  const [formCount, responseCount, avgScore, passCount, fatalFailCount, recentResponses] = await Promise.all([
+    prisma.form.count({ where: formFilter }),
+    prisma.response.count({ where: { form: formFilter, ...dw, ...submittedResponseWhere() } }),
+    prisma.response.aggregate({
+      where: { form: formFilter, ...dw, ...submittedResponseWhere() },
+      _avg: { score: true },
+    }),
+    prisma.response.count({
+      where: { form: formFilter, ...dw, ...passingResponseWhere(targetSettings.passThreshold) },
+    }),
+    prisma.response.count({
+      where: { form: formFilter, ...dw, ...submittedResponseWhere(), hasFatalFail: true },
+    }),
+    prisma.response.findMany({
+      where: { form: formFilter, ...dw, ...submittedResponseWhere() },
+      include: {
+        form: { select: { title: true } },
+        agent: { select: { name: true } },
+        evaluator: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+  ]);
+  const failCount = responseCount - passCount;
 
   return {
     formCount,
@@ -68,7 +213,9 @@ export async function getDashboardStats(campaignId?: string, dateFrom?: string, 
     passRate: responseCount > 0 ? Math.round((passCount / responseCount) * 100) : 0,
     passCount,
     failCount,
-    passThreshold,
+    fatalFailCount,
+    dailyRate: round2(responseCount / rangeDays),
+    ...targetSettings,
     recentResponses: recentResponses.map((r) => ({
       id: r.id,
       formTitle: r.form.title,
@@ -90,7 +237,7 @@ export async function getResponseTrends(campaignId?: string, dateFrom?: string, 
   const dw = dateWhere(dateFrom, dateTo);
 
   const responses = await prisma.response.findMany({
-    where: { form: formFilter, ...dw },
+    where: { form: formFilter, ...dw, ...submittedResponseWhere() },
     select: { score: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
@@ -113,18 +260,25 @@ export async function getResponseTrends(campaignId?: string, dateFrom?: string, 
 
 // ─── Top / Bottom Performers ───────────────────────
 
-export async function getTopBottomPerformers(campaignId?: string, dateFrom?: string, dateTo?: string) {
+export async function getTopBottomPerformers(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const campaignFilter = await getCampaignFilterForPermission(
+    DASHBOARD_READ_PERMISSION,
+    campaignId,
+  );
   const dw = dateWhere(dateFrom, dateTo);
 
   const agents = await prisma.agent.findMany({
     where: { ...campaignFilter, active: true },
     include: {
       responses: {
-        where: dw,
+        where: { ...dw, ...submittedResponseWhere() },
         select: { score: true },
       },
     },
@@ -168,12 +322,12 @@ async function getEvaluatorActivityForPermission(
   const evaluators = await prisma.user.findMany({
     where: {
       responses: {
-        some: { form: formFilter, ...dw },
+        some: { form: formFilter, ...dw, ...submittedResponseWhere() },
       },
     },
     include: {
       responses: {
-        where: { form: formFilter, ...dw },
+        where: { form: formFilter, ...dw, ...submittedResponseWhere() },
         select: { score: true },
       },
     },
@@ -185,9 +339,7 @@ async function getEvaluatorActivityForPermission(
       const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
       // Standard deviation for consistency
       const variance =
-        scores.length > 1
-          ? scores.reduce((sum, s) => sum + (s - avg) ** 2, 0) / scores.length
-          : 0;
+        scores.length > 1 ? scores.reduce((sum, s) => sum + (s - avg) ** 2, 0) / scores.length : 0;
       const stdDev = Math.sqrt(variance);
 
       return {
@@ -207,12 +359,7 @@ export async function getDashboardEvaluatorActivity(
   dateFrom?: string,
   dateTo?: string,
 ) {
-  return getEvaluatorActivityForPermission(
-    DASHBOARD_READ_PERMISSION,
-    campaignId,
-    dateFrom,
-    dateTo,
-  );
+  return getEvaluatorActivityForPermission(DASHBOARD_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
 export async function getEvaluatorActivity(
@@ -225,18 +372,25 @@ export async function getEvaluatorActivity(
 
 // ─── Evaluations per Agent (volume) ────────────────
 
-export async function getEvaluationsPerAgent(campaignId?: string, dateFrom?: string, dateTo?: string) {
+export async function getEvaluationsPerAgent(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const campaignFilter = await getCampaignFilterForPermission(
+    DASHBOARD_READ_PERMISSION,
+    campaignId,
+  );
   const dw = dateWhere(dateFrom, dateTo);
 
   const agents = await prisma.agent.findMany({
     where: { ...campaignFilter, active: true },
     include: {
       responses: {
-        where: dw,
+        where: { ...dw, ...submittedResponseWhere() },
         select: { id: true },
       },
     },
@@ -267,7 +421,7 @@ export async function getAgentScoreTrends(dateFrom?: string, dateTo?: string) {
     where: { ...campaignFilter, active: true },
     include: {
       responses: {
-        where: dw,
+        where: { ...dw, ...submittedResponseWhere() },
         select: { score: true, createdAt: true },
         orderBy: { createdAt: "asc" },
       },
@@ -301,8 +455,7 @@ export async function getAgentScoreTrends(dateFrom?: string, dateTo?: string) {
       );
       if (dayResponses.length > 0) {
         const dayAvg =
-          dayResponses.map((r) => Number(r.score)).reduce((a, b) => a + b, 0) /
-          dayResponses.length;
+          dayResponses.map((r) => Number(r.score)).reduce((a, b) => a + b, 0) / dayResponses.length;
         point[agent.name] = Math.round(dayAvg * 100) / 100;
       } else {
         point[agent.name] = null;
@@ -324,7 +477,7 @@ export async function getAgentPerformance(campaignId?: string) {
   if (!session?.user) throw new Error("No autorizado");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
-  const passThreshold = await getPassThreshold();
+  const passThreshold = await getPassThresholdForCampaign(campaignId);
   const where = { ...campaignFilter, active: true };
 
   const agents = await prisma.agent.findMany({
@@ -332,6 +485,7 @@ export async function getAgentPerformance(campaignId?: string) {
     include: {
       campaign: { select: { name: true } },
       responses: {
+        where: submittedResponseWhere(),
         select: { score: true, createdAt: true },
         orderBy: { createdAt: "desc" },
       },
@@ -351,8 +505,7 @@ export async function getAgentPerformance(campaignId?: string) {
     // Trend: compare last 5 vs previous 5
     const recent5 = scores.slice(0, 5);
     const prev5 = scores.slice(5, 10);
-    const recentAvg =
-      recent5.length > 0 ? recent5.reduce((a, b) => a + b, 0) / recent5.length : 0;
+    const recentAvg = recent5.length > 0 ? recent5.reduce((a, b) => a + b, 0) / recent5.length : 0;
     const prevAvg = prev5.length > 0 ? prev5.reduce((a, b) => a + b, 0) / prev5.length : 0;
     const trend = prev5.length > 0 ? recentAvg - prevAvg : 0;
 
@@ -391,6 +544,7 @@ export async function getReportData(filters: {
 
   const where: Record<string, unknown> = {
     form: campaignFilter,
+    ...submittedResponseWhere(),
     ...(filters.formId ? { formId: filters.formId } : {}),
     ...(filters.agentId ? { agentId: filters.agentId } : {}),
     ...dateWhere(filters.dateFrom, filters.dateTo),
@@ -399,32 +553,89 @@ export async function getReportData(filters: {
   const responses = await prisma.response.findMany({
     where,
     include: {
-      form: { select: { title: true, campaignId: true } },
+      form: {
+        select: {
+          title: true,
+          campaignId: true,
+          campaign: { select: { name: true } },
+        },
+      },
       agent: { select: { name: true, agentCode: true } },
       evaluator: { select: { name: true } },
       answers: {
         include: {
-          question: { select: { label: true, type: true } },
+          question: {
+            select: {
+              label: true,
+              type: true,
+              weight: true,
+              fatal: true,
+              requiresCommentOnFail: true,
+            },
+          },
+          category: { select: { id: true, name: true, systemColor: true, systemIcon: true } },
         },
       },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return responses.map((r) => ({
-    id: r.id,
-    formTitle: r.form.title,
-    agentName: r.agent.name,
-    agentCode: r.agent.agentCode,
-    evaluatorName: r.evaluator.name,
-    score: Number(r.score),
-    createdAt: r.createdAt.toISOString(),
-    answers: r.answers.map((a) => ({
-      question: a.question.label,
-      questionType: a.question.type,
-      value: a.value,
-    })),
-  }));
+  const targetSettingsMap = await getTargetSettingsMap(
+    responses.map((response) => response.form.campaignId),
+  );
+
+  return responses.map((r) => {
+    const targets =
+      targetSettingsMap.get(r.form.campaignId) ?? {
+        passThreshold: 70,
+        targetPassRate: 85,
+        targetAvgScore: 80,
+        targetDailyRate: 20,
+        fatalFailuresAllowed: 0,
+      };
+    const score = Number(r.score);
+
+    return {
+      id: r.id,
+      campaignId: r.form.campaignId,
+      campaignName: r.form.campaign.name,
+      formTitle: r.form.title,
+      agentName: r.agent.name,
+      agentCode: r.agent.agentCode,
+      evaluatorName: r.evaluator.name,
+      score,
+      result: r.result,
+      hasFatalFail: r.hasFatalFail,
+      passThreshold: targets.passThreshold,
+      targetPassRate: targets.targetPassRate,
+      targetAvgScore: targets.targetAvgScore,
+      targetDailyRate: targets.targetDailyRate,
+      fatalFailuresAllowed: targets.fatalFailuresAllowed,
+      passesThreshold: isPassingResponse(score, r.result, r.hasFatalFail, targets.passThreshold),
+      scoreTargetDelta: round2(score - targets.targetAvgScore),
+      createdAt: r.createdAt.toISOString(),
+      answers: r.answers.map((a) => ({
+        question: a.question.label,
+        questionType: a.question.type,
+        value: a.notApplicable ? "N/A" : a.value,
+        category: a.category
+          ? {
+              id: a.category.id,
+              name: a.category.name,
+              color: a.category.systemColor,
+              icon: a.category.systemIcon,
+            }
+          : null,
+        score: a.score === null ? null : Number(a.score),
+        comment: a.comment,
+        isFatalFail: a.isFatalFail,
+        notApplicable: a.notApplicable,
+        questionWeight: a.question.weight,
+        fatal: a.question.fatal,
+        requiresCommentOnFail: a.question.requiresCommentOnFail,
+      })),
+    };
+  });
 }
 
 // ─── Score distribution for charts ──────────────────
@@ -437,10 +648,13 @@ export async function getScoreDistribution(
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const campaignFilter = await getCampaignFilterForPermission(
+    DASHBOARD_READ_PERMISSION,
+    campaignId,
+  );
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
-  const where = { form: campaignFilter, ...dw };
+  const passThreshold = await getPassThresholdForCampaign(campaignId);
+  const where = { form: campaignFilter, ...dw, ...submittedResponseWhere() };
 
   const responses = await prisma.response.findMany({
     where,
@@ -481,7 +695,6 @@ async function getCampaignKpisForPermission(
 
   const campaignFilter = await getCampaignFilterForPermission(permission, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const campaigns = await prisma.campaign.findMany({
     where: campaignFilter.campaignId ? { id: campaignFilter.campaignId } : {},
@@ -492,25 +705,12 @@ async function getCampaignKpisForPermission(
     },
   });
 
-  // Calculate date range days for daily rate
-  let rangeDays = 30; // default
-  if (dateFrom && dateTo) {
-    rangeDays = Math.max(
-      1,
-      Math.ceil(
-        (new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24),
-      ) + 1,
-    );
-  } else if (dateFrom) {
-    rangeDays = Math.max(
-      1,
-      Math.ceil((Date.now() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24)),
-    );
-  }
+  const rangeDays = getRangeDays(dateFrom, dateTo);
 
   const results = await Promise.all(
     campaigns.map(async (campaign) => {
       const formIds = campaign.forms.map((f) => f.id);
+      const targetSettings = await getTargetSettingsForCampaign(campaign.id);
 
       if (formIds.length === 0) {
         return {
@@ -523,17 +723,33 @@ async function getCampaignKpisForPermission(
           avgScore: 0,
           passRate: 0,
           dailyRate: 0,
+          fatalFailCount: 0,
+          ...targetSettings,
         };
       }
 
-      const [evalCount, avgScore, passCount] = await Promise.all([
-        prisma.response.count({ where: { formId: { in: formIds }, ...dw } }),
+      const [evalCount, avgScore, passCount, fatalFailCount] = await Promise.all([
+        prisma.response.count({
+          where: { formId: { in: formIds }, ...dw, ...submittedResponseWhere() },
+        }),
         prisma.response.aggregate({
-          where: { formId: { in: formIds }, ...dw },
+          where: { formId: { in: formIds }, ...dw, ...submittedResponseWhere() },
           _avg: { score: true },
         }),
         prisma.response.count({
-          where: { formId: { in: formIds }, ...dw, score: { gte: passThreshold } },
+          where: {
+            formId: { in: formIds },
+            ...dw,
+            ...passingResponseWhere(targetSettings.passThreshold),
+          },
+        }),
+        prisma.response.count({
+          where: {
+            formId: { in: formIds },
+            ...dw,
+            ...submittedResponseWhere(),
+            hasFatalFail: true,
+          },
         }),
       ]);
 
@@ -546,7 +762,9 @@ async function getCampaignKpisForPermission(
         totalEvaluations: evalCount,
         avgScore: Math.round(Number(avgScore._avg.score ?? 0) * 100) / 100,
         passRate: evalCount > 0 ? Math.round((passCount / evalCount) * 100) : 0,
-        dailyRate: Math.round((evalCount / rangeDays) * 100) / 100,
+        dailyRate: round2(evalCount / rangeDays),
+        fatalFailCount,
+        ...targetSettings,
       };
     }),
   );
@@ -562,11 +780,7 @@ export async function getDashboardCampaignKpis(
   return getCampaignKpisForPermission(DASHBOARD_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
-export async function getCampaignKpis(
-  campaignId?: string,
-  dateFrom?: string,
-  dateTo?: string,
-) {
+export async function getCampaignKpis(campaignId?: string, dateFrom?: string, dateTo?: string) {
   return getCampaignKpisForPermission(KPI_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
@@ -581,10 +795,12 @@ export async function getScoreByQuestion(campaignId?: string, dateFrom?: string,
 
   const answers = await prisma.answer.findMany({
     where: {
+      notApplicable: false,
       question: { type: "RATING" },
       response: {
         form: campaignFilter,
         ...dw,
+        ...submittedResponseWhere(),
       },
     },
     include: {
@@ -611,6 +827,68 @@ export async function getScoreByQuestion(campaignId?: string, dateFrom?: string,
     .sort((a, b) => a.avgScore - b.avgScore); // worst first
 }
 
+// ─── QA Category Metrics ───────────────────────────
+
+export async function getQACategoryMetrics(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+
+  const answers = await prisma.answer.findMany({
+    where: {
+      notApplicable: false,
+      categoryId: { not: null },
+      response: {
+        form: campaignFilter,
+        ...dw,
+        ...submittedResponseWhere(),
+      },
+    },
+    include: {
+      category: {
+        select: {
+          id: true,
+          name: true,
+          systemColor: true,
+          systemIcon: true,
+          visibleInKPIs: true,
+        },
+      },
+      response: {
+        select: {
+          id: true,
+          form: { select: { campaignId: true } },
+        },
+      },
+    },
+  });
+
+  const campaignIds = answers.map((answer) => answer.response.form.campaignId);
+  const passThresholds = await getPassThresholdMap(campaignIds);
+
+  return buildQACategoryMetrics(
+    answers
+      .filter((answer) => answer.category?.visibleInKPIs !== false && answer.category)
+      .map((answer) => ({
+        responseId: answer.response.id,
+        categoryId: answer.category?.id ?? answer.categoryId ?? "uncategorized",
+        categoryName: answer.category?.name ?? "Sin categoria",
+        categoryColor: answer.category?.systemColor ?? null,
+        categoryIcon: answer.category?.systemIcon ?? null,
+        score: answer.score === null ? null : Number(answer.score),
+        passThreshold: passThresholds.get(answer.response.form.campaignId) ?? 70,
+        isFatalFail: answer.isFatalFail,
+        comment: answer.comment,
+      })),
+  );
+}
+
 // ─── Team Performance ─────────────────────────────
 
 export async function getTeamPerformance(campaignId?: string, dateFrom?: string, dateTo?: string) {
@@ -619,7 +897,6 @@ export async function getTeamPerformance(campaignId?: string, dateFrom?: string,
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const teams = await prisma.team.findMany({
     where: campaignFilter,
@@ -627,14 +904,16 @@ export async function getTeamPerformance(campaignId?: string, dateFrom?: string,
       agents: {
         where: { active: true },
         include: {
-          responses: { where: dw, select: { score: true } },
+          responses: { where: { ...dw, ...submittedResponseWhere() }, select: { score: true } },
         },
       },
     },
   });
+  const passThresholds = await getPassThresholdMap(teams.map((team) => team.campaignId));
 
   return teams
     .map((team) => {
+      const passThreshold = passThresholds.get(team.campaignId) ?? 70;
       const allScores = team.agents.flatMap((a) => a.responses.map((r) => Number(r.score)));
       const total = allScores.length;
       const avg = total > 0 ? allScores.reduce((a, b) => a + b, 0) / total : 0;
@@ -666,21 +945,24 @@ async function getDispositionAnalyticsForPermission(
 
   const campaignFilter = await getCampaignFilterForPermission(permission, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const dispositions = await prisma.disposition.findMany({
     where: { ...campaignFilter, active: true },
     include: {
       category: { select: { name: true } },
       responses: {
-        where: dw,
+        where: { ...dw, ...submittedResponseWhere() },
         select: { score: true },
       },
     },
   });
+  const passThresholds = await getPassThresholdMap(
+    dispositions.map((disposition) => disposition.campaignId),
+  );
 
   return dispositions
     .map((d) => {
+      const passThreshold = passThresholds.get(d.campaignId) ?? 70;
       const scores = d.responses.map((r) => Number(r.score));
       const total = scores.length;
       const avg = total > 0 ? scores.reduce((a, b) => a + b, 0) / total : 0;
@@ -721,13 +1003,347 @@ export async function getDispositionAnalytics(
   return getDispositionAnalyticsForPermission(KPI_READ_PERMISSION, campaignId, dateFrom, dateTo);
 }
 
-// ─── Agent Detail (drill-down) ────────────────────
-
-export async function getAgentDetail(
-  agentId: string,
+/**
+ * Call-outcome KPIs derived from `Disposition.outcomeType` (COPC vocabulary):
+ * Resolution Rate (FCR) and Escalation Rate over classified evaluations.
+ * FCR excludes transfers/escalations by definition (only RESOLVED counts).
+ */
+export async function getDashboardOutcomeKpis(
+  campaignId?: string,
   dateFrom?: string,
   dateTo?: string,
 ) {
+  const formFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+  const base = { form: formFilter, ...dw, ...submittedResponseWhere() };
+
+  const [classifiedTotal, resolved, escalated] = await Promise.all([
+    prisma.response.count({ where: { ...base, disposition: { outcomeType: { not: null } } } }),
+    prisma.response.count({ where: { ...base, disposition: { outcomeType: "RESOLVED" } } }),
+    prisma.response.count({ where: { ...base, disposition: { outcomeType: "ESCALATED" } } }),
+  ]);
+
+  return {
+    classifiedTotal,
+    resolved,
+    escalated,
+    resolutionRate: classifiedTotal > 0 ? round2((resolved / classifiedTotal) * 100) : 0,
+    escalationRate: classifiedTotal > 0 ? round2((escalated / classifiedTotal) * 100) : 0,
+  };
+}
+
+// ─── Agent Detail (drill-down) ────────────────────
+
+type CoachingSeverity = "CRITICAL" | "WARNING" | "INFO";
+
+function compareSeverity(a: CoachingSeverity, b: CoachingSeverity) {
+  const rank: Record<CoachingSeverity, number> = { CRITICAL: 3, WARNING: 2, INFO: 1 };
+  return rank[b] - rank[a];
+}
+
+function getCoachingSeverity(args: {
+  avgScore: number;
+  passRate: number;
+  trendDelta: number;
+  fatalFailCount: number;
+  passThreshold: number;
+  targetAvgScore: number;
+  targetPassRate: number;
+}): CoachingSeverity {
+  if (
+    args.fatalFailCount > 0 ||
+    args.avgScore < args.passThreshold ||
+    args.passRate < args.targetPassRate - 15
+  ) {
+    return "CRITICAL" satisfies CoachingSeverity;
+  }
+
+  if (
+    args.avgScore < args.targetAvgScore ||
+    args.passRate < args.targetPassRate ||
+    args.trendDelta <= -5
+  ) {
+    return "WARNING" satisfies CoachingSeverity;
+  }
+
+  return "INFO" satisfies CoachingSeverity;
+}
+
+function buildCoachingReason(args: {
+  avgScore: number;
+  passRate: number;
+  trendDelta: number;
+  fatalFailCount: number;
+  targetAvgScore: number;
+  targetPassRate: number;
+}) {
+  const reasons: string[] = [];
+  if (args.fatalFailCount > 0) reasons.push(`${args.fatalFailCount} falla(s) fatal(es)`);
+  if (args.avgScore < args.targetAvgScore) {
+    reasons.push(`${round2(args.targetAvgScore - args.avgScore)} pts bajo target de score`);
+  }
+  if (args.passRate < args.targetPassRate) {
+    reasons.push(`${round2(args.targetPassRate - args.passRate)} pts bajo target de pass rate`);
+  }
+  if (args.trendDelta <= -5) reasons.push(`tendencia reciente ${args.trendDelta.toFixed(1)} pts`);
+  return reasons.join(" · ") || "Dentro de target";
+}
+
+export async function getDashboardCoachingInsights(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+
+  const [campaignIds, campaignKpis, agents, answers] = await Promise.all([
+    getCampaignIdsForFilter(campaignFilter),
+    getDashboardCampaignKpis(campaignId, dateFrom, dateTo),
+    prisma.agent.findMany({
+      where: { ...campaignFilter, active: true },
+      include: {
+        campaign: { select: { name: true } },
+        responses: {
+          where: { ...dw, ...submittedResponseWhere() },
+          select: {
+            score: true,
+            result: true,
+            hasFatalFail: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 30,
+        },
+      },
+    }),
+    prisma.answer.findMany({
+      where: {
+        categoryId: { not: null },
+        notApplicable: false,
+        response: { form: campaignFilter, ...dw, ...submittedResponseWhere() },
+      },
+      include: {
+        category: {
+          select: {
+            id: true,
+            name: true,
+            systemColor: true,
+            visibleInDashboard: true,
+          },
+        },
+        response: {
+          select: {
+            agentId: true,
+            form: { select: { campaignId: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const settingsMap = await getTargetSettingsMap(campaignIds);
+
+  const agentRisks = agents
+    .map((agent) => {
+      const settings =
+        settingsMap.get(agent.campaignId) ?? {
+          passThreshold: 70,
+          targetPassRate: 85,
+          targetAvgScore: 80,
+          targetDailyRate: 20,
+          fatalFailuresAllowed: 0,
+        };
+      const scores = agent.responses.map((response) => Number(response.score));
+      const totalEvaluations = scores.length;
+      if (totalEvaluations === 0) return null;
+
+      const avgScore = round2(scores.reduce((sum, score) => sum + score, 0) / totalEvaluations);
+      const passCount = agent.responses.filter((response) =>
+        isPassingResponse(
+          Number(response.score),
+          response.result,
+          response.hasFatalFail,
+          settings.passThreshold,
+        ),
+      ).length;
+      const passRate = totalEvaluations > 0 ? round2((passCount / totalEvaluations) * 100) : 0;
+      const fatalFailCount = agent.responses.filter((response) => response.hasFatalFail).length;
+      const recentScores = scores.slice(0, 5);
+      const previousScores = scores.slice(5, 10);
+      const recentAvg =
+        recentScores.length > 0
+          ? recentScores.reduce((sum, score) => sum + score, 0) / recentScores.length
+          : avgScore;
+      const previousAvg =
+        previousScores.length > 0
+          ? previousScores.reduce((sum, score) => sum + score, 0) / previousScores.length
+          : recentAvg;
+      const trendDelta = round2(recentAvg - previousAvg);
+      const severity = getCoachingSeverity({
+        avgScore,
+        passRate,
+        trendDelta,
+        fatalFailCount,
+        passThreshold: settings.passThreshold,
+        targetAvgScore: settings.targetAvgScore,
+        targetPassRate: settings.targetPassRate,
+      });
+
+      return {
+        id: agent.id,
+        name: agent.name,
+        agentCode: agent.agentCode,
+        campaignName: agent.campaign.name,
+        totalEvaluations,
+        avgScore,
+        passRate,
+        trendDelta,
+        fatalFailCount,
+        severity,
+        reason: buildCoachingReason({
+          avgScore,
+          passRate,
+          trendDelta,
+          fatalFailCount,
+          targetAvgScore: settings.targetAvgScore,
+          targetPassRate: settings.targetPassRate,
+        }),
+        href: `/analytics/agents/${agent.id}`,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .filter((item) => item.severity !== "INFO")
+    .sort((a, b) => compareSeverity(a.severity, b.severity) || a.avgScore - b.avgScore)
+    .slice(0, 8);
+
+  const categoryMap = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      color: string | null;
+      totalScore: number;
+      scoredCount: number;
+      totalAnswers: number;
+      fatalFailCount: number;
+      affectedAgents: Set<string>;
+      campaignIds: Set<string>;
+    }
+  >();
+
+  for (const answer of answers) {
+    if (!answer.category?.visibleInDashboard) continue;
+    const entry =
+      categoryMap.get(answer.category.id) ??
+      {
+        id: answer.category.id,
+        name: answer.category.name,
+        color: answer.category.systemColor,
+        totalScore: 0,
+        scoredCount: 0,
+        totalAnswers: 0,
+        fatalFailCount: 0,
+        affectedAgents: new Set<string>(),
+        campaignIds: new Set<string>(),
+      };
+
+    entry.totalAnswers++;
+    entry.affectedAgents.add(answer.response.agentId);
+    entry.campaignIds.add(answer.response.form.campaignId);
+    if (answer.score !== null) {
+      entry.totalScore += Number(answer.score);
+      entry.scoredCount++;
+    }
+    if (answer.isFatalFail) entry.fatalFailCount++;
+    categoryMap.set(answer.category.id, entry);
+  }
+
+  const categoryOpportunities = Array.from(categoryMap.values())
+    .map((category) => {
+      const avgScore =
+        category.scoredCount > 0 ? round2(category.totalScore / category.scoredCount) : 0;
+      const targetAvg =
+        Array.from(category.campaignIds)
+          .map((id) => settingsMap.get(id)?.targetAvgScore ?? 80)
+          .reduce((sum, target) => sum + target, 0) / Math.max(category.campaignIds.size, 1);
+      const severity: CoachingSeverity =
+        category.fatalFailCount > 0 || avgScore < targetAvg - 15
+          ? "CRITICAL"
+          : avgScore < targetAvg
+            ? "WARNING"
+            : "INFO";
+
+      return {
+        id: category.id,
+        name: category.name,
+        color: category.color,
+        totalAnswers: category.totalAnswers,
+        avgScore,
+        fatalFailCount: category.fatalFailCount,
+        affectedAgents: category.affectedAgents.size,
+        severity,
+        reason:
+          severity === "INFO"
+            ? "Dentro de target"
+            : `${round2(targetAvg - avgScore)} pts bajo target en ${category.affectedAgents.size} agente(s)`,
+      };
+    })
+    .filter((category) => category.severity !== "INFO")
+    .sort((a, b) => compareSeverity(a.severity, b.severity) || a.avgScore - b.avgScore)
+    .slice(0, 6);
+
+  const campaignRisks = campaignKpis
+    .map((campaign) => {
+      const missedTargets = [
+        campaign.avgScore < campaign.targetAvgScore ? "score" : null,
+        campaign.passRate < campaign.targetPassRate ? "pass rate" : null,
+        campaign.dailyRate < campaign.targetDailyRate ? "volumen diario" : null,
+        campaign.fatalFailCount > campaign.fatalFailuresAllowed ? "fallas fatales" : null,
+      ].filter((target): target is string => Boolean(target));
+
+      if (missedTargets.length === 0) return null;
+
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        avgScore: campaign.avgScore,
+        passRate: campaign.passRate,
+        dailyRate: campaign.dailyRate,
+        fatalFailCount: campaign.fatalFailCount,
+        missedTargets,
+        severity:
+          campaign.fatalFailCount > campaign.fatalFailuresAllowed ||
+          campaign.avgScore < campaign.passThreshold
+            ? ("CRITICAL" as CoachingSeverity)
+            : ("WARNING" as CoachingSeverity),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((a, b) => compareSeverity(a.severity, b.severity));
+
+  return {
+    summary: {
+      criticalCount:
+        agentRisks.filter((item) => item.severity === "CRITICAL").length +
+        categoryOpportunities.filter((item) => item.severity === "CRITICAL").length +
+        campaignRisks.filter((item) => item.severity === "CRITICAL").length,
+      warningCount:
+        agentRisks.filter((item) => item.severity === "WARNING").length +
+        categoryOpportunities.filter((item) => item.severity === "WARNING").length +
+        campaignRisks.filter((item) => item.severity === "WARNING").length,
+      generatedAt: new Date().toISOString(),
+    },
+    agentRisks,
+    categoryOpportunities,
+    campaignRisks,
+  };
+}
+
+export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -739,7 +1355,7 @@ export async function getAgentDetail(
       campaign: { select: { name: true } },
       team: { select: { name: true } },
       responses: {
-        where: dw,
+        where: { ...dw, ...submittedResponseWhere() },
         include: {
           form: { select: { title: true } },
           evaluator: { select: { id: true, name: true } },
@@ -773,7 +1389,7 @@ export async function getAgentDetail(
   const questionMap = new Map<string, { total: number; count: number }>();
   for (const r of agent.responses) {
     for (const a of r.answers) {
-      if (a.question.type !== "RATING") continue;
+      if (a.question.type !== "RATING" || a.notApplicable) continue;
       const val = Number(a.value);
       if (Number.isNaN(val)) continue;
       const ex = questionMap.get(a.question.label) ?? { total: 0, count: 0 };
@@ -793,13 +1409,21 @@ export async function getAgentDetail(
   const dispMap = new Map<string, { name: string; count: number; totalScore: number }>();
   for (const r of agent.responses) {
     if (!r.disposition) continue;
-    const ex = dispMap.get(r.disposition.id) ?? { name: r.disposition.name, count: 0, totalScore: 0 };
+    const ex = dispMap.get(r.disposition.id) ?? {
+      name: r.disposition.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     dispMap.set(r.disposition.id, ex);
   }
   const dispositionBreakdown = Array.from(dispMap.values())
-    .map((d) => ({ name: d.name, count: d.count, avgScore: Math.round((d.totalScore / d.count) * 100) / 100 }))
+    .map((d) => ({
+      name: d.name,
+      count: d.count,
+      avgScore: Math.round((d.totalScore / d.count) * 100) / 100,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // Evaluators
@@ -811,7 +1435,12 @@ export async function getAgentDetail(
     evalMap.set(r.evaluator.id, ex);
   }
   const evaluators = Array.from(evalMap.entries())
-    .map(([id, d]) => ({ id, name: d.name, count: d.count, avgScore: Math.round((d.avgScore / d.count) * 100) / 100 }))
+    .map(([id, d]) => ({
+      id,
+      name: d.name,
+      count: d.count,
+      avgScore: Math.round((d.avgScore / d.count) * 100) / 100,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // Recent responses (last 10)
@@ -825,7 +1454,8 @@ export async function getAgentDetail(
   }));
 
   const allScores = agent.responses.map((r) => Number(r.score));
-  const avgScore = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
+  const avgScore =
+    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
 
   return {
     name: agent.name,
@@ -844,11 +1474,7 @@ export async function getAgentDetail(
 
 // ─── Evaluator Detail (drill-down) ────────────────
 
-export async function getEvaluatorDetail(
-  userId: string,
-  dateFrom?: string,
-  dateTo?: string,
-) {
+export async function getEvaluatorDetail(userId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -863,7 +1489,7 @@ export async function getEvaluatorDetail(
 
   if (session.user.role !== "ADMIN") {
     const visibleResponseCount = await prisma.response.count({
-      where: { evaluatorId: userId, form: campaignFilter },
+      where: { evaluatorId: userId, form: campaignFilter, ...submittedResponseWhere() },
     });
 
     if (visibleResponseCount === 0) {
@@ -872,7 +1498,7 @@ export async function getEvaluatorDetail(
   }
 
   const responses = await prisma.response.findMany({
-    where: { evaluatorId: userId, form: campaignFilter, ...dw },
+    where: { evaluatorId: userId, form: campaignFilter, ...dw, ...submittedResponseWhere() },
     include: {
       agent: { select: { id: true, name: true } },
       disposition: { select: { name: true } },
@@ -891,9 +1517,17 @@ export async function getEvaluatorDetail(
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Agents evaluated
-  const agentMap = new Map<string, { id: string; name: string; count: number; totalScore: number }>();
+  const agentMap = new Map<
+    string,
+    { id: string; name: string; count: number; totalScore: number }
+  >();
   for (const r of responses) {
-    const ex = agentMap.get(r.agent.id) ?? { id: r.agent.id, name: r.agent.name, count: 0, totalScore: 0 };
+    const ex = agentMap.get(r.agent.id) ?? {
+      id: r.agent.id,
+      name: r.agent.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     agentMap.set(r.agent.id, ex);
@@ -916,7 +1550,7 @@ export async function getEvaluatorDetail(
   const myAvg = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
 
   const globalAvg = await prisma.response.aggregate({
-    where: { form: campaignFilter, ...dw },
+    where: { form: campaignFilter, ...dw, ...submittedResponseWhere() },
     _avg: { score: true },
   });
 
@@ -936,16 +1570,11 @@ export async function getEvaluatorDetail(
 
 // ─── Team Detail (drill-down) ─────────────────────
 
-export async function getTeamDetail(
-  teamId: string,
-  dateFrom?: string,
-  dateTo?: string,
-) {
+export async function getTeamDetail(teamId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const team = await prisma.team.findUnique({
     where: { id: teamId },
@@ -954,7 +1583,10 @@ export async function getTeamDetail(
       agents: {
         where: { active: true },
         include: {
-          responses: { where: dw, select: { score: true, createdAt: true } },
+          responses: {
+            where: { ...dw, ...submittedResponseWhere() },
+            select: { score: true, createdAt: true },
+          },
         },
         orderBy: { name: "asc" },
       },
@@ -963,6 +1595,7 @@ export async function getTeamDetail(
 
   if (!team) throw new Error("Equipo no encontrado");
   await assertCampaignPermissionForUser(session.user, team.campaignId, KPI_READ_PERMISSION);
+  const passThreshold = await getPassThresholdForCampaign(team.campaignId);
 
   // Agent ranking
   const agentRanking = team.agents
@@ -998,7 +1631,8 @@ export async function getTeamDetail(
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const allScores = team.agents.flatMap((a) => a.responses.map((r) => Number(r.score)));
-  const totalAvg = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
+  const totalAvg =
+    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
 
   return {
     name: team.name,
@@ -1023,7 +1657,6 @@ export async function getDispositionDetail(
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION);
   const dw = dateWhere(dateFrom, dateTo);
-  const passThreshold = await getPassThreshold();
 
   const disposition = await prisma.disposition.findUnique({
     where: { id: dispositionId },
@@ -1036,9 +1669,10 @@ export async function getDispositionDetail(
   if (!disposition) throw new Error("Disposición no encontrada");
 
   await assertCampaignPermissionForUser(session.user, disposition.campaignId, KPI_READ_PERMISSION);
+  const passThreshold = await getPassThresholdForCampaign(disposition.campaignId);
 
   const responses = await prisma.response.findMany({
-    where: { dispositionId, ...dw },
+    where: { dispositionId, ...dw, ...submittedResponseWhere() },
     include: {
       agent: { select: { id: true, name: true } },
       evaluator: { select: { id: true, name: true } },
@@ -1071,9 +1705,12 @@ export async function getDispositionDetail(
     { id: string; name: string; count: number; totalScore: number }
   >();
   for (const r of responses) {
-    const ex =
-      agentMap.get(r.agent.id) ??
-      { id: r.agent.id, name: r.agent.name, count: 0, totalScore: 0 };
+    const ex = agentMap.get(r.agent.id) ?? {
+      id: r.agent.id,
+      name: r.agent.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     agentMap.set(r.agent.id, ex);
@@ -1094,9 +1731,12 @@ export async function getDispositionDetail(
     { id: string; name: string; count: number; totalScore: number }
   >();
   for (const r of responses) {
-    const ex =
-      evaluatorMap.get(r.evaluator.id) ??
-      { id: r.evaluator.id, name: r.evaluator.name, count: 0, totalScore: 0 };
+    const ex = evaluatorMap.get(r.evaluator.id) ?? {
+      id: r.evaluator.id,
+      name: r.evaluator.name,
+      count: 0,
+      totalScore: 0,
+    };
     ex.count++;
     ex.totalScore += Number(r.score);
     evaluatorMap.set(r.evaluator.id, ex);
@@ -1115,7 +1755,7 @@ export async function getDispositionDetail(
   const questionMap = new Map<string, { total: number; count: number }>();
   for (const r of responses) {
     for (const a of r.answers) {
-      if (a.question.type !== "RATING") continue;
+      if (a.question.type !== "RATING" || a.notApplicable) continue;
       const val = Number(a.value);
       if (Number.isNaN(val)) continue;
       const ex = questionMap.get(a.question.label) ?? { total: 0, count: 0 };
@@ -1136,6 +1776,7 @@ export async function getDispositionDetail(
     where: {
       form: campaignFilter,
       ...dw,
+      ...submittedResponseWhere(),
     },
     _avg: { score: true },
     _count: { _all: true },
@@ -1158,14 +1799,13 @@ export async function getDispositionDetail(
         id: { not: dispositionId },
       },
       include: {
-        responses: { where: dw, select: { score: true } },
+        responses: { where: { ...dw, ...submittedResponseWhere() }, select: { score: true } },
       },
     });
     sisterDispositions = sisters
       .map((s) => {
         const scores = s.responses.map((r) => Number(r.score));
-        const avg =
-          scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+        const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
         return {
           id: s.id,
           name: s.name,
@@ -1189,12 +1829,9 @@ export async function getDispositionDetail(
 
   const allScores = responses.map((r) => Number(r.score));
   const avgScore =
-    allScores.length > 0
-      ? allScores.reduce((a, b) => a + b, 0) / allScores.length
-      : 0;
+    allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
   const passCount = allScores.filter((s) => s >= passThreshold).length;
-  const passRate =
-    allScores.length > 0 ? Math.round((passCount / allScores.length) * 100) : 0;
+  const passRate = allScores.length > 0 ? Math.round((passCount / allScores.length) * 100) : 0;
 
   return {
     id: disposition.id,
@@ -1240,7 +1877,18 @@ export async function getResponseDetail(responseId: string) {
       disposition: { select: { id: true, name: true, code: true } },
       answers: {
         include: {
-          question: { select: { id: true, label: true, type: true, order: true } },
+          question: {
+            select: {
+              id: true,
+              label: true,
+              type: true,
+              order: true,
+              weight: true,
+              fatal: true,
+              requiresCommentOnFail: true,
+            },
+          },
+          category: { select: { id: true, name: true, systemColor: true, systemIcon: true } },
         },
         orderBy: { question: { order: "asc" } },
       },
@@ -1249,12 +1897,34 @@ export async function getResponseDetail(responseId: string) {
 
   if (!response) throw new Error("Evaluación no encontrada");
 
-  await assertCampaignPermissionForUser(session.user, response.form.campaignId, REPORT_READ_PERMISSION);
+  await assertCampaignPermissionForUser(
+    session.user,
+    response.form.campaignId,
+    REPORT_READ_PERMISSION,
+  );
+
+  const canEdit = await assertCampaignPermissionForUser(
+    session.user,
+    response.form.campaignId,
+    "canEditEvaluations",
+  )
+    .then(() => true)
+    .catch(() => false);
 
   return {
     id: response.id,
     score: Number(response.score),
+    result: response.result,
+    hasFatalFail: response.hasFatalFail,
+    status: response.status,
     createdAt: response.createdAt.toISOString(),
+    submittedAt: response.submittedAt?.toISOString() ?? null,
+    cancelledAt: response.cancelledAt?.toISOString() ?? null,
+    cancellationReason: response.cancellationReason,
+    canEdit,
+    scoringSnapshot: response.scoringSnapshot,
+    settingsSnapshot: response.settingsSnapshot,
+    formSnapshot: response.formSnapshot,
     form: { id: response.form.id, title: response.form.title },
     agent: {
       id: response.agent.id,
@@ -1278,7 +1948,22 @@ export async function getResponseDetail(responseId: string) {
       id: a.id,
       questionLabel: a.question.label,
       questionType: a.question.type,
-      value: a.value,
+      value: a.notApplicable ? "N/A" : a.value,
+      category: a.category
+        ? {
+            id: a.category.id,
+            name: a.category.name,
+            color: a.category.systemColor,
+            icon: a.category.systemIcon,
+          }
+        : null,
+      score: a.score === null ? null : Number(a.score),
+      comment: a.comment,
+      isFatalFail: a.isFatalFail,
+      notApplicable: a.notApplicable,
+      questionWeight: a.question.weight,
+      fatal: a.question.fatal,
+      requiresCommentOnFail: a.question.requiresCommentOnFail,
     })),
   };
 }
@@ -1312,6 +1997,7 @@ export async function getFilteredResponses(params: {
         form: formFilter,
         ...(Object.keys(scoreFilter).length > 0 ? { score: scoreFilter } : {}),
         ...dw,
+        ...submittedResponseWhere(),
       },
       include: {
         agent: {
@@ -1333,6 +2019,7 @@ export async function getFilteredResponses(params: {
         form: formFilter,
         ...(Object.keys(scoreFilter).length > 0 ? { score: scoreFilter } : {}),
         ...dw,
+        ...submittedResponseWhere(),
       },
     }),
   ]);
@@ -1349,9 +2036,7 @@ export async function getFilteredResponses(params: {
       },
       evaluator: { id: r.evaluator.id, name: r.evaluator.name },
       form: { id: r.form.id, title: r.form.title },
-      disposition: r.disposition
-        ? { id: r.disposition.id, name: r.disposition.name }
-        : null,
+      disposition: r.disposition ? { id: r.disposition.id, name: r.disposition.name } : null,
     })),
     totalCount,
     shownCount: responses.length,

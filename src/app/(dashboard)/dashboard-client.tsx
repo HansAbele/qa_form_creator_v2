@@ -24,6 +24,9 @@ import {
   ClipboardCheck,
   FileText,
   Filter,
+  PhoneForwarded,
+  PhoneOutgoing,
+  ShieldAlert,
   Sparkles,
   Tag,
   TrendingUp,
@@ -31,8 +34,9 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import { AgentLeaderboard } from "@/components/dashboard/agent-leaderboard";
+import { DateRangeFilter } from "@/components/dashboard/date-range-filter";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
@@ -40,7 +44,6 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,12 +58,13 @@ import {
   getDashboardCampaignKpis,
   getDashboardDispositionAnalytics,
   getDashboardEvaluatorActivity,
+  getDashboardOutcomeKpis,
   getEvaluationsPerAgent,
   getResponseTrends,
   getScoreDistribution,
   getTopBottomPerformers,
 } from "@/server/queries/analytics";
-import type { AppSettings } from "@/lib/settings";
+import type { UiAccess } from "@/server/queries/ui-access";
 
 // ─── Chart configs (theme-aware via CSS vars) ─────────────────────────────────
 const trendsConfig = {
@@ -81,25 +85,13 @@ const performerConfig = {
   avgScore: { label: "Score Promedio", color: "#10b981" },
 } satisfies ChartConfig;
 
-const volumeConfig = {
-  count: { label: "Evaluaciones", color: "#ff6600" },
-} satisfies ChartConfig;
-
-const teamConfig = {
-  avgScore: { label: "Score Promedio", color: "#8b5cf6" },
-} satisfies ChartConfig;
-
-const dispChartConfig = {
-  totalEvaluations: { label: "Evaluaciones", color: "#06b6d4" },
-} satisfies ChartConfig;
-
 const BAR_COLORS = [
-  "#ff6600",
-  "#1a2b45",
-  "#8b5cf6",
-  "#06b6d4",
-  "#f59e0b",
-  "#10b981",
+  "#F2621A", // brand orange
+  "#0FA3BF", // cyan
+  "#12A277", // green
+  "#E8931A", // amber
+  "#7A5AF8", // purple
+  "#0E1A2C", // navy
 ];
 
 interface DashboardStats {
@@ -109,6 +101,13 @@ interface DashboardStats {
   passRate: number;
   passCount: number;
   failCount: number;
+  fatalFailCount: number;
+  dailyRate: number;
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
   recentResponses: {
     id: string;
     formTitle: string;
@@ -140,13 +139,11 @@ function Section({
 
 export function DashboardClient({
   userName,
-  settings,
-  userRole,
+  access,
   campaigns,
 }: {
   userName: string;
-  settings: AppSettings;
-  userRole: string;
+  access: UiAccess;
   campaigns: { id: string; name: string }[];
 }) {
   const [campaignId, setCampaignId] = useState("");
@@ -186,13 +183,35 @@ export function DashboardClient({
     { id: string; name: string; count: number }[]
   >([]);
   const [campaignPerf, setCampaignPerf] = useState<
-    { id: string; name: string; totalAgents: number; totalEvaluations: number; avgScore: number; passRate: number }[]
+    {
+      id: string;
+      name: string;
+      totalAgents: number;
+      totalEvaluations: number;
+      avgScore: number;
+      passRate: number;
+      dailyRate: number;
+      fatalFailCount: number;
+      targetPassRate: number;
+      targetAvgScore: number;
+      targetDailyRate: number;
+      fatalFailuresAllowed: number;
+    }[]
   >([]);
   const [dispAnalytics, setDispAnalytics] = useState<
     { id: string; name: string; code: string | null; categoryName: string | null; totalEvaluations: number; avgScore: number; passRate: number }[]
   >([]);
+  const [outcomeKpis, setOutcomeKpis] = useState({
+    classifiedTotal: 0,
+    resolved: 0,
+    escalated: 0,
+    resolutionRate: 0,
+    escalationRate: 0,
+  });
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const canOpenKpiDetails = access.canViewKPIs;
+  const canOpenReportDetails = access.canViewReports;
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -201,7 +220,7 @@ export function DashboardClient({
       const df = dateFrom || undefined;
       const dt = dateTo || undefined;
 
-      const [s, t, d, tb, ev, ea, tp, da] = await Promise.all([
+      const [s, t, d, tb, ev, ea, tp, da, oc] = await Promise.all([
         getDashboardStats(cid, df, dt),
         getResponseTrends(cid, df, dt),
         getScoreDistribution(cid, df, dt),
@@ -210,6 +229,7 @@ export function DashboardClient({
         getEvaluationsPerAgent(cid, df, dt),
         getDashboardCampaignKpis(cid, df, dt),
         getDashboardDispositionAnalytics(cid, df, dt),
+        getDashboardOutcomeKpis(cid, df, dt),
       ]);
       setStats(s);
       setTrends(t);
@@ -219,6 +239,7 @@ export function DashboardClient({
       setEvalsPerAgent(ea);
       setCampaignPerf(tp);
       setDispAnalytics(da);
+      setOutcomeKpis(oc);
     } catch (e) {
       console.error(e);
     } finally {
@@ -229,14 +250,6 @@ export function DashboardClient({
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  const setQuickRange = (days: number) => {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    setDateFrom(from.toISOString().slice(0, 10));
-    setDateTo(to.toISOString().slice(0, 10));
-  };
 
   if (loading && !stats) {
     return (
@@ -260,6 +273,25 @@ export function DashboardClient({
   // Mini trend series for KPI sparklines
   const countTrend = trends.map((t) => ({ value: t.count }));
   const scoreTrend = trends.map((t) => ({ value: t.avgScore }));
+  const sortedCampaignPerf = [...campaignPerf].sort((a, b) => {
+    const aActive = a.totalEvaluations > 0;
+    const bActive = b.totalEvaluations > 0;
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+    return b.avgScore - a.avgScore;
+  });
+  const activeCampaignCount = sortedCampaignPerf.filter(
+    (entry) => entry.totalEvaluations > 0,
+  ).length;
+  const topDispositions = dispAnalytics.slice(0, 8);
+  const maxDispositionTotal = Math.max(
+    1,
+    ...topDispositions.map((entry) => entry.totalEvaluations),
+  );
+  const totalDispositionEvaluations = dispAnalytics.reduce(
+    (sum, entry) => sum + entry.totalEvaluations,
+    0,
+  );
 
   return (
     <div className="space-y-6">
@@ -289,7 +321,7 @@ export function DashboardClient({
                 value={campaignId || "all"}
                 onValueChange={(v) => setCampaignId(v === "all" || !v ? "" : v)}
               >
-                <SelectTrigger className="h-8 w-44">
+                <SelectTrigger className="h-10 w-44">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -301,48 +333,14 @@ export function DashboardClient({
               </Select>
             </div>
           )}
-          <div className="flex gap-1">
-            {[7, 30, 90].map((d) => (
-              <Button
-                key={d}
-                variant="outline"
-                size="sm"
-                onClick={() => setQuickRange(d)}
-              >
-                {d}d
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-              }}
-            >
-              Todo
-            </Button>
-          </div>
-          <div className="flex items-end gap-2">
-            <div>
-              <Label className="text-xs">Desde</Label>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Hasta</Label>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-          </div>
+          <DateRangeFilter
+            from={dateFrom}
+            to={dateTo}
+            onApply={(f, t) => {
+              setDateFrom(f);
+              setDateTo(t);
+            }}
+          />
         </div>
       </motion.div>
 
@@ -372,7 +370,7 @@ export function DashboardClient({
       )}
 
       {/* ─── KPI Cards (animated, with sparklines) ─────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Total Formularios"
           value={stats.formCount}
@@ -389,32 +387,80 @@ export function DashboardClient({
           index={1}
         />
         <KpiCard
-          label="Score Promedio"
+          label={`Score Promedio (target ${stats.targetAvgScore}%)`}
           value={stats.avgScore}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={stats.avgScore >= settings.passThreshold ? "emerald" : "amber"}
+          tone={stats.avgScore >= stats.targetAvgScore ? "emerald" : "rose"}
           trend={scoreTrend}
           index={2}
         />
         <KpiCard
-          label={`Pass Rate (≥${settings.passThreshold}%)`}
+          label={`Pass Rate (target ${stats.targetPassRate}%)`}
           value={stats.passRate}
           suffix="%"
           icon={Award}
           tone={
-            stats.passRate >= settings.targetPassRate
+            stats.passRate >= stats.targetPassRate
               ? "emerald"
-              : stats.passRate >= settings.passThreshold
+              : stats.passRate >= stats.passThreshold
                 ? "amber"
                 : "rose"
           }
           index={3}
         />
+        <KpiCard
+          label={`Tasa diaria (target ${stats.targetDailyRate}/d)`}
+          value={stats.dailyRate}
+          decimals={1}
+          icon={Calendar}
+          tone={stats.dailyRate >= stats.targetDailyRate ? "emerald" : "amber"}
+          index={4}
+        />
+        <KpiCard
+          label={`Fatales permitidas ${stats.fatalFailuresAllowed}`}
+          value={stats.fatalFailCount}
+          icon={ShieldAlert}
+          tone={stats.fatalFailCount <= stats.fatalFailuresAllowed ? "emerald" : "rose"}
+          index={5}
+        />
+        {outcomeKpis.classifiedTotal > 0 && (
+          <>
+            <KpiCard
+              label="Resolucion (FCR)"
+              value={outcomeKpis.resolutionRate}
+              decimals={1}
+              suffix="%"
+              icon={PhoneOutgoing}
+              tone={
+                outcomeKpis.resolutionRate >= 80
+                  ? "emerald"
+                  : outcomeKpis.resolutionRate >= 70
+                    ? "amber"
+                    : "rose"
+              }
+              index={6}
+            />
+            <KpiCard
+              label="Tasa de escalacion"
+              value={outcomeKpis.escalationRate}
+              decimals={1}
+              suffix="%"
+              icon={PhoneForwarded}
+              tone={
+                outcomeKpis.escalationRate <= 10
+                  ? "emerald"
+                  : outcomeKpis.escalationRate <= 20
+                    ? "amber"
+                    : "rose"
+              }
+              index={7}
+            />
+          </>
+        )}
       </div>
 
-      {/* ─── Row 1: Trends ─────────────────────────────────────────────── */}
       <Section delay={0.1}>
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Responses Trend */}
@@ -571,8 +617,10 @@ export function DashboardClient({
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                Pass / Fail (≥{settings.passThreshold}%)
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para ver detalles</span>
+                Pass / Fail (≥{stats.passThreshold}%)
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenReportDetails ? "Click para ver detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -597,23 +645,30 @@ export function DashboardClient({
                         {passFail.map((entry) => (
                           <Cell
                             key={entry.name}
-                            cursor="pointer"
+                            cursor={canOpenReportDetails ? "pointer" : "default"}
                             fill={entry.fill}
-                            onClick={() => {
-                              const params = new URLSearchParams();
-                              if (entry.name === "Pass") {
-                                params.set("minScore", String(settings.passThreshold));
-                              } else {
-                                params.set(
-                                  "maxScore",
-                                  String(settings.passThreshold - 0.01),
-                                );
-                              }
-                              if (campaignId) params.set("campaignId", campaignId);
-                              if (dateFrom) params.set("dateFrom", dateFrom);
-                              if (dateTo) params.set("dateTo", dateTo);
-                              router.push(`/analytics/responses?${params}`);
-                            }}
+                            onClick={
+                              canOpenReportDetails
+                                ? () => {
+                                    const params = new URLSearchParams();
+                                    if (entry.name === "Pass") {
+                                      params.set(
+                                        "minScore",
+                                        String(stats.passThreshold),
+                                      );
+                                    } else {
+                                      params.set(
+                                        "maxScore",
+                                        String(stats.passThreshold - 0.01),
+                                      );
+                                    }
+                                    if (campaignId) params.set("campaignId", campaignId);
+                                    if (dateFrom) params.set("dateFrom", dateFrom);
+                                    if (dateTo) params.set("dateTo", dateTo);
+                                    router.push(`/analytics/responses?${params}`);
+                                  }
+                                : undefined
+                            }
                           />
                         ))}
                         <RechartsLabel
@@ -685,7 +740,9 @@ export function DashboardClient({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Award className="h-4 w-4 text-emerald-500" />
                 Top 10 Performers
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -729,8 +786,12 @@ export function DashboardClient({
                       {topBottom.top10.map((entry) => (
                         <Cell
                           key={entry.id}
-                          cursor="pointer"
-                          onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                          cursor={canOpenKpiDetails ? "pointer" : "default"}
+                          onClick={
+                            canOpenKpiDetails
+                              ? () => router.push(`/analytics/agents/${entry.id}`)
+                              : undefined
+                          }
                         />
                       ))}
                     </Bar>
@@ -790,8 +851,12 @@ export function DashboardClient({
                       {topBottom.bottom5.map((entry) => (
                         <Cell
                           key={entry.id}
-                          cursor="pointer"
-                          onClick={() => router.push(`/analytics/agents/${entry.id}`)}
+                          cursor={canOpenKpiDetails ? "pointer" : "default"}
+                          onClick={
+                            canOpenKpiDetails
+                              ? () => router.push(`/analytics/agents/${entry.id}`)
+                              : undefined
+                          }
                         />
                       ))}
                     </Bar>
@@ -807,35 +872,43 @@ export function DashboardClient({
 
       {/* ─── Row 4: Team Performance + Disposition Analytics ──────────── */}
       <Section delay={0.22}>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
           {/* Team Performance */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
+          <Card className="flex overflow-hidden lg:h-[clamp(460px,55vh,620px)] lg:flex-col">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                 <UsersRound className="h-4 w-4 text-violet-500" />
                 Rendimiento por Campaña
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para filtrar dashboard</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  Click para filtrar dashboard
+                </span>
               </CardTitle>
+              {campaignPerf.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Badge variant="secondary" className="font-normal">
+                    {activeCampaignCount} con datos
+                  </Badge>
+                  <Badge variant="outline" className="font-normal">
+                    {campaignPerf.length - activeCampaignCount} sin datos
+                  </Badge>
+                  <Badge variant="outline" className="font-normal">
+                    {campaignPerf.length} campañas
+                  </Badge>
+                </div>
+              )}
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-h-0 flex-1">
               {campaignPerf.length > 0 ? (
-                <div className="space-y-0.5 pt-1">
-                  {[...campaignPerf]
-                    .sort((a, b) => {
-                      const aActive = a.totalEvaluations > 0;
-                      const bActive = b.totalEvaluations > 0;
-                      if (aActive && !bActive) return -1;
-                      if (!aActive && bActive) return 1;
-                      return b.avgScore - a.avgScore;
-                    })
-                    .map((entry) => {
+                <div className="scrollbar-reveal h-full overflow-y-auto pr-1">
+                  <div className="space-y-0.5 pt-1">
+                    {sortedCampaignPerf.map((entry) => {
                       const hasData = entry.totalEvaluations > 0;
                       const isSelected = campaignId === entry.id;
                       return (
                         <button
                           type="button"
                           key={entry.id}
-                          className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors ${
+                          className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                             isSelected
                               ? "bg-violet-500/10 ring-1 ring-violet-500/30"
                               : "hover:bg-muted/40"
@@ -859,23 +932,49 @@ export function DashboardClient({
                           <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted/60">
                             {hasData && (
                               <div
-                                className="h-full rounded-full bg-violet-500 transition-all"
+                                className={`h-full rounded-full transition-all ${
+                                  entry.avgScore >= entry.targetAvgScore
+                                    ? "bg-emerald-500"
+                                    : "bg-rose-500"
+                                }`}
                                 style={{ width: `${Math.min(100, entry.avgScore)}%` }}
                               />
                             )}
                           </div>
-                          <span
-                            className={`w-14 shrink-0 text-right text-xs tabular-nums ${
-                              hasData
-                                ? "font-semibold"
-                                : "italic text-muted-foreground/60"
-                            }`}
-                          >
-                            {hasData ? `${entry.avgScore.toFixed(1)}%` : "—"}
-                          </span>
+                          <div className="flex w-[190px] shrink-0 items-center justify-end gap-1.5">
+                            <Badge
+                              variant={
+                                entry.avgScore >= entry.targetAvgScore ? "default" : "destructive"
+                              }
+                              className="tabular-nums"
+                            >
+                              {hasData
+                                ? `${entry.avgScore.toFixed(1)}/${entry.targetAvgScore}%`
+                                : "-"}
+                            </Badge>
+                            <Badge
+                              variant={
+                                entry.passRate >= entry.targetPassRate ? "outline" : "destructive"
+                              }
+                              className="tabular-nums"
+                            >
+                              PR {entry.passRate}%
+                            </Badge>
+                            <Badge
+                              variant={
+                                entry.fatalFailCount <= entry.fatalFailuresAllowed
+                                  ? "outline"
+                                  : "destructive"
+                              }
+                              className="tabular-nums"
+                            >
+                              F {entry.fatalFailCount}/{entry.fatalFailuresAllowed}
+                            </Badge>
+                          </div>
                         </button>
                       );
                     })}
+                  </div>
                 </div>
               ) : (
                 <EmptyState label="Sin campañas con evaluaciones" />
@@ -884,56 +983,91 @@ export function DashboardClient({
           </Card>
 
           {/* Disposition Analytics */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
+          <Card className="flex self-start lg:h-[clamp(460px,55vh,620px)] lg:flex-col">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                 <Tag className="h-4 w-4 text-cyan-500" />
                 Disposiciones Más Frecuentes
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-h-0 flex-1">
               {dispAnalytics.length > 0 ? (
-                <ChartContainer config={dispChartConfig} className="h-[300px] w-full">
-                  <BarChart data={dispAnalytics.slice(0, 10)} margin={{ bottom: 8 }}>
-                    <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis
-                      dataKey="name"
-                      angle={-25}
-                      textAnchor="end"
-                      height={90}
-                      interval={0}
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                      tickFormatter={(v: string) =>
-                        v.length > 16 ? `${v.slice(0, 15)}…` : v
-                      }
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                      className="text-xs"
-                    />
-                    <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                    <Bar
-                      dataKey="totalEvaluations"
-                      radius={[6, 6, 0, 0]}
-                      animationDuration={900}
-                    >
-                      {dispAnalytics.slice(0, 10).map((entry, i) => (
-                        <Cell
+                <div className="flex h-full min-h-0 flex-col gap-3">
+                  <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <span>
+                      Top {topDispositions.length} de {dispAnalytics.length}
+                    </span>
+                    <span className="tabular-nums">
+                      {totalDispositionEvaluations} evaluaciones
+                    </span>
+                  </div>
+                  <div className="grid min-h-0 flex-1 auto-rows-fr gap-2">
+                    {topDispositions.map((entry, i) => {
+                      const share =
+                        totalDispositionEvaluations > 0
+                          ? (entry.totalEvaluations / totalDispositionEvaluations) * 100
+                          : 0;
+                      return (
+                        <button
+                          type="button"
                           key={entry.id}
-                          cursor="pointer"
-                          fill={BAR_COLORS[i % BAR_COLORS.length]}
-                          onClick={() => router.push(`/analytics/dispositions/${entry.id}`)}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ChartContainer>
+                          aria-disabled={!canOpenKpiDetails}
+                          className={`group flex min-h-0 w-full flex-col justify-center rounded-md border bg-card px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                            canOpenKpiDetails
+                              ? "cursor-pointer hover:bg-muted/40"
+                              : "cursor-default"
+                          }`}
+                          onClick={
+                            canOpenKpiDetails
+                              ? () =>
+                                  router.push(
+                                    `/analytics/dispositions/${entry.id}`,
+                                  )
+                              : undefined
+                          }
+                          title={`${entry.name} · ${entry.totalEvaluations} evaluaciones`}
+                        >
+                          <div className="mb-2 flex items-center gap-3">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground tabular-nums">
+                              {i + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium">
+                                {entry.name}
+                              </div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {entry.categoryName ?? entry.code ?? "Sin categoría"}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-semibold tabular-nums">
+                                {entry.totalEvaluations}
+                              </div>
+                              <div className="text-xs text-muted-foreground tabular-nums">
+                                {share.toFixed(0)}%
+                              </div>
+                            </div>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${Math.max(
+                                  4,
+                                  (entry.totalEvaluations / maxDispositionTotal) * 100,
+                                )}%`,
+                                backgroundColor: BAR_COLORS[i % BAR_COLORS.length],
+                              }}
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               ) : (
                 <EmptyState label="Sin disposiciones con evaluaciones" />
               )}
@@ -947,50 +1081,18 @@ export function DashboardClient({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              Evaluaciones por Agente (Top 10 por volumen)
-              <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+              Evaluaciones por Agente
+              <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {evalsPerAgent.length > 0 ? (
-              <ChartContainer config={volumeConfig} className="h-[300px] w-full">
-                <BarChart data={evalsPerAgent} margin={{ bottom: 8 }}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis
-                    dataKey="name"
-                    angle={-25}
-                    textAnchor="end"
-                    height={90}
-                    interval={0}
-                    tickLine={false}
-                    axisLine={false}
-                    className="text-xs"
-                    tickFormatter={(v: string) =>
-                      v.length > 16 ? `${v.slice(0, 15)}…` : v
-                    }
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tickLine={false}
-                    axisLine={false}
-                    className="text-xs"
-                  />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]} animationDuration={900}>
-                    {evalsPerAgent.map((entry, i) => (
-                      <Cell
-                        key={entry.id}
-                        cursor="pointer"
-                        fill={BAR_COLORS[i % BAR_COLORS.length]}
-                        onClick={() => router.push(`/analytics/agents/${entry.id}`)}
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ChartContainer>
-            ) : (
-              <EmptyState />
-            )}
+            <AgentLeaderboard
+              rows={evalsPerAgent}
+              interactive={canOpenKpiDetails}
+              onRowClick={(id) => router.push(`/analytics/agents/${id}`)}
+            />
           </CardContent>
         </Card>
       </Section>
@@ -1004,7 +1106,9 @@ export function DashboardClient({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-4 w-4 text-orange-500" />
                 Actividad de Evaluadores
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenKpiDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1023,8 +1127,16 @@ export function DashboardClient({
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="grid grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-muted/40 cursor-pointer"
-                        onClick={() => router.push(`/analytics/evaluators/${ev.id}`)}
+                        className={`grid grid-cols-4 items-center rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors ${
+                          canOpenKpiDetails
+                            ? "cursor-pointer hover:bg-muted/40"
+                            : "cursor-default"
+                        }`}
+                        onClick={
+                          canOpenKpiDetails
+                            ? () => router.push(`/analytics/evaluators/${ev.id}`)
+                            : undefined
+                        }
                       >
                         <span className="truncate font-medium">{ev.name}</span>
                         <span className="text-center tabular-nums">
@@ -1033,7 +1145,7 @@ export function DashboardClient({
                         <div className="flex justify-center">
                           <Badge
                             variant={
-                              ev.avgScore >= settings.passThreshold
+                              ev.avgScore >= stats.targetAvgScore
                                 ? "default"
                                 : "destructive"
                             }
@@ -1063,7 +1175,9 @@ export function DashboardClient({
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 Evaluaciones Recientes
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">Click para detalles</span>
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+                  {canOpenReportDetails ? "Click para detalles" : "Resumen"}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1076,8 +1190,16 @@ export function DashboardClient({
                         initial={{ opacity: 0, x: 8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="flex cursor-pointer items-center justify-between rounded-lg border border-border/60 p-3 transition-colors hover:bg-muted/40"
-                        onClick={() => router.push(`/analytics/responses/${r.id}`)}
+                        className={`flex items-center justify-between rounded-lg border border-border/60 p-3 transition-colors ${
+                          canOpenReportDetails
+                            ? "cursor-pointer hover:bg-muted/40"
+                            : "cursor-default"
+                        }`}
+                        onClick={
+                          canOpenReportDetails
+                            ? () => router.push(`/analytics/responses/${r.id}`)
+                            : undefined
+                        }
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{r.agentName}</p>
@@ -1088,7 +1210,7 @@ export function DashboardClient({
                         <div className="ml-3 flex items-center gap-2">
                           <Badge
                             variant={
-                              r.score >= settings.passThreshold
+                              r.score >= stats.passThreshold
                                 ? "default"
                                 : "destructive"
                             }

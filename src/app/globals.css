@@ -5,134 +5,157 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ----------------------------------------------------------------------------
- * TNO Brand Theme
- * Primary identity: navy blue (#1a2b45) + vibrant orange (#ff6600)
- * Typography: Montserrat (500/600/700)
+ * Qore Brand Theme (redesign A)
+ * Primary identity: brand navy (#0E1A2C) + brand orange (#F2621A)
+ * Pass/fail: green (#12A277) / rose (#EC456A)
+ * Typography: Sora (headings/numbers) + Manrope (body/UI)
  * ----------------------------------------------------------------------------
  */
 
 :root {
-  /* --- TNO brand raw tokens (HSL triplets, no hsl() wrapper) -------------- */
-  --tno-blue: 215 46% 19%;      /* #1a2b45 */
-  --tno-blue-darker: 215 52% 12%;
-  --tno-blue-lighter: 215 41% 24%;
-  --tno-orange: 24 100% 50%;    /* #ff6600 */
-  --tno-orange-hover: 24 100% 45%;
+  /* --- Qore brand raw tokens (HSL triplets, no hsl() wrapper) ------------- */
+  --tno-blue: 216 52% 11%;                /* #0E1A2C — brand navy */
+  --tno-blue-darker: 213 52% 8%;          /* #0A1420 */
+  --tno-blue-lighter: 214 39% 17%;        /* #1B2A3E */
+  --tno-orange: 20 89% 53%;               /* #F2621A — brand orange */
+  --tno-orange-hover: 20 87% 46%;         /* #DA530F — brand strong */
 
   /* --- Semantic tokens (LIGHT MODE) --------------------------------------- */
-  --background: 220 13% 95%;              /* #f0f2f5 — app bg */
-  --foreground: 215 46% 19%;              /* #1a2b45 — TNO blue text */
+  --background: 225 20% 96%;              /* #F3F4F7 — app canvas */
+  --foreground: 216 47% 11%;              /* #0F1A2A — primary text */
 
-  --card: 0 0% 100%;                      /* #ffffff */
-  --card-foreground: 215 46% 19%;
+  --card: 0 0% 100%;                      /* #FFFFFF */
+  --card-foreground: 216 47% 11%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 215 46% 19%;
+  --popover-foreground: 216 47% 11%;
 
-  --primary: 24 100% 50%;                 /* #ff6600 — TNO orange */
+  --primary: 20 89% 53%;                  /* #F2621A — brand orange */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 220 13% 95%;
-  --secondary-foreground: 215 46% 19%;
+  --secondary: 223 23% 94%;               /* #ECEEF3 — sunken */
+  --secondary-foreground: 216 47% 11%;
 
-  --muted: 220 14% 92%;
-  --muted-foreground: 215 16% 47%;        /* #64748b */
+  --muted: 223 23% 94%;                   /* #ECEEF3 */
+  --muted-foreground: 216 15% 39%;        /* #546072 */
 
-  --accent: 33 100% 96%;                  /* #fff7ed — warm hover */
-  --accent-foreground: 21 88% 40%;        /* #c2410c */
+  --accent: 25 80% 94%;                   /* #FCEEE4 — brand tint */
+  --accent-foreground: 20 87% 46%;        /* #DA530F */
 
-  --destructive: 0 84% 60%;               /* #ef4444 */
+  --destructive: 347 81% 60%;             /* #EC456A — rose */
   --destructive-foreground: 0 0% 100%;
 
-  --success: 160 84% 39%;                 /* #10b981 */
+  --success: 162 80% 35%;                 /* #12A277 */
   --success-foreground: 0 0% 100%;
 
-  --warning: 38 92% 50%;                  /* #f59e0b */
+  --warning: 35 82% 51%;                  /* #E8931A */
   --warning-foreground: 0 0% 100%;
 
-  --border: 214 32% 91%;                  /* #e2e8f0 */
-  --input: 214 32% 91%;
-  --ring: 24 100% 50%;                    /* orange focus ring */
+  --border: 220 22% 92%;                  /* #E6E9EF */
+  --input: 219 21% 87%;                   /* #D6DBE4 */
+  --ring: 20 89% 53%;                     /* orange focus ring */
+
+  /* --- Extended redesign tokens (tints + accents) ------------------------- */
+  --brand-strong: 20 87% 46%;             /* #DA530F */
+  --brand-tint: 25 80% 94%;               /* #FCEEE4 */
+  --success-tint: 157 47% 93%;            /* #E3F5EE */
+  --destructive-tint: 341 76% 95%;        /* #FCE9EF */
+  --warning-tint: 39 84% 93%;             /* #FCF1DD */
+  --purple: 252 92% 66%;                  /* #7A5AF8 — compliance / accent 3 */
+  --cyan: 190 85% 40%;                    /* #0FA3BF — aux accent */
+  --text-3: 218 13% 60%;                  /* #8B95A6 — muted labels */
+  --border-strong: 219 21% 87%;           /* #D6DBE4 */
 
   /* --- Charts — brand-aligned palette ------------------------------------- */
-  --chart-1: 24 100% 50%;                 /* orange — primary */
-  --chart-2: 215 46% 19%;                 /* navy */
-  --chart-3: 160 84% 39%;                 /* green */
-  --chart-4: 38 92% 50%;                  /* amber */
-  --chart-5: 258 90% 66%;                 /* purple */
+  --chart-1: 20 89% 53%;                  /* orange — primary */
+  --chart-2: 190 85% 40%;                 /* cyan */
+  --chart-3: 162 80% 35%;                 /* green */
+  --chart-4: 35 82% 51%;                  /* amber */
+  --chart-5: 252 92% 66%;                 /* purple */
 
   /* --- Sidebar — branded dark navy in light mode -------------------------- */
-  --sidebar: 215 46% 19%;                 /* TNO blue */
-  --sidebar-foreground: 220 13% 95%;
-  --sidebar-primary: 24 100% 50%;         /* orange active */
+  --sidebar: 216 52% 11%;                 /* #0E1A2C */
+  --sidebar-foreground: 210 50% 95%;      /* #EAF1F8 */
+  --sidebar-primary: 20 89% 53%;          /* orange active */
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 215 41% 24%;          /* lighter blue hover */
-  --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-border: 215 41% 24%;
-  --sidebar-ring: 24 100% 50%;
+  --sidebar-accent: 214 39% 17%;          /* #1B2A3E hover */
+  --sidebar-accent-foreground: 210 50% 95%;
+  --sidebar-border: 214 39% 17%;
+  --sidebar-ring: 20 89% 53%;
 
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 }
 
 .dark {
-  /* --- TNO brand raw tokens (dark mode) ----------------------------------- */
-  --tno-blue: 220 13% 95%;                /* flips: navy becomes light text */
-  --tno-blue-darker: 210 24% 8%;
-  --tno-blue-lighter: 215 33% 15%;
-  --tno-orange: 24 100% 55%;              /* #ff7a1a — +5% luminosity */
-  --tno-orange-hover: 24 100% 60%;
+  /* --- Qore brand raw tokens (dark mode) ---------------------------------- */
+  --tno-blue: 210 50% 95%;                /* flips: navy becomes light text */
+  --tno-blue-darker: 215 55% 6%;          /* #070E18 */
+  --tno-blue-lighter: 211 45% 16%;        /* #17293C */
+  --tno-orange: 22 94% 59%;               /* #F97A33 — brighter in dark */
+  --tno-orange-hover: 22 96% 64%;         /* #FB8A4A */
 
   /* --- Semantic tokens (DARK MODE) ---------------------------------------- */
-  --background: 210 24% 8%;               /* #0f1419 — deep navy-black */
-  --foreground: 220 13% 95%;              /* #f0f2f5 */
+  --background: 216 50% 8%;               /* #0A121E — deep navy */
+  --foreground: 210 50% 95%;              /* #EAF1F8 */
 
-  --card: 215 33% 15%;                    /* #1a2433 — brand navy as card */
-  --card-foreground: 220 13% 95%;
+  --card: 212 47% 12%;                    /* #101D2C — elevated navy */
+  --card-foreground: 210 50% 95%;
 
-  --popover: 215 33% 15%;
-  --popover-foreground: 220 13% 95%;
+  --popover: 212 47% 12%;
+  --popover-foreground: 210 50% 95%;
 
-  --primary: 24 100% 55%;                 /* #ff7a1a */
-  --primary-foreground: 210 24% 8%;
+  --primary: 22 94% 59%;                  /* #F97A33 */
+  --primary-foreground: 216 50% 8%;
 
-  --secondary: 215 33% 15%;
-  --secondary-foreground: 220 13% 95%;
+  --secondary: 212 52% 10%;               /* #0C1826 — sunken */
+  --secondary-foreground: 210 50% 95%;
 
-  --muted: 215 33% 15%;
-  --muted-foreground: 219 21% 63%;        /* #8b9ab5 */
+  --muted: 212 52% 10%;                   /* #0C1826 */
+  --muted-foreground: 212 23% 69%;        /* #9DAEC2 */
 
-  --accent: 215 30% 24%;                  /* #2a3a50 */
-  --accent-foreground: 220 13% 95%;
+  --accent: 211 45% 16%;                  /* #17293C — hover */
+  --accent-foreground: 210 50% 95%;
 
-  --destructive: 0 91% 71%;               /* #f87171 */
-  --destructive-foreground: 210 24% 8%;
+  --destructive: 348 95% 68%;             /* #FB607F — rose */
+  --destructive-foreground: 216 50% 8%;
 
-  --success: 156 63% 52%;                 /* #34d399 */
-  --success-foreground: 210 24% 8%;
+  --success: 161 74% 43%;                 /* #1DBE8A */
+  --success-foreground: 216 50% 8%;
 
-  --warning: 27 96% 61%;                  /* #fb923c */
-  --warning-foreground: 210 24% 8%;
+  --warning: 38 90% 60%;                  /* #F5B13C */
+  --warning-foreground: 216 50% 8%;
 
-  --border: 215 30% 24%;                  /* #2a3a50 */
-  --input: 215 30% 24%;
-  --ring: 24 100% 55%;
+  --border: 214 33% 18%;                  /* #1E2B3C */
+  --input: 214 33% 18%;
+  --ring: 22 94% 59%;
+
+  /* --- Extended redesign tokens (dark tints + accents) -------------------- */
+  --brand-strong: 22 96% 64%;             /* #FB8A4A */
+  --brand-tint: 18 46% 12%;               /* #2B1810 */
+  --success-tint: 162 48% 11%;            /* #0E2820 */
+  --destructive-tint: 333 33% 13%;        /* #2C1620 */
+  --warning-tint: 39 45% 11%;             /* #2A2110 */
+  --purple: 252 94% 73%;                  /* #9277FB */
+  --cyan: 189 69% 53%;                    /* #35C0DA */
+  --text-3: 211 16% 46%;                  /* #647689 */
+  --border-strong: 215 31% 24%;           /* #2A3A50 */
 
   /* --- Charts (dark) — brighter for contrast on dark bg ------------------- */
-  --chart-1: 24 100% 55%;                 /* orange */
-  --chart-2: 213 94% 68%;                 /* light blue */
-  --chart-3: 156 63% 52%;                 /* green */
-  --chart-4: 45 93% 58%;                  /* yellow */
-  --chart-5: 258 90% 76%;                 /* purple */
+  --chart-1: 22 94% 59%;                  /* orange */
+  --chart-2: 189 69% 53%;                 /* cyan */
+  --chart-3: 161 74% 43%;                 /* green */
+  --chart-4: 38 90% 60%;                  /* amber */
+  --chart-5: 252 94% 73%;                 /* purple */
 
-  /* --- Sidebar (dark) — even darker than card ----------------------------- */
-  --sidebar: 225 52% 8%;                  /* #0a1020 */
-  --sidebar-foreground: 220 13% 95%;
-  --sidebar-primary: 24 100% 55%;
-  --sidebar-primary-foreground: 210 24% 8%;
-  --sidebar-accent: 215 33% 15%;
-  --sidebar-accent-foreground: 220 13% 95%;
-  --sidebar-border: 215 33% 15%;
-  --sidebar-ring: 24 100% 55%;
+  /* --- Sidebar (dark) — deepest surface ----------------------------------- */
+  --sidebar: 215 55% 6%;                  /* #070E18 */
+  --sidebar-foreground: 210 50% 95%;
+  --sidebar-primary: 22 94% 59%;
+  --sidebar-primary-foreground: 216 50% 8%;
+  --sidebar-accent: 212 47% 12%;          /* #101D2C */
+  --sidebar-accent-foreground: 210 50% 95%;
+  --sidebar-border: 211 45% 16%;          /* #17293C */
+  --sidebar-ring: 22 94% 59%;
 }
 
 @theme inline {
@@ -177,6 +200,17 @@
   --color-chart-4: hsl(var(--chart-4));
   --color-chart-5: hsl(var(--chart-5));
 
+  /* Extended redesign tokens exposed as utilities */
+  --color-brand-strong: hsl(var(--brand-strong));
+  --color-brand-tint: hsl(var(--brand-tint));
+  --color-success-tint: hsl(var(--success-tint));
+  --color-destructive-tint: hsl(var(--destructive-tint));
+  --color-warning-tint: hsl(var(--warning-tint));
+  --color-purple: hsl(var(--purple));
+  --color-cyan: hsl(var(--cyan));
+  --color-text-3: hsl(var(--text-3));
+  --color-border-strong: hsl(var(--border-strong));
+
   --color-sidebar: hsl(var(--sidebar));
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
   --color-sidebar-primary: hsl(var(--sidebar-primary));
@@ -197,8 +231,8 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  --font-sans: var(--font-montserrat, Montserrat), ui-sans-serif, system-ui, sans-serif;
-  --font-heading: var(--font-montserrat, Montserrat), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
@@ -222,4 +256,40 @@
   }
   .font-semibold { font-weight: 600; }
   .font-bold { font-weight: 700; }
+}
+
+@layer utilities {
+  .scrollbar-reveal {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-reveal:hover,
+  .scrollbar-reveal:focus-within {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-reveal::-webkit-scrollbar {
+    height: 0;
+    width: 0;
+  }
+
+  .scrollbar-reveal:hover::-webkit-scrollbar,
+  .scrollbar-reveal:focus-within::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+
+  .scrollbar-reveal::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-reveal::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.28);
+    border-radius: 9999px;
+  }
+
+  .scrollbar-reveal::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.42);
+  }
 }

@@ -1,37 +1,122 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
+import type { ResponseStatus } from "@/lib/response-status";
+import {
+  computeScore,
+  type ScoringQuestion,
+  type WeightedOption,
+} from "@/lib/scoring";
+import { getCampaignScoringSettings } from "@/lib/settings";
+import { writeAuditLog } from "@/server/audit-log";
+import { emitNotification } from "@/server/notifications";
 import {
   assertCampaignPermissionForUser,
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
-import type { QuestionType } from "@prisma/client";
+import type { Prisma, QuestionType } from "@prisma/client";
+import type { Session } from "next-auth";
 import { z } from "zod";
 
 const MAX_ANSWERS_PER_SUBMISSION = 500;
 const MAX_ANSWER_LENGTH = 10_000;
 
-const submitResponseSchema = z
+const responseAnswerSchema = z
   .object({
-    formId: z.string().trim().min(1),
-    agentId: z.string().trim().min(1),
-    dispositionId: z.string().trim().min(1),
-    answers: z
-      .array(
-        z
-          .object({
-            questionId: z.string().trim().min(1),
-            value: z.string().max(MAX_ANSWER_LENGTH).transform((value) => value.trim()),
-          })
-          .strict(),
-      )
-      .max(MAX_ANSWERS_PER_SUBMISSION),
+    questionId: z.string().trim().min(1),
+    value: z
+      .string()
+      .max(MAX_ANSWER_LENGTH)
+      .optional()
+      .transform((value) => value?.trim() ?? ""),
+    comment: z
+      .string()
+      .max(MAX_ANSWER_LENGTH)
+      .optional()
+      .transform((value) => value?.trim() ?? ""),
+    notApplicable: z.boolean().optional().default(false),
   })
   .strict();
 
-type SubmitResponseInput = z.infer<typeof submitResponseSchema>;
+const responseMutationSchema = z
+  .object({
+    responseId: z.string().trim().min(1).optional(),
+    formId: z.string().trim().min(1),
+    agentId: z.string().trim().min(1),
+    dispositionId: z.string().trim().min(1),
+    answers: z.array(responseAnswerSchema).max(MAX_ANSWERS_PER_SUBMISSION),
+  })
+  .strict();
+
+const cancelResponseSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    reason: z.string().trim().min(3, "La razon de anulacion es requerida").max(1000),
+  })
+  .strict();
+
+type ResponseMutationInput = z.infer<typeof responseMutationSchema>;
+type ResponseAnswerInput = z.infer<typeof responseAnswerSchema>;
+
+type ResponseQuestion = {
+  id: string;
+  type: QuestionType;
+  label: string;
+  options: unknown;
+  required: boolean;
+  weight: number;
+  fatal: boolean;
+  fatalOptions: unknown;
+  ratingFailThreshold: number | null;
+  requiresCommentOnFail: boolean;
+  order: number;
+  formCategory?: {
+    qaCategoryId: string | null;
+    qaCategory?: {
+      id: string;
+      name: string;
+      systemColor: string | null;
+      systemIcon: string | null;
+    } | null;
+  } | null;
+};
+
+type SanitizedAnswer = {
+  questionId: string;
+  value: string;
+  comment?: string;
+  categoryId?: string;
+  score?: number;
+  isFatalFail: boolean;
+  notApplicable: boolean;
+};
+
+type ExistingResponseForMutation = {
+  id: string;
+  formId: string;
+  agentId: string;
+  evaluatorId: string;
+  dispositionId: string | null;
+  score: Prisma.Decimal;
+  result: string | null;
+  hasFatalFail: boolean;
+  status: string;
+  createdAt: Date;
+  submittedAt: Date | null;
+  cancellationReason: string | null;
+  form: { campaignId: string };
+  answers: {
+    questionId: string;
+    value: string;
+    score: Prisma.Decimal | null;
+    comment: string | null;
+    isFatalFail: boolean;
+    notApplicable: boolean;
+  }[];
+};
 
 export async function getResponses(formId?: string) {
   const session = await auth();
@@ -41,6 +126,7 @@ export async function getResponses(formId?: string) {
 
   const where = {
     ...(formId ? { formId } : {}),
+    ...submittedResponseWhere(),
     form: campaignFilter,
   };
 
@@ -68,30 +154,52 @@ export async function getResponseById(id: string) {
   const response = await prisma.response.findUnique({
     where: { id },
     include: {
-      form: { select: { title: true, campaignId: true } },
-      agent: { select: { name: true } },
-      evaluator: { select: { name: true } },
+      form: { select: { id: true, title: true, campaignId: true } },
+      agent: { select: { id: true, name: true } },
+      evaluator: { select: { id: true, name: true } },
       disposition: { select: { id: true, name: true, code: true } },
       answers: {
         include: {
-          question: { select: { label: true, type: true, options: true } },
+          question: {
+            select: {
+              id: true,
+              label: true,
+              type: true,
+              options: true,
+              weight: true,
+              fatal: true,
+              fatalOptions: true,
+              requiresCommentOnFail: true,
+              formCategory: {
+                select: {
+                  qaCategory: { select: { id: true, name: true } },
+                },
+              },
+            },
+          },
+          category: { select: { id: true, name: true } },
         },
+        orderBy: { question: { order: "asc" } },
       },
     },
   });
 
-  if (!response) throw new Error("Evaluación no encontrada");
+  if (!response) throw new Error("Evaluacion no encontrada");
 
   await assertCampaignPermissionForUser(session.user, response.form.campaignId, "canViewReports");
 
   return {
     ...response,
     score: Number(response.score),
+    answers: response.answers.map((answer) => ({
+      ...answer,
+      score: answer.score === null ? null : Number(answer.score),
+    })),
   };
 }
 
-function parseSubmitResponseInput(data: unknown): SubmitResponseInput {
-  const result = submitResponseSchema.safeParse(data);
+function parseResponseMutationInput(data: unknown): ResponseMutationInput {
+  const result = responseMutationSchema.safeParse(data);
   if (!result.success) {
     throw new Error("Datos de evaluacion invalidos");
   }
@@ -108,11 +216,54 @@ function getQuestionOptions(options: unknown) {
     : [];
 }
 
+/** Accepts either plain string options or weighted `{value, points}` options. */
+function getOptionValues(options: unknown): string[] {
+  if (!Array.isArray(options)) return [];
+  return options
+    .map((o) => {
+      if (typeof o === "string") return o;
+      if (o && typeof o === "object" && "value" in o) return String((o as { value: unknown }).value);
+      return "";
+    })
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Extracts weighted options `{value, points}` if configured, else null. */
+function getWeightedOptions(options: unknown): WeightedOption[] | null {
+  if (!Array.isArray(options)) return null;
+  const weighted = options.filter(
+    (o): o is { value: unknown; points: unknown } =>
+      Boolean(o) && typeof o === "object" && "value" in o && "points" in o,
+  );
+  if (weighted.length === 0) return null;
+  return weighted.map((o) => ({ value: String(o.value), points: Number(o.points) || 0 }));
+}
+
+function toScoringQuestion(question: ResponseQuestion): ScoringQuestion {
+  return {
+    id: question.id,
+    type: question.type,
+    weight: question.weight,
+    fatal: question.fatal,
+    fatalOptions: getQuestionOptions(question.fatalOptions),
+    requiresCommentOnFail: question.requiresCommentOnFail,
+    categoryId: question.formCategory?.qaCategoryId ?? null,
+    ratingFailThreshold: question.ratingFailThreshold ?? null,
+    ratingMax: null,
+    weightedOptions: getWeightedOptions(question.options),
+  };
+}
+
 function validateAnswerValue(
   question: { type: QuestionType; options: unknown; required: boolean },
-  value: string,
+  answer: Pick<ResponseAnswerInput, "value" | "notApplicable"> | undefined,
+  options: { requireComplete: boolean },
 ) {
-  if (question.required && !value) {
+  if (answer?.notApplicable) return;
+  const value = answer?.value ?? "";
+
+  if (options.requireComplete && question.required && !value) {
     throw new Error("Hay preguntas requeridas sin responder");
   }
 
@@ -129,9 +280,10 @@ function validateAnswerValue(
       return;
     }
     case "SELECT":
-    case "RADIO": {
-      const options = getQuestionOptions(question.options);
-      if (!options.includes(value)) {
+    case "RADIO":
+    case "BOOLEAN": {
+      const questionOptions = getOptionValues(question.options);
+      if (questionOptions.length > 0 && !questionOptions.includes(value)) {
         throw new Error("Respuesta no pertenece a las opciones del formulario");
       }
       return;
@@ -139,32 +291,282 @@ function validateAnswerValue(
   }
 }
 
-export async function submitResponse(data: unknown) {
+function sanitizeAnswers(
+  questions: ResponseQuestion[],
+  inputAnswers: ResponseAnswerInput[],
+  options: { requireComplete: boolean },
+): SanitizedAnswer[] {
+  const questionsById = new Map(questions.map((question) => [question.id, question]));
+  const answersByQuestionId = new Map<string, ResponseAnswerInput>();
+  const sanitizedAnswers: SanitizedAnswer[] = [];
+
+  for (const inputAnswer of inputAnswers) {
+    const question = questionsById.get(inputAnswer.questionId);
+    if (!question) {
+      throw new Error("Respuesta no pertenece al formulario");
+    }
+    if (answersByQuestionId.has(inputAnswer.questionId)) {
+      throw new Error("Respuesta duplicada para una pregunta");
+    }
+
+    const answer = {
+      ...inputAnswer,
+      value: inputAnswer.notApplicable ? "" : inputAnswer.value,
+      comment: inputAnswer.comment,
+    };
+
+    validateAnswerValue(question, answer, options);
+    answersByQuestionId.set(inputAnswer.questionId, answer);
+
+    // Scoring, fatal-fail and comment-required are derived by computeScore()
+    // (shared with the client preview); here we only validate and shape.
+    sanitizedAnswers.push({
+      questionId: answer.questionId,
+      value: answer.value,
+      comment: answer.comment || undefined,
+      categoryId: question.formCategory?.qaCategoryId ?? undefined,
+      score: undefined,
+      isFatalFail: false,
+      notApplicable: answer.notApplicable,
+    });
+  }
+
+  if (options.requireComplete) {
+    for (const question of questions) {
+      validateAnswerValue(question, answersByQuestionId.get(question.id), options);
+    }
+  }
+
+  return sanitizedAnswers;
+}
+
+function buildFormSnapshot(form: {
+  id: string;
+  title: string;
+  description: string | null;
+  version: string;
+  status: string;
+  campaignId: string;
+  campaign?: { name: string } | null;
+  questions: ResponseQuestion[];
+}) {
+  return {
+    id: form.id,
+    title: form.title,
+    description: form.description,
+    version: form.version,
+    status: form.status,
+    campaignId: form.campaignId,
+    campaignName: form.campaign?.name ?? null,
+    questions: form.questions.map((question) => ({
+      id: question.id,
+      order: question.order,
+      label: question.label,
+      type: question.type,
+      options: question.options,
+      required: question.required,
+      weight: question.weight,
+      fatal: question.fatal,
+      fatalOptions: question.fatalOptions,
+      requiresCommentOnFail: question.requiresCommentOnFail,
+      qaCategory: question.formCategory?.qaCategory
+        ? {
+            id: question.formCategory.qaCategory.id,
+            name: question.formCategory.qaCategory.name,
+            color: question.formCategory.qaCategory.systemColor,
+            icon: question.formCategory.qaCategory.systemIcon,
+          }
+        : null,
+    })),
+  };
+}
+
+function buildScoringSnapshot(args: {
+  status: ResponseStatus;
+  score: number;
+  result: string | null;
+  hasFatalFail: boolean;
+  passThreshold: number;
+  sanitizedAnswers: SanitizedAnswer[];
+  ratingQuestions: { id: string; weight: number }[];
+}) {
+  const notApplicableQuestionIds = args.sanitizedAnswers
+    .filter((answer) => answer.notApplicable)
+    .map((answer) => answer.questionId);
+  const applicableRatingQuestionIds = args.ratingQuestions
+    .filter((question) => !notApplicableQuestionIds.includes(question.id))
+    .map((question) => question.id);
+
+  return {
+    status: args.status,
+    score: args.score,
+    result: args.result,
+    hasFatalFail: args.hasFatalFail,
+    passThreshold: args.passThreshold,
+    scoringMethod: "weighted_v2",
+    naHandling: "exclude_from_rating_denominator",
+    applicableRatingQuestionIds,
+    notApplicableQuestionIds,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+function answerAuditValue(answers: SanitizedAnswer[]) {
+  return answers.map((answer) => ({
+    questionId: answer.questionId,
+    value: answer.notApplicable ? "N/A" : answer.value,
+    score: answer.score ?? null,
+    comment: answer.comment ?? null,
+    isFatalFail: answer.isFatalFail,
+    notApplicable: answer.notApplicable,
+  }));
+}
+
+function existingResponseAuditValue(response: ExistingResponseForMutation) {
+  return {
+    id: response.id,
+    formId: response.formId,
+    agentId: response.agentId,
+    dispositionId: response.dispositionId,
+    evaluatorId: response.evaluatorId,
+    score: Number(response.score),
+    result: response.result,
+    hasFatalFail: response.hasFatalFail,
+    status: response.status,
+    submittedAt: response.submittedAt?.toISOString() ?? null,
+    cancellationReason: response.cancellationReason,
+    answers: response.answers.map((answer) => ({
+      questionId: answer.questionId,
+      value: answer.notApplicable ? "N/A" : answer.value,
+      score: answer.score === null ? null : Number(answer.score),
+      comment: answer.comment,
+      isFatalFail: answer.isFatalFail,
+      notApplicable: answer.notApplicable,
+    })),
+  };
+}
+
+async function loadExistingResponse(responseId?: string) {
+  if (!responseId) return null;
+
+  return prisma.response.findUnique({
+    where: { id: responseId },
+    include: {
+      form: { select: { campaignId: true } },
+      answers: {
+        select: {
+          questionId: true,
+          value: true,
+          score: true,
+          comment: true,
+          isFatalFail: true,
+          notApplicable: true,
+        },
+      },
+    },
+  }) as Promise<ExistingResponseForMutation | null>;
+}
+
+async function assertMutationPermission(args: {
+  user: Session["user"];
+  campaignId: string;
+  mode: typeof RESPONSE_STATUS.DRAFT | typeof RESPONSE_STATUS.SUBMITTED;
+  existing: ExistingResponseForMutation | null;
+}) {
+  const { user, campaignId, mode, existing } = args;
+
+  if (!existing) {
+    await assertCampaignPermissionForUser(user, campaignId, "canEvaluate");
+    return;
+  }
+
+  if (existing.status === RESPONSE_STATUS.CANCELLED) {
+    throw new Error("No se puede modificar una evaluacion anulada");
+  }
+
+  if (existing.form.campaignId !== campaignId) {
+    throw new Error("Evaluacion no pertenece al formulario indicado");
+  }
+
+  if (mode === RESPONSE_STATUS.DRAFT && existing.status !== RESPONSE_STATUS.DRAFT) {
+    throw new Error("Solo se pueden guardar borradores sobre evaluaciones en borrador");
+  }
+
+  if (existing.status === RESPONSE_STATUS.SUBMITTED) {
+    await assertCampaignPermissionForUser(user, campaignId, "canEditEvaluations");
+    return;
+  }
+
+  if (existing.evaluatorId === user.id) {
+    await assertCampaignPermissionForUser(user, campaignId, "canEvaluate");
+    return;
+  }
+
+  await assertCampaignPermissionForUser(user, campaignId, "canEditEvaluations");
+}
+
+async function saveEvaluation(
+  data: unknown,
+  status: typeof RESPONSE_STATUS.DRAFT | typeof RESPONSE_STATUS.SUBMITTED,
+) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
-  const input = parseSubmitResponseInput(data);
+  const input = parseResponseMutationInput(data);
 
-  const form = await prisma.form.findUnique({
-    where: { id: input.formId },
-    include: { questions: { orderBy: { order: "asc" } } },
-  });
+  const [form, existing] = await Promise.all([
+    prisma.form.findUnique({
+      where: { id: input.formId },
+      include: {
+        campaign: { select: { name: true } },
+        questions: {
+          orderBy: { order: "asc" },
+          include: {
+            formCategory: {
+              select: {
+                qaCategoryId: true,
+                qaCategory: {
+                  select: {
+                    id: true,
+                    name: true,
+                    systemColor: true,
+                    systemIcon: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+    loadExistingResponse(input.responseId),
+  ]);
 
   if (!form) throw new Error("Formulario no encontrado");
-  await assertCampaignPermissionForUser(session.user, form.campaignId, "canEvaluate");
+  if (existing && existing.formId !== input.formId) {
+    throw new Error("Evaluacion no pertenece al formulario indicado");
+  }
+
+  await assertMutationPermission({
+    user: session.user,
+    campaignId: form.campaignId,
+    mode: status,
+    existing,
+  });
 
   if (input.answers.length > form.questions.length) {
     throw new Error("La evaluacion contiene respuestas no validas");
   }
 
-  const [agent, disposition] = await Promise.all([
+  const [agent, disposition, scoringSettings] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: input.agentId },
-      select: { campaignId: true, active: true },
+      select: { campaignId: true, active: true, name: true, agentCode: true },
     }),
     prisma.disposition.findUnique({
       where: { id: input.dispositionId },
       select: { campaignId: true, active: true },
     }),
+    getCampaignScoringSettings(form.campaignId),
   ]);
 
   if (!agent?.active || agent.campaignId !== form.campaignId) {
@@ -175,65 +577,269 @@ export async function submitResponse(data: unknown) {
     throw new Error("Disposicion invalida para esta campana");
   }
 
-  const questionsById = new Map(form.questions.map((question) => [question.id, question]));
-  const seenQuestionIds = new Set<string>();
-  const sanitizedAnswers = input.answers.map((answer) => {
-    const question = questionsById.get(answer.questionId);
-    if (!question) {
-      throw new Error("Respuesta no pertenece al formulario");
-    }
-    if (seenQuestionIds.has(answer.questionId)) {
-      throw new Error("Respuesta duplicada para una pregunta");
-    }
-
-    validateAnswerValue(question, answer.value);
-    seenQuestionIds.add(answer.questionId);
-
-    return { questionId: answer.questionId, value: answer.value };
+  const requireComplete = status === RESPONSE_STATUS.SUBMITTED;
+  const sanitizedAnswers = sanitizeAnswers(form.questions, input.answers, {
+    requireComplete,
   });
 
-  for (const question of form.questions) {
-    const answer = sanitizedAnswers.find((item) => item.questionId === question.id);
-    validateAnswerValue(question, answer?.value ?? "");
+  const scoreResult = computeScore(
+    form.questions.map(toScoringQuestion),
+    new Map(
+      sanitizedAnswers.map((answer) => [
+        answer.questionId,
+        {
+          value: answer.value,
+          notApplicable: answer.notApplicable,
+          comment: answer.comment,
+        },
+      ]),
+    ),
+    {
+      passThreshold: scoringSettings.passThreshold,
+      fatalZeroesScore: scoringSettings.fatalZeroesScore,
+    },
+  );
+
+  if (requireComplete && scoreResult.blockers > 0) {
+    throw new Error("Hay preguntas que requieren comentario al fallar");
   }
 
-  const ratingQuestions = form.questions.filter((q) => q.type === "RATING");
-  let score = 0;
-
-  if (ratingQuestions.length > 0) {
-    const answersByQuestionId = new Map(sanitizedAnswers.map((answer) => [answer.questionId, answer.value]));
-    const totalValue = ratingQuestions.reduce(
-      (sum, question) => sum + (Number(answersByQuestionId.get(question.id)) || 0),
-      0,
-    );
-    const maxPossible = ratingQuestions.length * 5;
-    score = (totalValue / maxPossible) * 100;
+  // Fold per-question scoring (fatal fail + item score) back into the answers.
+  const scoreByQuestionId = new Map(scoreResult.questions.map((q) => [q.questionId, q]));
+  for (const answer of sanitizedAnswers) {
+    const q = scoreByQuestionId.get(answer.questionId);
+    answer.isFatalFail = q?.isFatalFail ?? false;
+    answer.score = q?.itemScore ?? undefined;
   }
+
+  const ratingQuestions = form.questions.filter((question) => question.type === "RATING");
+  const score = scoreResult.score;
+  const hasFatalFail = scoreResult.hasFatalFail;
+  const result = requireComplete ? scoreResult.result : null;
+
+  const formSnapshot = buildFormSnapshot(form);
+  const scoringSnapshot = buildScoringSnapshot({
+    status,
+    score,
+    result,
+    hasFatalFail,
+    passThreshold: scoringSettings.passThreshold,
+    sanitizedAnswers,
+    ratingQuestions,
+  });
+  const settingsSnapshot = {
+    ...scoringSettings,
+    capturedAt: new Date().toISOString(),
+  };
 
   const response = await prisma.$transaction(async (tx) => {
-    const newResponse = await tx.response.create({
+    const responseData = {
+      formId: input.formId,
+      agentId: input.agentId,
+      evaluatorId: existing?.evaluatorId ?? session.user.id,
+      dispositionId: input.dispositionId,
+      score,
+      formVersion: form.version,
+      result,
+      hasFatalFail,
+      status,
+      submittedAt:
+        status === RESPONSE_STATUS.SUBMITTED
+          ? existing?.status === RESPONSE_STATUS.SUBMITTED
+            ? (existing.submittedAt ?? existing.createdAt)
+            : new Date()
+          : null,
+      scoringSnapshot: scoringSnapshot as Prisma.InputJsonValue,
+      settingsSnapshot: settingsSnapshot as Prisma.InputJsonValue,
+      formSnapshot: formSnapshot as Prisma.InputJsonValue,
+    };
+    const answerCreateData = sanitizedAnswers.map((answer) => ({
+      questionId: answer.questionId,
+      value: answer.value,
+      categoryId: answer.categoryId,
+      score: answer.score,
+      comment: answer.comment,
+      isFatalFail: answer.isFatalFail,
+      notApplicable: answer.notApplicable,
+    }));
+
+    if (existing) {
+      return tx.response.update({
+        where: { id: existing.id },
+        data: {
+          ...responseData,
+          answers: {
+            deleteMany: {},
+            create: answerCreateData,
+          },
+        },
+      });
+    }
+
+    return tx.response.create({
       data: {
-        formId: input.formId,
-        agentId: input.agentId,
-        evaluatorId: session.user.id,
-        dispositionId: input.dispositionId,
-        score,
+        ...responseData,
         answers: {
-          create: sanitizedAnswers.map((a) => ({
-            questionId: a.questionId,
-            value: a.value,
-          })),
+          create: answerCreateData,
         },
       },
     });
-
-    return newResponse;
   });
 
+  const isNew = !existing;
+  const action =
+    status === RESPONSE_STATUS.DRAFT
+      ? isNew
+        ? "draft_created"
+        : null
+      : existing?.status === RESPONSE_STATUS.SUBMITTED
+        ? "updated"
+        : existing?.status === RESPONSE_STATUS.DRAFT
+          ? "submitted"
+          : "created";
+
+  if (action) {
+    await writeAuditLog({
+      userId: session.user.id,
+      campaignId: form.campaignId,
+      module: "evaluations",
+      action,
+      entityType: "response",
+      entityId: response.id,
+      beforeValue: existing ? existingResponseAuditValue(existing) : null,
+      afterValue: {
+        id: response.id,
+        formId: input.formId,
+        agentId: input.agentId,
+        dispositionId: input.dispositionId,
+        score,
+        result,
+        hasFatalFail,
+        status,
+        answerCount: sanitizedAnswers.length,
+        fatalAnswerCount: sanitizedAnswers.filter((answer) => answer.isFatalFail).length,
+        notApplicableCount: sanitizedAnswers.filter((answer) => answer.notApplicable).length,
+        answers: answerAuditValue(sanitizedAnswers),
+      },
+      impact:
+        status === RESPONSE_STATUS.DRAFT
+          ? "Borrador guardado; no impacta Dashboard, KPIs, reportes ni exportaciones."
+          : "Evaluacion incluida o actualizada en Dashboard, KPIs, reportes y exportaciones.",
+    });
+  }
+
+  if (status === RESPONSE_STATUS.SUBMITTED && (hasFatalFail || result === "FAIL")) {
+    const fatalAnswerCount = sanitizedAnswers.filter((answer) => answer.isFatalFail).length;
+    await emitNotification({
+      type: hasFatalFail ? "fatal_evaluation" : "evaluation_failed",
+      severity: hasFatalFail ? "CRITICAL" : "WARNING",
+      campaignId: form.campaignId,
+      permission: "canViewReports",
+      title: hasFatalFail ? "Evaluacion con falla fatal" : "Evaluacion bajo umbral",
+      body: `${agent.name ?? "Agente"}${agent.agentCode ? ` (${agent.agentCode})` : ""} obtuvo ${score.toFixed(
+        1,
+      )}% en ${form.title}.`,
+      href: `/analytics/responses/${response.id}`,
+      entityType: "response",
+      entityId: response.id,
+      metadata: {
+        formId: form.id,
+        formTitle: form.title,
+        campaignName: form.campaign?.name ?? null,
+        score,
+        result,
+        hasFatalFail,
+        fatalAnswerCount,
+        passThreshold: scoringSettings.passThreshold,
+      },
+    });
+  }
+
+  revalidateEvaluationPaths();
+  return { ...response, score: Number(response.score) };
+}
+
+export async function saveResponseDraft(data: unknown) {
+  return saveEvaluation(data, RESPONSE_STATUS.DRAFT);
+}
+
+export async function submitResponse(data: unknown) {
+  return saveEvaluation(data, RESPONSE_STATUS.SUBMITTED);
+}
+
+export async function cancelResponse(data: unknown) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const input = cancelResponseSchema.parse(data);
+  const existing = await loadExistingResponse(input.id);
+  if (!existing) throw new Error("Evaluacion no encontrada");
+  if (existing.status === RESPONSE_STATUS.CANCELLED) {
+    throw new Error("La evaluacion ya esta anulada");
+  }
+
+  await assertCampaignPermissionForUser(
+    session.user,
+    existing.form.campaignId,
+    "canEditEvaluations",
+  );
+
+  const cancelledAt = new Date();
+  const response = await prisma.response.update({
+    where: { id: existing.id },
+    data: {
+      status: RESPONSE_STATUS.CANCELLED,
+      cancelledAt,
+      cancelledById: session.user.id,
+      cancellationReason: input.reason,
+    },
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: existing.form.campaignId,
+    module: "evaluations",
+    action: "cancelled",
+    entityType: "response",
+    entityId: existing.id,
+    beforeValue: existingResponseAuditValue(existing),
+    afterValue: {
+      id: existing.id,
+      status: RESPONSE_STATUS.CANCELLED,
+      cancelledAt: cancelledAt.toISOString(),
+      cancelledById: session.user.id,
+      cancellationReason: input.reason,
+    },
+    impact: "Evaluacion anulada y excluida de Dashboard, KPIs, reportes y exportaciones.",
+  });
+
+  await emitNotification({
+    type: "evaluation_cancelled",
+    severity: "WARNING",
+    campaignId: existing.form.campaignId,
+    permission: "canViewReports",
+    title: "Evaluacion anulada",
+    body: `Una evaluacion fue anulada: ${input.reason}`,
+    href: `/analytics/responses/${existing.id}`,
+    entityType: "response",
+    entityId: existing.id,
+    metadata: {
+      reason: input.reason,
+      cancelledById: session.user.id,
+      cancelledAt: cancelledAt.toISOString(),
+    },
+  });
+
+  revalidateEvaluationPaths();
+  return { ...response, score: Number(response.score) };
+}
+
+function revalidateEvaluationPaths() {
   revalidatePath("/forms");
   revalidatePath("/reports");
   revalidatePath("/kpis");
   revalidatePath("/analytics/responses");
+  revalidatePath("/analytics/agents");
+  revalidatePath("/analytics/dispositions");
   revalidatePath("/");
-  return { ...response, score: Number(response.score) };
 }

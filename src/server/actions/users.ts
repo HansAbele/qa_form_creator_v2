@@ -4,9 +4,13 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { hash } from "bcryptjs";
+import { writeAuditLog } from "@/server/audit-log";
 import type { Role } from "@prisma/client";
 import {
   CAMPAIGN_PERMISSION_KEYS,
+  getCampaignAccessPreset,
+  getDefaultCampaignAccessForUserRole,
+  normalizeCampaignPermissionsForRole,
   type CampaignAccessLevel,
   type CampaignPermissionKey,
 } from "@/lib/campaign-permissions";
@@ -79,15 +83,33 @@ export async function createUser(data: {
     });
 
     if (data.campaignIds.length > 0) {
+      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(data.role);
       await tx.userCampaign.createMany({
         data: data.campaignIds.map((campaignId) => ({
           userId: newUser.id,
           campaignId,
+          ...defaultCampaignAccess,
         })),
       });
     }
 
     return newUser;
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    module: "users",
+    action: "created",
+    entityType: "user",
+    entityId: user.id,
+    afterValue: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      campaignIds: data.campaignIds,
+    },
+    impact: "Usuario creado y asignado a campanas iniciales.",
   });
 
   revalidatePath("/admin/users");
@@ -120,6 +142,18 @@ export async function updateUser(
     updateData.password = await hash(data.password, 10);
   }
 
+  const beforeUser = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      active: true,
+      campaigns: { select: { campaignId: true } },
+    },
+  });
+
   const user = await prisma.$transaction(async (tx) => {
     const updated = await tx.user.update({
       where: { id },
@@ -140,23 +174,49 @@ export async function updateUser(
       where: { userId: id },
       select: { campaignId: true },
     });
-    const existingCampaignIds = new Set(
-      existingAccess.map((access) => access.campaignId),
-    );
+    const existingCampaignIds = new Set(existingAccess.map((access) => access.campaignId));
     const campaignIdsToCreate = nextCampaignIds.filter(
       (campaignId) => !existingCampaignIds.has(campaignId),
     );
 
     if (campaignIdsToCreate.length > 0) {
+      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(data.role);
       await tx.userCampaign.createMany({
         data: campaignIdsToCreate.map((campaignId) => ({
           userId: id,
           campaignId,
+          ...defaultCampaignAccess,
         })),
       });
     }
 
+    if (data.role === "SUPERVISOR" && nextCampaignIds.length > 0) {
+      await tx.userCampaign.updateMany({
+        where: { userId: id, campaignId: { in: nextCampaignIds } },
+        data: getDefaultCampaignAccessForUserRole(data.role),
+      });
+    }
+
     return updated;
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    module: "users",
+    action: "updated",
+    entityType: "user",
+    entityId: id,
+    beforeValue: beforeUser,
+    afterValue: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      active: user.active,
+      campaignIds: data.campaignIds,
+      passwordChanged: Boolean(data.password),
+    },
+    impact: "Usuario y asignaciones de campana actualizados.",
   });
 
   revalidatePath("/admin/users");
@@ -203,9 +263,14 @@ export async function updateCampaignAccess(data: {
     throw new Error("El usuario no está asignado a esta campaña");
   }
 
-  const permissionPatch = Object.fromEntries(
+  const rawPermissionPatch = Object.fromEntries(
     CAMPAIGN_PERMISSION_KEYS.map((key) => [key, Boolean(data.permissions[key])]),
   ) as Record<CampaignPermissionKey, boolean>;
+  const permissionPatch =
+    user.role === "SUPERVISOR"
+      ? getCampaignAccessPreset("SUPERVISOR")
+      : normalizeCampaignPermissionsForRole(user.role, rawPermissionPatch);
+  const roleInCampaign = user.role === "SUPERVISOR" ? "SUPERVISOR" : data.roleInCampaign;
 
   const access = await prisma.userCampaign.update({
     where: {
@@ -215,10 +280,22 @@ export async function updateCampaignAccess(data: {
       },
     },
     data: {
-      roleInCampaign: data.roleInCampaign,
+      roleInCampaign,
       ...permissionPatch,
     },
     include: { campaign: { select: { id: true, name: true } } },
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: data.campaignId,
+    module: "permissions",
+    action: "campaign_access_updated",
+    entityType: "user_campaign",
+    entityId: `${data.userId}:${data.campaignId}`,
+    beforeValue: existingAccess,
+    afterValue: access,
+    impact: "Permisos efectivos de usuario modificados para la campana.",
   });
 
   revalidatePath("/settings");
@@ -234,9 +311,19 @@ export async function deleteUser(id: string) {
     throw new Error("No puedes desactivar tu propia cuenta");
   }
 
-  await prisma.user.update({
+  const user = await prisma.user.update({
     where: { id },
     data: { active: false },
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    module: "users",
+    action: "deactivated",
+    entityType: "user",
+    entityId: id,
+    afterValue: { id: user.id, email: user.email, active: user.active },
+    impact: "Usuario desactivado; se bloquea su acceso futuro.",
   });
 
   revalidatePath("/admin/users");

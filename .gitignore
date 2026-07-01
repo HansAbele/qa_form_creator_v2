@@ -29,21 +29,33 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.next-dev.*.log
+.logs/
+.pnpm-store/
 
-# env files — committed intentionally for machine transfer
-# .env
-# .env.local
-# .env.production
-# odoo.local.env
-# *.local.env
+# local Codex/Claude worktrees and generated workspace state
+.claude/worktrees/
+
+# env files - never commit secrets or machine-local credentials
+.env
+.env.local
+.env.production
+odoo.local.env
+*.local.env
+!.env.example
+!.env.production.example
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-# next-env.d.ts  ← committed intentionally (needed for TS in new machine)
+# next-env.d.ts committed intentionally (needed for TS in new machine)
 
 # deploy temp dirs
 /_local_save/
 /_server_backup/
+
+# generated one-off migration/reset artifacts
+/scripts/migration.sql
+/scripts/pw.sql

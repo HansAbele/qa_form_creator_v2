@@ -25,6 +25,106 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export type SettingKey = keyof AppSettings;
 
+export interface CampaignScoringSettings extends AppSettings {
+  campaignId: string;
+  usesGlobalDefaults: boolean;
+  fatalFailuresAllowed: number;
+  /** When a critical/fatal question fails: true → force score to 0; false → keep score, mark FAIL. */
+  fatalZeroesScore: boolean;
+}
+
+export type CampaignScoringPatch = Partial<
+  AppSettings & {
+    usesGlobalDefaults: boolean;
+    fatalFailuresAllowed: number;
+    fatalZeroesScore: boolean;
+  }
+>;
+
+export interface EvaluationOperationalSettings {
+  campaignConsistency: boolean;
+  answerValidation: boolean;
+  answerScoring: boolean;
+  advancedEvaluationFlow: boolean;
+}
+
+export interface FormsOperationalSettings {
+  formStates: boolean;
+  qaStructure: boolean;
+  publishedRevision: boolean;
+  weightValidation: boolean;
+}
+
+export interface DashboardKpisOperationalSettings {
+  managerGlobalView: boolean;
+  campaignQaView: boolean;
+  supervisorView: boolean;
+  widgetPreferences: boolean;
+}
+
+export interface ReportsExportOperationalSettings {
+  scopedExports: boolean;
+  exportAudit: boolean;
+  supervisorExports: boolean;
+  fieldSelection: boolean;
+}
+
+export interface NotificationsOperationalSettings {
+  criticalEvaluation: boolean;
+  agentRisk: boolean;
+  campaignRisk: boolean;
+  recipientMatrix: boolean;
+}
+
+export interface OperationalSettings {
+  evaluations: EvaluationOperationalSettings;
+  forms: FormsOperationalSettings;
+  dashboardKpis: DashboardKpisOperationalSettings;
+  reportsExport: ReportsExportOperationalSettings;
+  notifications: NotificationsOperationalSettings;
+}
+
+export type OperationalSettingsPatch = {
+  [K in keyof OperationalSettings]?: Partial<OperationalSettings[K]>;
+};
+
+export const DEFAULT_OPERATIONAL_SETTINGS: OperationalSettings = {
+  evaluations: {
+    campaignConsistency: true,
+    answerValidation: true,
+    answerScoring: true,
+    advancedEvaluationFlow: false,
+  },
+  forms: {
+    formStates: true,
+    qaStructure: true,
+    publishedRevision: true,
+    weightValidation: true,
+  },
+  dashboardKpis: {
+    managerGlobalView: true,
+    campaignQaView: true,
+    supervisorView: false,
+    widgetPreferences: false,
+  },
+  reportsExport: {
+    scopedExports: true,
+    exportAudit: true,
+    supervisorExports: false,
+    fieldSelection: false,
+  },
+  notifications: {
+    criticalEvaluation: false,
+    agentRisk: false,
+    campaignRisk: false,
+    recipientMatrix: false,
+  },
+};
+
+const OPERATIONAL_SECTION_KEYS = Object.keys(
+  DEFAULT_OPERATIONAL_SETTINGS,
+) as (keyof OperationalSettings)[];
+
 // ─── Zod-like runtime validation ──────────────────────
 // Keeping it lightweight (no zod dep here) — enforce type + range.
 
@@ -52,6 +152,79 @@ export function validateSetting(key: SettingKey, value: unknown): number {
   const validator = VALIDATORS[key];
   if (!validator) throw new Error(`Setting key desconocido: ${key}`);
   return validator(value);
+}
+
+export function validateCampaignScoringPatch(patch: CampaignScoringPatch): CampaignScoringPatch {
+  const validated: CampaignScoringPatch = {};
+
+  if (patch.usesGlobalDefaults !== undefined) {
+    validated.usesGlobalDefaults = Boolean(patch.usesGlobalDefaults);
+  }
+
+  for (const key of Object.keys(DEFAULT_SETTINGS) as SettingKey[]) {
+    if (patch[key] !== undefined) {
+      validated[key] = validateSetting(key, patch[key]);
+    }
+  }
+
+  if (patch.fatalFailuresAllowed !== undefined) {
+    validated.fatalFailuresAllowed = clamp(
+      num(patch.fatalFailuresAllowed, "fatalFailuresAllowed"),
+      0,
+      100,
+    );
+  }
+
+  if (patch.fatalZeroesScore !== undefined) {
+    validated.fatalZeroesScore = Boolean(patch.fatalZeroesScore);
+  }
+
+  return validated;
+}
+
+export function sanitizeOperationalSettings(value: unknown): OperationalSettings {
+  if (!isRecord(value)) return structuredClone(DEFAULT_OPERATIONAL_SETTINGS);
+
+  const sanitized = structuredClone(DEFAULT_OPERATIONAL_SETTINGS);
+  for (const sectionKey of OPERATIONAL_SECTION_KEYS) {
+    const section = value[sectionKey];
+    if (!isRecord(section)) continue;
+
+    for (const itemKey of Object.keys(sanitized[sectionKey])) {
+      const rawValue = section[itemKey];
+      if (typeof rawValue === "boolean") {
+        (sanitized[sectionKey] as unknown as Record<string, boolean>)[itemKey] = rawValue;
+      }
+    }
+  }
+
+  return sanitized;
+}
+
+export function mergeOperationalSettingsPatch(
+  current: OperationalSettings,
+  patch: OperationalSettingsPatch,
+): OperationalSettings {
+  const merged = sanitizeOperationalSettings(current);
+
+  for (const sectionKey of OPERATIONAL_SECTION_KEYS) {
+    const sectionPatch = patch[sectionKey];
+    if (!isRecord(sectionPatch)) continue;
+    const sectionPatchRecord = sectionPatch as Record<string, unknown>;
+
+    for (const itemKey of Object.keys(merged[sectionKey])) {
+      const value = sectionPatchRecord[itemKey];
+      if (typeof value === "boolean") {
+        (merged[sectionKey] as unknown as Record<string, boolean>)[itemKey] = value;
+      }
+    }
+  }
+
+  return merged;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // ─── Cached reader ─────────────────────────────────────
@@ -91,4 +264,81 @@ export const getSettings = unstable_cache(loadSettingsFromDb, ["app-settings"], 
 export async function getPassThreshold(): Promise<number> {
   const s = await getSettings();
   return s.passThreshold;
+}
+
+type CampaignScoringRow = {
+  campaignId: string;
+  usesGlobalDefaults: boolean;
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
+  fatalZeroesScore: boolean;
+};
+
+function getCampaignScoringDelegate() {
+  return (
+    prisma as unknown as {
+      campaignScoringSettings?: {
+        findUnique: (args: { where: { campaignId: string } }) => Promise<CampaignScoringRow | null>;
+      };
+    }
+  ).campaignScoringSettings;
+}
+
+function mergeCampaignScoring(
+  campaignId: string,
+  globalSettings: AppSettings,
+  row?: CampaignScoringRow | null,
+): CampaignScoringSettings {
+  if (!row || row.usesGlobalDefaults) {
+    return {
+      campaignId,
+      ...globalSettings,
+      usesGlobalDefaults: true,
+      fatalFailuresAllowed: row?.fatalFailuresAllowed ?? 0,
+      fatalZeroesScore: row?.fatalZeroesScore ?? false,
+    };
+  }
+
+  return {
+    campaignId,
+    usesGlobalDefaults: false,
+    passThreshold: row.passThreshold,
+    targetPassRate: row.targetPassRate,
+    targetAvgScore: row.targetAvgScore,
+    targetDailyRate: row.targetDailyRate,
+    fatalFailuresAllowed: row.fatalFailuresAllowed,
+    fatalZeroesScore: row.fatalZeroesScore ?? false,
+  };
+}
+
+export async function getCampaignScoringSettings(
+  campaignId: string,
+): Promise<CampaignScoringSettings> {
+  const globalSettings = await getSettings();
+  try {
+    const delegate = getCampaignScoringDelegate();
+    const row = delegate ? await delegate.findUnique({ where: { campaignId } }) : null;
+    return mergeCampaignScoring(campaignId, globalSettings, row);
+  } catch {
+    return mergeCampaignScoring(campaignId, globalSettings);
+  }
+}
+
+export async function getEffectiveSettingsForCampaign(campaignId?: string): Promise<AppSettings> {
+  if (!campaignId) return getSettings();
+  const settings = await getCampaignScoringSettings(campaignId);
+  return {
+    passThreshold: settings.passThreshold,
+    targetPassRate: settings.targetPassRate,
+    targetAvgScore: settings.targetAvgScore,
+    targetDailyRate: settings.targetDailyRate,
+  };
+}
+
+export async function getPassThresholdForCampaign(campaignId?: string): Promise<number> {
+  const settings = await getEffectiveSettingsForCampaign(campaignId);
+  return settings.passThreshold;
 }

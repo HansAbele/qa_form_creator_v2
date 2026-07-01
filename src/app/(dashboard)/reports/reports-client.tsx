@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -26,18 +27,104 @@ import { Search, Eye } from "lucide-react";
 
 interface ReportResponse {
   id: string;
+  campaignId: string;
+  campaignName: string;
   formTitle: string;
   agentName: string;
   agentCode: string | null;
   evaluatorName: string;
   score: number;
+  result: string | null;
+  hasFatalFail: boolean;
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
+  passesThreshold: boolean;
+  scoreTargetDelta: number;
   createdAt: string;
-  answers: { question: string; questionType: string; value: string }[];
+  answers: {
+    question: string;
+    questionType: string;
+    value: string;
+    category: { id: string; name: string; color: string | null; icon: string | null } | null;
+    score: number | null;
+    comment: string | null;
+    isFatalFail: boolean;
+    questionWeight: number;
+    fatal: boolean;
+    requiresCommentOnFail: boolean;
+  }[];
 }
 
 interface ReportsClientProps {
   campaigns: { id: string; name: string }[];
   forms: { id: string; title: string; campaignId: string }[];
+}
+
+function getRangeDays(dateFrom?: string, dateTo?: string) {
+  if (dateFrom && dateTo) {
+    return Math.max(
+      1,
+      Math.ceil(
+        (new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24),
+      ) + 1,
+    );
+  }
+
+  if (dateFrom) {
+    return Math.max(
+      1,
+      Math.ceil((Date.now() - new Date(dateFrom).getTime()) / (1000 * 60 * 60 * 24)),
+    );
+  }
+
+  return 30;
+}
+
+function aggregateTargets(responses: ReportResponse[]) {
+  const totalResponses = responses.length;
+  const campaignTargets = new Map<
+    string,
+    {
+      targetPassRate: number;
+      targetAvgScore: number;
+      targetDailyRate: number;
+      fatalFailuresAllowed: number;
+    }
+  >();
+
+  for (const response of responses) {
+    campaignTargets.set(response.campaignId, {
+      targetPassRate: response.targetPassRate,
+      targetAvgScore: response.targetAvgScore,
+      targetDailyRate: response.targetDailyRate,
+      fatalFailuresAllowed: response.fatalFailuresAllowed,
+    });
+  }
+
+  const weightedAvg = (key: "targetPassRate" | "targetAvgScore") => {
+    if (totalResponses === 0) return 0;
+    return (
+      Math.round(
+        (responses.reduce((sum, response) => sum + response[key], 0) / totalResponses) * 100,
+      ) / 100
+    );
+  };
+
+  return {
+    targetPassRate: weightedAvg("targetPassRate"),
+    targetAvgScore: weightedAvg("targetAvgScore"),
+    targetDailyRate: Array.from(campaignTargets.values()).reduce(
+      (sum, target) => sum + target.targetDailyRate,
+      0,
+    ),
+    fatalFailuresAllowed: Array.from(campaignTargets.values()).reduce(
+      (sum, target) => sum + target.fatalFailuresAllowed,
+      0,
+    ),
+  };
 }
 
 export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
@@ -49,9 +136,7 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
   const [loading, setLoading] = useState(false);
   const [selectedResponse, setSelectedResponse] = useState<ReportResponse | null>(null);
 
-  const filteredForms = campaignId
-    ? forms.filter((f) => f.campaignId === campaignId)
-    : forms;
+  const filteredForms = campaignId ? forms.filter((f) => f.campaignId === campaignId) : forms;
 
   const handleSearch = async () => {
     setLoading(true);
@@ -88,10 +173,12 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
 
   const totalResponses = responses.length;
   const avgScore =
-    totalResponses > 0
-      ? responses.reduce((sum, r) => sum + r.score, 0) / totalResponses
-      : 0;
-  const passCount = responses.filter((r) => r.score >= 80).length;
+    totalResponses > 0 ? responses.reduce((sum, r) => sum + r.score, 0) / totalResponses : 0;
+  const passCount = responses.filter((r) => r.passesThreshold).length;
+  const passRate = totalResponses > 0 ? Math.round((passCount / totalResponses) * 100) : 0;
+  const fatalFailCount = responses.filter((r) => r.hasFatalFail).length;
+  const dailyRate = Math.round((totalResponses / getRangeDays(dateFrom, dateTo)) * 100) / 100;
+  const targets = aggregateTargets(responses);
 
   return (
     <div className="space-y-6">
@@ -131,7 +218,10 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Formulario</Label>
-              <Select value={formId || "all"} onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}>
+              <Select
+                value={formId || "all"}
+                onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}
+              >
                 <SelectTrigger className="w-52">
                   <SelectValue placeholder="Todos">
                     {(value: string | null) => {
@@ -177,25 +267,39 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
       </Card>
 
       {/* Summary */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-sm text-muted-foreground">Evaluaciones</p>
             <p className="text-2xl font-bold">{totalResponses}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={avgScore >= targets.targetAvgScore ? "border-green-200" : "border-red-200"}>
           <CardContent className="p-4 text-center">
             <p className="text-sm text-muted-foreground">Score Promedio</p>
             <p className="text-2xl font-bold">{avgScore.toFixed(1)}%</p>
+            <p className="text-xs text-muted-foreground">Target: {targets.targetAvgScore}%</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={passRate >= targets.targetPassRate ? "border-green-200" : "border-red-200"}>
           <CardContent className="p-4 text-center">
             <p className="text-sm text-muted-foreground">Pass Rate</p>
-            <p className="text-2xl font-bold">
-              {totalResponses > 0 ? Math.round((passCount / totalResponses) * 100) : 0}%
-            </p>
+            <p className="text-2xl font-bold">{passRate}%</p>
+            <p className="text-xs text-muted-foreground">Target: {targets.targetPassRate}%</p>
+          </CardContent>
+        </Card>
+        <Card className={dailyRate >= targets.targetDailyRate ? "border-green-200" : "border-amber-200"}>
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">Tasa Diaria</p>
+            <p className="text-2xl font-bold">{dailyRate.toFixed(1)}</p>
+            <p className="text-xs text-muted-foreground">Target: {targets.targetDailyRate}/día</p>
+          </CardContent>
+        </Card>
+        <Card className={fatalFailCount <= targets.fatalFailuresAllowed ? "border-green-200" : "border-red-200"}>
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">Fatales</p>
+            <p className="text-2xl font-bold">{fatalFailCount}</p>
+            <p className="text-xs text-muted-foreground">Permitidas: {targets.fatalFailuresAllowed}</p>
           </CardContent>
         </Card>
       </div>
@@ -227,9 +331,21 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
               </TableCell>
               <TableCell>{r.evaluatorName}</TableCell>
               <TableCell>
-                <Badge variant={r.score >= 80 ? "default" : "destructive"}>
-                  {r.score.toFixed(1)}%
-                </Badge>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge variant={r.passesThreshold ? "default" : "destructive"}>
+                    {r.score.toFixed(1)}%
+                  </Badge>
+                  <Badge
+                    variant={r.score >= r.targetAvgScore ? "outline" : "secondary"}
+                    className="tabular-nums"
+                  >
+                    Target {r.scoreTargetDelta >= 0 ? "+" : ""}
+                    {r.scoreTargetDelta.toFixed(1)}
+                  </Badge>
+                  {!r.passesThreshold && (
+                    <Badge variant="destructive">{r.hasFatalFail ? "Fatal" : "Fail"}</Badge>
+                  )}
+                </div>
               </TableCell>
               <TableCell>
                 <Button variant="ghost" size="icon-xs" onClick={() => setSelectedResponse(r)}>
@@ -263,9 +379,27 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Score: </span>
-                  <Badge variant={selectedResponse.score >= 80 ? "default" : "destructive"}>
+                  <Badge variant={selectedResponse.passesThreshold ? "default" : "destructive"}>
                     {selectedResponse.score.toFixed(1)}%
                   </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Resultado: </span>
+                  <Badge variant={selectedResponse.passesThreshold ? "default" : "destructive"}>
+                    {selectedResponse.passesThreshold ? "PASS" : "FAIL"}
+                  </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Target score: </span>
+                  {selectedResponse.targetAvgScore}%
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Umbral pass: </span>
+                  {selectedResponse.passThreshold}%
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Falla fatal: </span>
+                  {selectedResponse.hasFatalFail ? "Si" : "No"}
                 </div>
                 <div>
                   <span className="text-muted-foreground">Agente: </span>
@@ -282,12 +416,50 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-medium">Respuestas</p>
-                {selectedResponse.answers.map((a, i) => (
-                  <div key={i} className="rounded-lg border p-3 text-sm">
+                {selectedResponse.answers.map((a) => (
+                  <div key={`${a.question}-${a.value}`} className="rounded-lg border p-3 text-sm">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap gap-1">
+                        {a.category && (
+                          <Badge variant="outline" className="gap-1.5 text-xs">
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ backgroundColor: a.category.color ?? "#ff6600" }}
+                            />
+                            {a.category.name}
+                          </Badge>
+                        )}
+                        {a.questionWeight > 0 && (
+                          <Badge variant="outline" className="text-xs">
+                            Peso {a.questionWeight}%
+                          </Badge>
+                        )}
+                        {a.fatal && (
+                          <Badge variant="destructive" className="text-xs">
+                            Fatal
+                          </Badge>
+                        )}
+                      </div>
+                      {a.score !== null && (
+                        <Badge
+                          variant={
+                            a.isFatalFail ? "destructive" : a.score >= 70 ? "default" : "secondary"
+                          }
+                          className="tabular-nums"
+                        >
+                          {a.score.toFixed(1)}%
+                        </Badge>
+                      )}
+                    </div>
                     <p className="font-medium">{a.question}</p>
                     <p className="text-muted-foreground">
                       {a.questionType === "RATING" ? `${a.value}/5 ★` : a.value}
                     </p>
+                    {a.comment && (
+                      <p className="mt-2 whitespace-pre-wrap border-l-2 border-orange-500/50 pl-2 text-xs text-muted-foreground">
+                        {a.comment}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

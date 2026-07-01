@@ -47,6 +47,7 @@ import {
   deleteDispositionCategory,
   deleteDisposition,
   bulkImportDispositions,
+  seedDefaultDispositions,
 } from "@/server/actions/dispositions";
 
 // ─── Types ──────────────────────────────────────────
@@ -58,6 +59,7 @@ interface DispositionItem {
   categoryId: string | null;
   campaignId: string;
   active: boolean;
+  outcomeType: string | null;
   createdAt: Date;
   category: { id: string; name: string } | null;
   createdBy: { name: string } | null;
@@ -112,6 +114,7 @@ export function DispositionsClient({
 
   // Filter
   const [filterCategory, setFilterCategory] = useState("all");
+  const [seeding, setSeeding] = useState(false);
 
   // ─── Data loading on campaign change ──────────────
 
@@ -265,6 +268,24 @@ export function DispositionsClient({
     }
   };
 
+  const handleSeed = async (kind: "inbound" | "outbound") => {
+    if (!selectedCampaign) return;
+    setSeeding(true);
+    try {
+      const result = await seedDefaultDispositions(selectedCampaign, kind);
+      toast.success(
+        result.created > 0
+          ? `${result.created} disposiciones creadas`
+          : "Ya existían todas (nada nuevo)",
+      );
+      loadCampaignData(selectedCampaign);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al sembrar");
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   // ─── Render ───────────────────────────────────────
 
   return (
@@ -338,6 +359,23 @@ export function DispositionsClient({
                   {c.name} ({c._count.dispositions})
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Sembrar:</span>
+          <Select
+            value=""
+            onValueChange={(v) => v && handleSeed(v as "inbound" | "outbound")}
+            disabled={seeding || !selectedCampaign}
+          >
+            <SelectTrigger className="w-52">
+              <SelectValue placeholder={seeding ? "Sembrando..." : "Taxonomía base…"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inbound">Taxonomía inbound</SelectItem>
+              <SelectItem value="outbound">Taxonomía outbound</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -470,6 +508,7 @@ export function DispositionsClient({
                 categoryId: editDisposition.categoryId,
                 campaignId: editDisposition.campaignId,
                 active: editDisposition.active,
+                outcomeType: editDisposition.outcomeType,
               }
             : undefined
         }

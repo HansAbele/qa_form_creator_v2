@@ -24,11 +24,12 @@ if [ ! -f ".env.production" ]; then
   cat > .env.production <<EOF
 DB_PASSWORD=${DB_PASS}
 AUTH_SECRET=${AUTH_SEC}
-AUTH_URL=https://qa.empresa.local
+AUTH_URL=${AUTH_URL:-https://CHANGE_ME.example}
 LOG_LEVEL=info
 EOF
 
   echo ".env.production created with generated secrets."
+  echo "Edit AUTH_URL in .env.production to the real HTTPS hostname, then rerun deploy."
   echo "Store the generated credentials in the team password manager."
 else
   echo ".env.production already exists"
@@ -38,6 +39,34 @@ fi
 set -a
 source .env.production
 set +a
+
+require_env() {
+  local name="$1"
+  local value="${!name:-}"
+  if [ -z "$value" ]; then
+    echo "Missing required environment variable: $name"
+    exit 1
+  fi
+}
+
+require_env DB_PASSWORD
+require_env AUTH_SECRET
+require_env AUTH_URL
+
+if [ "${AUTH_URL#https://}" = "$AUTH_URL" ]; then
+  echo "AUTH_URL must use https:// in production. Current value is not accepted."
+  exit 1
+fi
+
+if [ "$AUTH_URL" = "https://CHANGE_ME.example" ]; then
+  echo "AUTH_URL still uses the template hostname. Set the real production hostname before deploy."
+  exit 1
+fi
+
+if [[ "$DB_PASSWORD" == CHANGE_ME* ]] || [[ "$AUTH_SECRET" == CHANGE_ME* ]]; then
+  echo ".env.production contains placeholder credentials. Rotate/fill real secrets before deploy."
+  exit 1
+fi
 
 echo ""
 echo "Building Docker image..."

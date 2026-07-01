@@ -67,13 +67,72 @@ async function main() {
         campaignId: campaign.id,
       },
     },
-    update: {},
+    update: { canViewAudit: true },
     create: {
       userId: qaUser.id,
       campaignId: campaign.id,
+      canViewAudit: true,
     },
   });
   console.log(`QA user: ${qaUser.email}`);
+
+  const supervisorPassword = await hash("Supervisor.2026", 12);
+  const supervisorUser = await prisma.user.upsert({
+    where: { email: "supervisor@qa.local" },
+    update: { role: Role.SUPERVISOR },
+    create: {
+      email: "supervisor@qa.local",
+      name: "QA Supervisor",
+      password: supervisorPassword,
+      role: Role.SUPERVISOR,
+    },
+  });
+
+  await prisma.userCampaign.upsert({
+    where: {
+      userId_campaignId: {
+        userId: supervisorUser.id,
+        campaignId: campaign.id,
+      },
+    },
+    update: {
+      roleInCampaign: "SUPERVISOR",
+      canViewDashboard: true,
+      canViewKPIs: true,
+      canViewForms: true,
+      canCreateForms: false,
+      canEditForms: false,
+      canPublishForms: false,
+      canEvaluate: false,
+      canEditEvaluations: false,
+      canViewReports: true,
+      canExport: false,
+      canManageAgents: false,
+      canManageDispositions: false,
+      canManageCampaignScoring: false,
+      canViewAudit: true,
+    },
+    create: {
+      userId: supervisorUser.id,
+      campaignId: campaign.id,
+      roleInCampaign: "SUPERVISOR",
+      canViewDashboard: true,
+      canViewKPIs: true,
+      canViewForms: true,
+      canCreateForms: false,
+      canEditForms: false,
+      canPublishForms: false,
+      canEvaluate: false,
+      canEditEvaluations: false,
+      canViewReports: true,
+      canExport: false,
+      canManageAgents: false,
+      canManageDispositions: false,
+      canManageCampaignScoring: false,
+      canViewAudit: true,
+    },
+  });
+  console.log(`Supervisor user: ${supervisorUser.email}`);
 
   // ─── Sample agents ───────────────────────────────────
   const agentNames = [
@@ -117,74 +176,150 @@ async function main() {
         description: "Standard quality assurance evaluation form for customer service calls",
         campaignId: campaign.id,
         createdById: admin.id,
-        questions: {
-          create: [
-            {
-              type: QuestionType.RATING,
-              label: "Greeting and Introduction",
-              required: true,
-              order: 0,
-            },
-            {
-              type: QuestionType.RATING,
-              label: "Active Listening Skills",
-              required: true,
-              order: 1,
-            },
-            {
-              type: QuestionType.RATING,
-              label: "Problem Identification",
-              required: true,
-              order: 2,
-            },
-            {
-              type: QuestionType.RATING,
-              label: "Solution Provided",
-              required: true,
-              order: 3,
-            },
-            {
-              type: QuestionType.RATING,
-              label: "Empathy and Tone",
-              required: true,
-              order: 4,
-            },
-            {
-              type: QuestionType.RATING,
-              label: "Call Control",
-              required: true,
-              order: 5,
-            },
-            {
-              type: QuestionType.RATING,
-              label: "Compliance with Script",
-              required: true,
-              order: 6,
-            },
-            {
-              type: QuestionType.SELECT,
-              label: "First Call Resolution",
-              options: ["Yes", "No", "Escalated"],
-              required: true,
-              order: 7,
-            },
-            {
-              type: QuestionType.RADIO,
-              label: "Would you recommend this agent?",
-              options: ["Yes", "No", "Maybe"],
-              required: true,
-              order: 8,
-            },
-            {
-              type: QuestionType.TEXT,
-              label: "Additional Comments",
-              required: false,
-              order: 9,
-            },
-          ],
-        },
+        status: "PUBLISHED",
+        publishedAt: new Date(),
       },
     });
+
+    const [
+      softSkillsCategory,
+      contactResolutionCategory,
+      processAdherenceCategory,
+      customerCriticalCategory,
+    ] = await Promise.all([
+      prisma.formCategory.create({
+        data: {
+          formId: form.id,
+          qaCategoryId: "qa_soft_skills",
+          weight: 44,
+          sortOrder: 0,
+        },
+      }),
+      prisma.formCategory.create({
+        data: {
+          formId: form.id,
+          qaCategoryId: "qa_contact_resolution",
+          weight: 28,
+          sortOrder: 1,
+        },
+      }),
+      prisma.formCategory.create({
+        data: {
+          formId: form.id,
+          qaCategoryId: "qa_process_adherence",
+          weight: 28,
+          sortOrder: 2,
+        },
+      }),
+      prisma.formCategory.create({
+        data: {
+          formId: form.id,
+          qaCategoryId: "qa_customer_critical",
+          weight: 0,
+          fatalIfFailed: true,
+          requiresComment: true,
+          sortOrder: 3,
+        },
+      }),
+    ]);
+
+    await prisma.question.createMany({
+      data: [
+        {
+          formId: form.id,
+          formCategoryId: softSkillsCategory.id,
+          type: QuestionType.RATING,
+          label: "Greeting and Introduction",
+          required: true,
+          weight: 15,
+          order: 0,
+        },
+        {
+          formId: form.id,
+          formCategoryId: softSkillsCategory.id,
+          type: QuestionType.RATING,
+          label: "Active Listening Skills",
+          required: true,
+          weight: 15,
+          order: 1,
+        },
+        {
+          formId: form.id,
+          formCategoryId: contactResolutionCategory.id,
+          type: QuestionType.RATING,
+          label: "Problem Identification",
+          required: true,
+          weight: 14,
+          order: 2,
+        },
+        {
+          formId: form.id,
+          formCategoryId: contactResolutionCategory.id,
+          type: QuestionType.RATING,
+          label: "Solution Provided",
+          required: true,
+          weight: 14,
+          order: 3,
+        },
+        {
+          formId: form.id,
+          formCategoryId: softSkillsCategory.id,
+          type: QuestionType.RATING,
+          label: "Empathy and Tone",
+          required: true,
+          weight: 14,
+          order: 4,
+        },
+        {
+          formId: form.id,
+          formCategoryId: processAdherenceCategory.id,
+          type: QuestionType.RATING,
+          label: "Call Control",
+          required: true,
+          weight: 14,
+          order: 5,
+        },
+        {
+          formId: form.id,
+          formCategoryId: processAdherenceCategory.id,
+          type: QuestionType.RATING,
+          label: "Compliance with Script",
+          required: true,
+          weight: 14,
+          order: 6,
+        },
+        {
+          formId: form.id,
+          formCategoryId: contactResolutionCategory.id,
+          type: QuestionType.SELECT,
+          label: "First Call Resolution",
+          options: ["Yes", "No", "Escalated"],
+          required: true,
+          order: 7,
+        },
+        {
+          formId: form.id,
+          formCategoryId: customerCriticalCategory.id,
+          type: QuestionType.RADIO,
+          label: "Would you recommend this agent?",
+          options: ["Yes", "No", "Maybe"],
+          fatalOptions: ["No"],
+          required: true,
+          fatal: true,
+          requiresCommentOnFail: true,
+          order: 8,
+        },
+        {
+          formId: form.id,
+          formCategoryId: contactResolutionCategory.id,
+          type: QuestionType.TEXT,
+          label: "Additional Comments",
+          required: false,
+          order: 9,
+        },
+      ],
+    });
+
     console.log(`Form created: ${form.title}`);
   }
 
@@ -192,6 +327,7 @@ async function main() {
   console.log("─────────────────────────────");
   console.log("Admin login:  admin@qa.local / Admin.2026");
   console.log("QA login:     qa@qa.local / Qa.2026");
+  console.log("Supervisor:   supervisor@qa.local / Supervisor.2026");
 }
 
 main()

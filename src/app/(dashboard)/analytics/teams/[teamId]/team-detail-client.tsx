@@ -498,9 +498,9 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
                           router.push(`/analytics/agents/${barData.id}`);
                       }}
                     >
-                      {data.agentRanking.map((_, i) => (
+                      {data.agentRanking.map((agent, i) => (
                         <Cell
-                          key={`bar-${i}`}
+                          key={agent.id}
                           fill={BAR_COLORS[i % BAR_COLORS.length]}
                         />
                       ))}

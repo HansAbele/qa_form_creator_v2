@@ -11,6 +11,7 @@ import {
   FileText,
   LayoutDashboard,
   Settings,
+  Tags,
   Target,
   UserCog,
   Users,
@@ -68,13 +69,36 @@ const navItems = [
 const adminItems = [
   { href: "/admin/users", label: "Usuarios", icon: UserCog },
   { href: "/admin/campaigns", label: "Campanas", icon: Building2 },
-  { href: "/admin/agents", label: "Agentes", icon: Users },
+];
+
+const operationsItems = [
+  {
+    href: "/operations/agents",
+    label: "Agentes",
+    icon: Users,
+    isVisible: (access: UiAccess) => access.canManageAgents,
+  },
+  {
+    href: "/operations/teams",
+    label: "Equipos",
+    icon: Building2,
+    isVisible: (access: UiAccess) => access.canManageAgents,
+  },
+  {
+    href: "/operations/dispositions",
+    label: "Disposiciones",
+    icon: Tags,
+    isVisible: (access: UiAccess) => access.canManageDispositions,
+  },
 ];
 
 export function Sidebar({ access }: { access: UiAccess }) {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar } = useAppStore();
   const visibleNavItems = navItems.filter((item) => item.isVisible(access));
+  const visibleOperationsItems = operationsItems.filter((item) =>
+    item.isVisible(access),
+  );
 
   return (
     <aside
@@ -127,6 +151,39 @@ export function Sidebar({ access }: { access: UiAccess }) {
             </Link>
           );
         })}
+
+        {visibleOperationsItems.length > 0 && (
+          <>
+            <div className="my-3 border-t border-sidebar-border" />
+            {sidebarOpen && (
+              <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50">
+                Operacion
+              </p>
+            )}
+            {visibleOperationsItems.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "group relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                  )}
+                  title={!sidebarOpen ? item.label : undefined}
+                >
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-[hsl(var(--tno-orange))]" />
+                  )}
+                  <item.icon className="h-5 w-5 shrink-0" />
+                  {sidebarOpen && <span>{item.label}</span>}
+                </Link>
+              );
+            })}
+          </>
+        )}
 
         {access.isAdmin && (
           <>

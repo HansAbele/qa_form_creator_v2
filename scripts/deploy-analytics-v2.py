@@ -7,7 +7,7 @@ NO sidebar changes — all analytics accessed via dashboard drill-down.
 
 Steps:
   1. Upload all changed/new files via SFTP
-  2. Run prisma db push via temp container (Prisma 6) on Docker network
+  2. Run prisma migrate deploy inside Docker
   3. Rebuild + restart app container
   4. Cleanup Docker build cache and orphan images (non-fatal)
 """
@@ -19,7 +19,6 @@ HOST        = "192.168.80.243"
 USER        = "root"
 PASS        = os.environ["QORE_SSH_PASSWORD"]
 REMOTE_ROOT = "/opt/qa-form-creator"
-DOCKER_NET  = "qa-form-creator_default"
 
 LOCAL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -158,18 +157,14 @@ def main():
     sftp.close()
     log(f"\n  Uploaded {uploaded}/{len(FILES)} files.")
 
-    # -- 2. Prisma db push (temp container with Prisma 6) ----------------------
-    log("\n[2/3] Running prisma db push (Prisma 6 temp container)...")
-    push_cmd = (
-        f"docker run --rm --network {DOCKER_NET} "
-        f"-v {REMOTE_ROOT}/prisma:/app/prisma "
-        f"-w /app "
-        f"-e DATABASE_URL='postgresql://qa_user:IDhEcK6wozgE2WDrFVzl9hrFmKSh7I2m@db:5432/qa_form_creator' "
-        f"node:20-slim sh -c '"
-        f"npm i -g prisma@6 2>/dev/null && prisma db push --skip-generate 2>&1"
-        f"'"
+    # -- 2. Prisma migrate deploy ---------------------------------------------
+    log("\n[2/3] Running prisma migrate deploy inside Docker container...")
+    migrate_cmd = (
+        f"cd {REMOTE_ROOT} && "
+        "docker compose -f docker-compose.prod.yml --env-file .env.production "
+        "exec -T app npx prisma migrate deploy --schema /app/prisma/schema.prisma 2>&1"
     )
-    _, stdout, stderr = client.exec_command(push_cmd, timeout=120)
+    _, stdout, stderr = client.exec_command(migrate_cmd, timeout=120)
     out_txt = stdout.read().decode().strip()
     err_txt = stderr.read().decode().strip()
     if out_txt:

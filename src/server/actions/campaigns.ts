@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { writeAuditLog } from "@/server/audit-log";
 import { assertCampaignAccessForUser } from "@/server/queries/campaign-filter";
-import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import {
+  isSupervisorBlockedPermission,
+  isSupervisorRole,
+  type CampaignPermissionKey,
+} from "@/lib/campaign-permissions";
 import type { Prisma } from "@prisma/client";
 
 export async function getCampaigns() {
@@ -12,9 +17,7 @@ export async function getCampaigns() {
   if (!session?.user) throw new Error("No autorizado");
 
   const where =
-    session.user.role === "ADMIN"
-      ? {}
-      : { users: { some: { userId: session.user.id } } };
+    session.user.role === "ADMIN" ? {} : { users: { some: { userId: session.user.id } } };
 
   return prisma.campaign.findMany({
     where,
@@ -29,15 +32,17 @@ export async function getCampaignsForPermission(permission: CampaignPermissionKe
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
+  if (isSupervisorRole(session.user.role) && isSupervisorBlockedPermission(permission)) {
+    return [];
+  }
+
   const userCampaignWhere: Prisma.UserCampaignWhereInput = {
     userId: session.user.id,
     [permission]: true,
   };
 
   const where: Prisma.CampaignWhereInput =
-    session.user.role === "ADMIN"
-      ? {}
-      : { users: { some: userCampaignWhere } };
+    session.user.role === "ADMIN" ? {} : { users: { some: userCampaignWhere } };
 
   return prisma.campaign.findMany({
     where,
@@ -71,7 +76,18 @@ export async function createCampaign(data: { name: string; description?: string 
   if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
   const campaign = await prisma.campaign.create({
-    data: { name: data.name, description: data.description },
+    data: { name: data.name.trim(), description: data.description?.trim() },
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: campaign.id,
+    module: "campaigns",
+    action: "created",
+    entityType: "campaign",
+    entityId: campaign.id,
+    afterValue: campaign,
+    impact: "Campana creada para asignaciones, formularios y evaluaciones.",
   });
 
   revalidatePath("/admin/campaigns");
@@ -85,9 +101,24 @@ export async function updateCampaign(
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
+  const existing = await prisma.campaign.findUnique({ where: { id } });
+  if (!existing) throw new Error("Campana no encontrada");
+
   const campaign = await prisma.campaign.update({
     where: { id },
-    data: { name: data.name, description: data.description, active: data.active },
+    data: { name: data.name.trim(), description: data.description?.trim(), active: data.active },
+  });
+
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: id,
+    module: "campaigns",
+    action: "updated",
+    entityType: "campaign",
+    entityId: id,
+    beforeValue: existing,
+    afterValue: campaign,
+    impact: "Campana actualizada; afecta scope operativo y reportes.",
   });
 
   revalidatePath("/admin/campaigns");
@@ -103,6 +134,16 @@ export async function deleteCampaign(id: string) {
     throw new Error("No se puede eliminar una campaña que tiene formularios asociados");
   }
 
-  await prisma.campaign.delete({ where: { id } });
+  const campaign = await prisma.campaign.delete({ where: { id } });
+  await writeAuditLog({
+    userId: session.user.id,
+    campaignId: id,
+    module: "campaigns",
+    action: "deleted",
+    entityType: "campaign",
+    entityId: id,
+    beforeValue: campaign,
+    impact: "Campana eliminada sin formularios asociados.",
+  });
   revalidatePath("/admin/campaigns");
 }

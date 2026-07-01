@@ -12,16 +12,15 @@ export const CAMPAIGN_PERMISSION_KEYS = [
   "canManageAgents",
   "canManageDispositions",
   "canManageCampaignScoring",
+  "canViewAudit",
 ] as const;
 
 export type CampaignPermissionKey = (typeof CAMPAIGN_PERMISSION_KEYS)[number];
 
-export type CampaignAccessLevel =
-  | "CAMPAIGN_ADMIN"
-  | "EVALUATOR"
-  | "SUPERVISOR";
+export type CampaignAccessLevel = "CAMPAIGN_ADMIN" | "EVALUATOR" | "SUPERVISOR";
 
 export type CampaignPermissionState = Record<CampaignPermissionKey, boolean>;
+export type AppRole = "ADMIN" | "QA" | "SUPERVISOR";
 
 export const CAMPAIGN_ACCESS_LABELS: Record<CampaignAccessLevel, string> = {
   CAMPAIGN_ADMIN: "Admin campaña",
@@ -43,12 +42,10 @@ export const CAMPAIGN_PERMISSION_LABELS: Record<CampaignPermissionKey, string> =
   canManageAgents: "Administrar agentes/equipos",
   canManageDispositions: "Administrar disposiciones",
   canManageCampaignScoring: "Administrar scoring campaña",
+  canViewAudit: "Ver auditoria operativa",
 };
 
-export const CAMPAIGN_ACCESS_PRESETS: Record<
-  CampaignAccessLevel,
-  CampaignPermissionState
-> = {
+export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermissionState> = {
   CAMPAIGN_ADMIN: {
     canViewDashboard: true,
     canViewKPIs: true,
@@ -63,6 +60,7 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<
     canManageAgents: true,
     canManageDispositions: true,
     canManageCampaignScoring: false,
+    canViewAudit: true,
   },
   EVALUATOR: {
     canViewDashboard: true,
@@ -78,6 +76,7 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<
     canManageAgents: false,
     canManageDispositions: false,
     canManageCampaignScoring: false,
+    canViewAudit: false,
   },
   SUPERVISOR: {
     canViewDashboard: true,
@@ -93,11 +92,57 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<
     canManageAgents: false,
     canManageDispositions: false,
     canManageCampaignScoring: false,
+    canViewAudit: true,
   },
 };
+
+export const SUPERVISOR_READ_ONLY_PERMISSION_KEYS = [
+  "canViewDashboard",
+  "canViewKPIs",
+  "canViewForms",
+  "canViewReports",
+  "canViewAudit",
+] as const satisfies readonly CampaignPermissionKey[];
+
+const SUPERVISOR_READ_ONLY_PERMISSION_SET = new Set<CampaignPermissionKey>(
+  SUPERVISOR_READ_ONLY_PERMISSION_KEYS,
+);
 
 export function getCampaignAccessPreset(
   roleInCampaign: CampaignAccessLevel,
 ): CampaignPermissionState {
   return { ...CAMPAIGN_ACCESS_PRESETS[roleInCampaign] };
+}
+
+export function isSupervisorRole(role: string | null | undefined): role is "SUPERVISOR" {
+  return role === "SUPERVISOR";
+}
+
+export function isSupervisorBlockedPermission(permission: CampaignPermissionKey) {
+  return !SUPERVISOR_READ_ONLY_PERMISSION_SET.has(permission);
+}
+
+export function normalizeCampaignPermissionsForRole(
+  role: string | null | undefined,
+  permissions: Partial<Record<CampaignPermissionKey, boolean>>,
+): CampaignPermissionState {
+  return Object.fromEntries(
+    CAMPAIGN_PERMISSION_KEYS.map((key) => [
+      key,
+      isSupervisorRole(role)
+        ? !isSupervisorBlockedPermission(key) && Boolean(permissions[key])
+        : Boolean(permissions[key]),
+    ]),
+  ) as CampaignPermissionState;
+}
+
+export function getDefaultCampaignAccessForUserRole(role: string | null | undefined) {
+  const roleInCampaign: CampaignAccessLevel = isSupervisorRole(role)
+    ? "SUPERVISOR"
+    : "CAMPAIGN_ADMIN";
+
+  return {
+    roleInCampaign,
+    ...getCampaignAccessPreset(roleInCampaign),
+  };
 }

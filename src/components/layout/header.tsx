@@ -2,8 +2,9 @@
 
 import { signOut, useSession } from "next-auth/react";
 import { LogOut, Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import { useTheme } from "@/components/theme-provider";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 import { cn } from "@/lib/utils";
 
 export function Header() {
@@ -18,6 +19,12 @@ export function Header() {
 
   const current = mounted ? (theme === "system" ? resolvedTheme : theme) : undefined;
   const isDark = current === "dark";
+  const roleLabel =
+    session?.user.role === "ADMIN"
+      ? "QA Manager"
+      : session?.user.role === "SUPERVISOR"
+        ? "Supervisor"
+        : "QA";
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-card px-6">
@@ -25,15 +32,10 @@ export function Header() {
 
       <div className="flex items-center gap-4">
         {/* Horizontal segmented theme switcher */}
-        <div
-          role="radiogroup"
-          aria-label="Cambiar tema"
-          className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5"
-        >
+        <div className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5">
           <button
             type="button"
-            role="radio"
-            aria-checked={mounted ? !isDark : undefined}
+            aria-pressed={mounted ? !isDark : undefined}
             onClick={() => setTheme("light")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-semibold transition-colors",
@@ -47,8 +49,7 @@ export function Header() {
           </button>
           <button
             type="button"
-            role="radio"
-            aria-checked={mounted ? isDark : undefined}
+            aria-pressed={mounted ? isDark : undefined}
             onClick={() => setTheme("dark")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-semibold transition-colors",
@@ -64,11 +65,10 @@ export function Header() {
 
         {session?.user && (
           <div className="flex items-center gap-3">
+            <NotificationCenter />
             <div className="text-right">
               <p className="text-sm font-medium text-foreground">{session.user.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {session.user.role === "ADMIN" ? "QA Manager" : "QA"}
-              </p>
+              <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
             <button
               type="button"

@@ -205,8 +205,8 @@ export function AgentPerformanceClient({
     getFilteredRowModel: getFilteredRowModel(),
   });
 
-  const comparisonScoreData = selectedAgents.map((a) => ({ name: a.name, avgScore: a.avgScore }));
-  const comparisonVolumeData = selectedAgents.map((a) => ({ name: a.name, value: a.totalEvaluations }));
+  const comparisonScoreData = selectedAgents.map((a) => ({ id: a.id, name: a.name, avgScore: a.avgScore }));
+  const comparisonVolumeData = selectedAgents.map((a) => ({ id: a.id, name: a.name, value: a.totalEvaluations }));
 
   return (
     <div className="space-y-6">
@@ -241,7 +241,7 @@ export function AgentPerformanceClient({
                   <YAxis domain={[0, 100]} />
                   <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
                   <Bar dataKey="avgScore" radius={[4, 4, 0, 0]}>
-                    {comparisonScoreData.map((_, i) => (<Cell key={i} fill={COLORS[i % COLORS.length]} />))}
+                    {comparisonScoreData.map((item, i) => (<Cell key={item.id} fill={COLORS[i % COLORS.length]} />))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -254,7 +254,7 @@ export function AgentPerformanceClient({
                 <PieChart>
                   <Pie data={comparisonVolumeData} cx="50%" cy="50%" outerRadius={100} dataKey="value"
                     label={(props) => `${props.name}: ${props.value}`}>
-                    {comparisonVolumeData.map((_, i) => (<Cell key={i} fill={COLORS[i % COLORS.length]} />))}
+                    {comparisonVolumeData.map((item, i) => (<Cell key={item.id} fill={COLORS[i % COLORS.length]} />))}
                   </Pie>
                   <Tooltip /><Legend />
                 </PieChart>
