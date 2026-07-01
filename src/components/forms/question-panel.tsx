@@ -19,6 +19,7 @@ import {
   DEFAULT_RATING_MAX,
   isOptionQuestionType,
   isScoredQuestionType,
+  QUESTION_TYPE_LABELS,
   RATING_STYLES,
   type RatingStyleValue,
   SELECTABLE_QUESTION_TYPES,
@@ -47,14 +48,6 @@ export interface QuestionData {
 const RATING_STYLE_LABELS: Record<RatingStyleValue, string> = {
   numeric: "Numerica (1-N con color)",
   stars: "Estrellas",
-};
-
-export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
-  TEXT: "Texto",
-  RATING: "Calificacion (1-5)",
-  SELECT: "Seleccion",
-  RADIO: "Opcion multiple",
-  BOOLEAN: "Si / No",
 };
 
 const CRITICAL_TYPE_LABELS: Record<CriticalTypeValue, string> = {

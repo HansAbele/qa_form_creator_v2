@@ -685,4 +685,57 @@ describe("submitResponse validation and RBAC", () => {
       }),
     );
   });
+
+  it("scores a BOOLEAN and a 1-10 rating (new types + configurable scale)", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-rate",
+          type: "RATING",
+          label: "Quality",
+          required: true,
+          options: null,
+          fatalOptions: null,
+          weight: 60,
+          fatal: false,
+          requiresCommentOnFail: false,
+          ratingMax: 10,
+          formCategory: { qaCategoryId: "qa-quality" },
+        },
+        {
+          id: "q-bool",
+          type: "BOOLEAN",
+          label: "Greeting",
+          required: true,
+          options: [
+            { value: "Si", points: 1 },
+            { value: "No", points: 0 },
+          ],
+          fatalOptions: null,
+          weight: 40,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-greeting" },
+        },
+      ],
+    });
+
+    await submitResponse({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        { questionId: "q-rate", value: "8" },
+        { questionId: "q-bool", value: "Si" },
+      ],
+    });
+
+    // rating 8/10=80% × 60 + boolean "Si" (1/1=100%) × 40 = 48 + 40 = 88
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ score: 88, result: "PASS" }),
+      }),
+    );
+  });
 });

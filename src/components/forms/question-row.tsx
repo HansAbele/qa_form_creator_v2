@@ -6,8 +6,8 @@ import { GripVertical, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { isScoredQuestionType } from "@/types/form-builder";
-import { type QuestionData, QUESTION_TYPE_LABELS } from "./question-panel";
+import { isScoredQuestionType, QUESTION_TYPE_LABELS } from "@/types/form-builder";
+import type { QuestionData } from "./question-panel";
 
 interface QuestionRowProps {
   question: QuestionData;

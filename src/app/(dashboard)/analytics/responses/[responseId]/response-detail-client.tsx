@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { questionTypeLabel } from "@/types/form-builder";
 import {
   ArrowLeft,
   Ban,
@@ -83,20 +84,6 @@ function scoreTone(score: number, status: string): string {
   return "text-rose-600 dark:text-rose-400";
 }
 
-function questionTypeLabel(type: string): string {
-  switch (type) {
-    case "RATING":
-      return "Calificacion";
-    case "TEXT":
-      return "Texto";
-    case "SELECT":
-      return "Seleccion";
-    case "RADIO":
-      return "Opcion";
-    default:
-      return type;
-  }
-}
 
 function LoadingSkeleton() {
   return (

@@ -10,6 +10,19 @@ export const OPTION_QUESTION_TYPES: readonly QuestionTypeValue[] = ["SELECT", "R
 
 export type QuestionTypeValue = (typeof QUESTION_TYPES)[number];
 
+/** Single source of truth for question-type display labels (all surfaces). */
+export const QUESTION_TYPE_LABELS: Record<QuestionTypeValue, string> = {
+  TEXT: "Texto",
+  RATING: "Calificacion",
+  SELECT: "Lista desplegable",
+  RADIO: "Opcion unica",
+  BOOLEAN: "Si / No",
+};
+
+export function questionTypeLabel(type: string): string {
+  return QUESTION_TYPE_LABELS[type as QuestionTypeValue] ?? type;
+}
+
 export function isOptionQuestionType(type: string): boolean {
   return OPTION_QUESTION_TYPES.includes(type as QuestionTypeValue);
 }

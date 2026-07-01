@@ -20,7 +20,13 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { archiveForm, getFormByIdForPermission, publishForm, updateForm } from "./forms";
+import {
+  archiveForm,
+  createForm,
+  getFormByIdForPermission,
+  publishForm,
+  updateForm,
+} from "./forms";
 
 const qaUser = {
   id: "qa-1",
@@ -53,6 +59,7 @@ describe("form revision workflow", () => {
     authMock.mockResolvedValue({ user: qaUser });
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
+      canCreateForms: true,
       canEditForms: true,
       canPublishForms: true,
       canEvaluate: true,
@@ -229,6 +236,101 @@ describe("form revision workflow", () => {
 
     await expect(getFormByIdForPermission("form-draft", "canEvaluate")).rejects.toThrow(
       "Formulario no publicado",
+    );
+  });
+
+  it("creates a form persisting new types (BOOLEAN, weighted options, critical type, rating scale)", async () => {
+    prismaMock.qACategory.findMany.mockResolvedValue([
+      { id: "qa-quality", canBeFatal: true, requiresCommentOnFail: false },
+    ]);
+    prismaMock.form.create.mockResolvedValue({ id: "form-new" });
+    prismaMock.form.findUniqueOrThrow.mockResolvedValue({
+      id: "form-new",
+      title: "Rich QA Form",
+      description: null,
+      campaignId: "campaign-1",
+      status: "DRAFT",
+      version: "1.0.0",
+      questions: [{ id: "q1" }, { id: "q2" }, { id: "q3" }],
+      categories: [{ id: "form-category-1" }],
+    });
+
+    await createForm({
+      title: "Rich QA Form",
+      campaignId: "campaign-1",
+      questions: [
+        {
+          type: "RATING",
+          label: "Quality",
+          required: true,
+          qaCategoryId: "qa-quality",
+          weight: 50,
+          fatal: true,
+          requiresCommentOnFail: true,
+          criticalType: "COMPLIANCE",
+          ratingFailThreshold: 3,
+          ratingMax: 10,
+          ratingStyle: "stars",
+        },
+        {
+          type: "BOOLEAN",
+          label: "Greeting",
+          required: true,
+          qaCategoryId: "qa-quality",
+          weight: 30,
+          fatal: false,
+          requiresCommentOnFail: false,
+          options: ["Si", "No"],
+          optionPoints: [1, 0],
+        },
+        {
+          type: "SELECT",
+          label: "Resolution",
+          required: true,
+          qaCategoryId: "qa-quality",
+          weight: 20,
+          fatal: true,
+          requiresCommentOnFail: true,
+          options: ["Full", "Partial", "No"],
+          optionPoints: [2, 1, 0],
+          fatalOptions: ["No"],
+        },
+      ],
+    });
+
+    expect(prismaMock.question.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            type: "RATING",
+            weight: 50,
+            fatal: true,
+            criticalType: "COMPLIANCE",
+            ratingFailThreshold: 3,
+            ratingMax: 10,
+            ratingStyle: "stars",
+          }),
+          expect.objectContaining({
+            type: "BOOLEAN",
+            weight: 30,
+            options: [
+              { value: "Si", points: 1 },
+              { value: "No", points: 0 },
+            ],
+          }),
+          expect.objectContaining({
+            type: "SELECT",
+            weight: 20,
+            fatal: true,
+            fatalOptions: ["No"],
+            options: [
+              { value: "Full", points: 2 },
+              { value: "Partial", points: 1 },
+              { value: "No", points: 0 },
+            ],
+          }),
+        ]),
+      }),
     );
   });
 });

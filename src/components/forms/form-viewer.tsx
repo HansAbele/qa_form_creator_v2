@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { computeScore, type ScoringAnswer, type ScoringQuestion, type WeightedOption } from "@/lib/scoring";
+import type { RatingStyleValue } from "@/types/form-builder";
 import { getAgents } from "@/server/actions/agents";
 import { saveResponseDraft, submitResponse } from "@/server/actions/responses";
 import type { QuestionType } from "@prisma/client";
@@ -463,7 +464,7 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
                     commentError={commentErrors[question.id]}
                     failed={failedByQuestion.get(question.id) ?? false}
                     ratingMax={question.ratingMax ?? undefined}
-                    ratingStyle={question.ratingStyle}
+                    ratingStyle={question.ratingStyle as RatingStyleValue | null}
                   />
                 ))}
               </CardContent>

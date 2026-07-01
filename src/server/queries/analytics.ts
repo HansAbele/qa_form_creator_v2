@@ -810,10 +810,13 @@ export async function getScoreByQuestion(campaignId?: string, dateFrom?: string,
 
   const questionMap = new Map<string, { total: number; count: number }>();
   for (const a of answers) {
-    const val = Number(a.value);
-    if (Number.isNaN(val)) continue;
+    // Use the engine-computed per-answer score (already a 0-100 %, correct for
+    // any rating scale / weighted options); skip non-scored answers.
+    if (a.score === null || a.score === undefined) continue;
+    const pct = Number(a.score);
+    if (Number.isNaN(pct)) continue;
     const existing = questionMap.get(a.question.label) ?? { total: 0, count: 0 };
-    existing.total += val;
+    existing.total += pct;
     existing.count++;
     questionMap.set(a.question.label, existing);
   }
@@ -821,7 +824,7 @@ export async function getScoreByQuestion(campaignId?: string, dateFrom?: string,
   return Array.from(questionMap.entries())
     .map(([label, data]) => ({
       question: label,
-      avgScore: Math.round((data.total / data.count / 5) * 100 * 100) / 100, // rating is 1-5, convert to %
+      avgScore: Math.round((data.total / data.count) * 100) / 100,
       totalAnswers: data.count,
     }))
     .sort((a, b) => a.avgScore - b.avgScore); // worst first
