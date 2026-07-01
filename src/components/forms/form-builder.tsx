@@ -33,7 +33,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { createForm, updateForm } from "@/server/actions/forms";
-import { type CriticalTypeValue, isOptionQuestionType, isScoredQuestionType } from "@/types/form-builder";
+import {
+  type CriticalTypeValue,
+  isOptionQuestionType,
+  isScoredQuestionType,
+  type RatingStyleValue,
+} from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 import { FormPreview } from "./form-preview";
 import { type QuestionData, QuestionPanel } from "./question-panel";
@@ -77,6 +82,8 @@ interface FormBuilderProps {
       fatal: boolean;
       criticalType?: CriticalTypeValue | null;
       ratingFailThreshold?: number | null;
+      ratingMax?: number | null;
+      ratingStyle?: string | null;
       requiresCommentOnFail: boolean;
       order: number;
       formCategory?: {
@@ -113,6 +120,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
         fatal: q.fatal,
         criticalType: q.criticalType ?? null,
         ratingFailThreshold: q.ratingFailThreshold ?? null,
+        ratingMax: q.ratingMax ?? null,
+        ratingStyle: (q.ratingStyle as RatingStyleValue | null) ?? null,
         requiresCommentOnFail: q.requiresCommentOnFail,
       };
     }) ?? [],
@@ -172,6 +181,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       fatalOptions: [],
       criticalType: null,
       ratingFailThreshold: null,
+      ratingMax: null,
+      ratingStyle: null,
       requiresCommentOnFail: Boolean(category?.requiresCommentOnFail),
     });
   };
@@ -300,6 +311,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
             criticalType: q.fatal ? (q.criticalType ?? undefined) : undefined,
             ratingFailThreshold:
               q.fatal && q.type === "RATING" ? (q.ratingFailThreshold ?? undefined) : undefined,
+            ratingMax: q.type === "RATING" ? (q.ratingMax ?? undefined) : undefined,
+            ratingStyle: q.type === "RATING" ? (q.ratingStyle ?? undefined) : undefined,
             requiresCommentOnFail: q.requiresCommentOnFail,
           };
         }),

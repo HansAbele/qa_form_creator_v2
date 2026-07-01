@@ -71,6 +71,7 @@ type ResponseQuestion = {
   fatal: boolean;
   fatalOptions: unknown;
   ratingFailThreshold: number | null;
+  ratingMax: number | null;
   requiresCommentOnFail: boolean;
   order: number;
   formCategory?: {
@@ -250,13 +251,13 @@ function toScoringQuestion(question: ResponseQuestion): ScoringQuestion {
     requiresCommentOnFail: question.requiresCommentOnFail,
     categoryId: question.formCategory?.qaCategoryId ?? null,
     ratingFailThreshold: question.ratingFailThreshold ?? null,
-    ratingMax: null,
+    ratingMax: question.ratingMax ?? null,
     weightedOptions: getWeightedOptions(question.options),
   };
 }
 
 function validateAnswerValue(
-  question: { type: QuestionType; options: unknown; required: boolean },
+  question: { type: QuestionType; options: unknown; required: boolean; ratingMax?: number | null },
   answer: Pick<ResponseAnswerInput, "value" | "notApplicable"> | undefined,
   options: { requireComplete: boolean },
 ) {
@@ -273,8 +274,9 @@ function validateAnswerValue(
     case "TEXT":
       return;
     case "RATING": {
+      const max = question.ratingMax && question.ratingMax > 0 ? question.ratingMax : 5;
       const numericValue = Number(value);
-      if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > 5) {
+      if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > max) {
         throw new Error("Respuesta de rating fuera de rango");
       }
       return;

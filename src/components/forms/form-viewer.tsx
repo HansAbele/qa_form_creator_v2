@@ -34,6 +34,8 @@ type ViewerQuestion = {
   fatal: boolean;
   fatalOptions: unknown;
   ratingFailThreshold: number | null;
+  ratingMax: number | null;
+  ratingStyle: string | null;
   requiresCommentOnFail: boolean;
   order: number;
   formCategory?: {
@@ -113,7 +115,7 @@ function toScoringQuestion(question: ViewerQuestion): ScoringQuestion {
     requiresCommentOnFail: question.requiresCommentOnFail,
     categoryId: question.formCategory?.qaCategory?.id ?? question.formCategory?.qaCategoryId ?? null,
     ratingFailThreshold: question.ratingFailThreshold ?? null,
-    ratingMax: null,
+    ratingMax: question.ratingMax ?? null,
     weightedOptions: getWeightedOptions(question.options),
   };
 }
@@ -460,6 +462,8 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
                     error={errors[question.id]}
                     commentError={commentErrors[question.id]}
                     failed={failedByQuestion.get(question.id) ?? false}
+                    ratingMax={question.ratingMax ?? undefined}
+                    ratingStyle={question.ratingStyle}
                   />
                 ))}
               </CardContent>

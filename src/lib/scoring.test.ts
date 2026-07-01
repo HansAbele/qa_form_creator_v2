@@ -71,6 +71,15 @@ describe("computeScore", () => {
     expect(r.result).toBe("FAIL");
   });
 
+  it("scores a rating on a configurable 1-10 scale", () => {
+    const r = computeScore(
+      [q({ id: "a", type: "RATING", weight: 100, ratingMax: 10 })],
+      answers({ a: "8" }),
+      PASS,
+    );
+    expect(r.score).toBe(80); // 8 of 10 → 80%
+  });
+
   it("honors a per-question ratingFailThreshold", () => {
     const r = computeScore(
       [q({ id: "a", type: "RATING", weight: 100, fatal: true, ratingFailThreshold: 5 })],

@@ -16,8 +16,11 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   CRITICAL_TYPES,
   type CriticalTypeValue,
+  DEFAULT_RATING_MAX,
   isOptionQuestionType,
   isScoredQuestionType,
+  RATING_STYLES,
+  type RatingStyleValue,
   SELECTABLE_QUESTION_TYPES,
 } from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
@@ -36,8 +39,15 @@ export interface QuestionData {
   fatalOptions: string[];
   criticalType: CriticalTypeValue | null;
   ratingFailThreshold: number | null;
+  ratingMax: number | null;
+  ratingStyle: RatingStyleValue | null;
   requiresCommentOnFail: boolean;
 }
+
+const RATING_STYLE_LABELS: Record<RatingStyleValue, string> = {
+  numeric: "Numerica (1-N con color)",
+  stars: "Estrellas",
+};
 
 export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   TEXT: "Texto",
@@ -199,6 +209,53 @@ export function QuestionPanel({
         </div>
       )}
 
+      {draft.type === "RATING" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Escala maxima</Label>
+            <Input
+              type="number"
+              min={2}
+              max={10}
+              value={draft.ratingMax ?? DEFAULT_RATING_MAX}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  ratingMax: Math.max(
+                    2,
+                    Math.min(10, Number(event.target.value) || DEFAULT_RATING_MAX),
+                  ),
+                })
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Estilo</Label>
+            <Select
+              value={draft.ratingStyle ?? "numeric"}
+              onValueChange={(val) =>
+                val && onChange({ ...draft, ratingStyle: val as RatingStyleValue })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string | null) =>
+                    RATING_STYLE_LABELS[(value as RatingStyleValue) ?? "numeric"] ?? "Numerica"
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {RATING_STYLES.map((style) => (
+                  <SelectItem key={style} value={style}>
+                    {RATING_STYLE_LABELS[style]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-2">
         <SwitchField
           label="Obligatoria"
@@ -262,7 +319,7 @@ export function QuestionPanel({
               <Input
                 type="number"
                 min={1}
-                max={5}
+                max={draft.ratingMax ?? DEFAULT_RATING_MAX}
                 value={draft.ratingFailThreshold ?? 3}
                 onChange={(event) =>
                   onChange({ ...draft, ratingFailThreshold: Number(event.target.value) || null })

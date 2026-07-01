@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import type { RatingStyleValue } from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 import { RatingScale } from "./rating-scale";
 
@@ -45,6 +46,7 @@ interface QuestionRendererProps {
   /** Whether the current answer counts as a failure (from the shared engine). */
   failed?: boolean;
   ratingMax?: number;
+  ratingStyle?: RatingStyleValue | null;
 }
 
 export function QuestionRenderer({
@@ -60,6 +62,7 @@ export function QuestionRenderer({
   commentError,
   failed = false,
   ratingMax = 5,
+  ratingStyle,
 }: QuestionRendererProps) {
   const optionPairs = getOptionPairs(question.options);
   const fatalOptions = getStringOptions(question.fatalOptions);
@@ -131,6 +134,7 @@ export function QuestionRenderer({
         <RatingScale
           value={value}
           max={ratingMax}
+          style={ratingStyle}
           disabled={notApplicable}
           onChange={onChange}
         />

@@ -600,6 +600,8 @@ async function createFormQuestionStructure(
         question.fatal && question.type === "RATING"
           ? (question.ratingFailThreshold ?? null)
           : null,
+      ratingMax: question.type === "RATING" ? (question.ratingMax ?? null) : null,
+      ratingStyle: question.type === "RATING" ? (question.ratingStyle ?? null) : null,
       requiresCommentOnFail: question.requiresCommentOnFail,
       order: index,
     })),

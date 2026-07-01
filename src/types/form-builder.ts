@@ -22,6 +22,10 @@ export function isScoredQuestionType(type: string): boolean {
 export const CRITICAL_TYPES = ["CUSTOMER", "BUSINESS", "COMPLIANCE"] as const;
 export type CriticalTypeValue = (typeof CRITICAL_TYPES)[number];
 
+export const RATING_STYLES = ["numeric", "stars"] as const;
+export type RatingStyleValue = (typeof RATING_STYLES)[number];
+export const DEFAULT_RATING_MAX = 5;
+
 export const formQuestionInputSchema = z
   .object({
     type: z.enum(QUESTION_TYPES),
@@ -34,7 +38,9 @@ export const formQuestionInputSchema = z
     fatal: z.boolean(),
     fatalOptions: z.array(z.string().trim().min(1).max(200)).optional(),
     criticalType: z.enum(CRITICAL_TYPES).nullish(),
-    ratingFailThreshold: z.coerce.number().int().min(1).max(5).nullish(),
+    ratingFailThreshold: z.coerce.number().int().min(1).max(10).nullish(),
+    ratingMax: z.coerce.number().int().min(2).max(10).nullish(),
+    ratingStyle: z.enum(RATING_STYLES).nullish(),
     requiresCommentOnFail: z.boolean(),
   })
   .strict()
