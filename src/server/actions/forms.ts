@@ -591,6 +591,11 @@ async function createFormQuestionStructure(
       required: question.required,
       weight: question.type === "RATING" ? question.weight : 0,
       fatal: question.fatal,
+      criticalType: question.fatal ? (question.criticalType ?? null) : null,
+      ratingFailThreshold:
+        question.fatal && question.type === "RATING"
+          ? (question.ratingFailThreshold ?? null)
+          : null,
       requiresCommentOnFail: question.requiresCommentOnFail,
       order: index,
     })),
@@ -598,7 +603,7 @@ async function createFormQuestionStructure(
 }
 
 function isOptionQuestion(type: QuestionType) {
-  return type === "SELECT" || type === "RADIO";
+  return type === "SELECT" || type === "RADIO" || type === "BOOLEAN";
 }
 
 function getStringOptions(options: unknown) {

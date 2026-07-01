@@ -2,9 +2,20 @@ import { z } from "zod";
 
 export const QUESTION_TYPES = ["TEXT", "RATING", "SELECT", "RADIO", "BOOLEAN"] as const;
 
-// Types the builder UI currently lets you create. BOOLEAN is supported by the
-// schema/scoring engine but its Sí/No option editor lands with the C4 redesign.
-export const SELECTABLE_QUESTION_TYPES = ["TEXT", "RATING", "SELECT", "RADIO"] as const;
+// Types the builder UI lets you create.
+export const SELECTABLE_QUESTION_TYPES = ["TEXT", "RATING", "SELECT", "RADIO", "BOOLEAN"] as const;
+
+// Question types that carry answer options and can define fatal options.
+export const OPTION_QUESTION_TYPES: readonly QuestionTypeValue[] = ["SELECT", "RADIO", "BOOLEAN"];
+
+export type QuestionTypeValue = (typeof QUESTION_TYPES)[number];
+
+export function isOptionQuestionType(type: string): boolean {
+  return OPTION_QUESTION_TYPES.includes(type as QuestionTypeValue);
+}
+
+export const CRITICAL_TYPES = ["CUSTOMER", "BUSINESS", "COMPLIANCE"] as const;
+export type CriticalTypeValue = (typeof CRITICAL_TYPES)[number];
 
 export const formQuestionInputSchema = z
   .object({
@@ -16,14 +27,15 @@ export const formQuestionInputSchema = z
     weight: z.coerce.number().int().min(0).max(100),
     fatal: z.boolean(),
     fatalOptions: z.array(z.string().trim().min(1).max(200)).optional(),
+    criticalType: z.enum(CRITICAL_TYPES).nullish(),
+    ratingFailThreshold: z.coerce.number().int().min(1).max(5).nullish(),
     requiresCommentOnFail: z.boolean(),
   })
   .strict()
   .superRefine((question, ctx) => {
-    if (
-      (question.type === "SELECT" || question.type === "RADIO") &&
-      (!question.options || question.options.length < 2)
-    ) {
+    const isOptionType = isOptionQuestionType(question.type);
+
+    if (isOptionType && (!question.options || question.options.length < 2)) {
       ctx.addIssue({
         code: "custom",
         message: "Las preguntas de seleccion requieren al menos 2 opciones",
@@ -31,7 +43,7 @@ export const formQuestionInputSchema = z
       });
     }
 
-    if (question.type === "SELECT" || question.type === "RADIO") {
+    if (isOptionType) {
       const optionSet = new Set(question.options ?? []);
       const fatalOptions = question.fatalOptions ?? [];
       if (question.fatal && fatalOptions.length === 0) {
@@ -52,7 +64,7 @@ export const formQuestionInputSchema = z
     } else if (question.fatalOptions?.length) {
       ctx.addIssue({
         code: "custom",
-        message: "Solo seleccion y opcion multiple admiten opciones fatales",
+        message: "Solo seleccion, opcion multiple y Si/No admiten opciones fatales",
         path: ["fatalOptions"],
       });
     }

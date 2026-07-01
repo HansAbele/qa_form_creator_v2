@@ -15,7 +15,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { SELECTABLE_QUESTION_TYPES } from "@/types/form-builder";
+import {
+  CRITICAL_TYPES,
+  type CriticalTypeValue,
+  isOptionQuestionType,
+  SELECTABLE_QUESTION_TYPES,
+} from "@/types/form-builder";
 import type { QACategoryOption } from "./form-builder";
 import type { QuestionType } from "@prisma/client";
 
@@ -29,6 +34,8 @@ export interface QuestionData {
   weight: number;
   fatal: boolean;
   fatalOptions: string[];
+  criticalType: CriticalTypeValue | null;
+  ratingFailThreshold: number | null;
   requiresCommentOnFail: boolean;
 }
 
@@ -48,6 +55,12 @@ const questionTypeLabels: Record<QuestionType, string> = {
   BOOLEAN: "Si / No",
 };
 
+const CRITICAL_TYPE_LABELS: Record<CriticalTypeValue, string> = {
+  CUSTOMER: "Customer critical",
+  BUSINESS: "Business critical",
+  COMPLIANCE: "Compliance critical",
+};
+
 export function QuestionCard({
   question,
   index,
@@ -65,7 +78,7 @@ export function QuestionCard({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const showOptions = question.type === "SELECT" || question.type === "RADIO";
+  const showOptions = isOptionQuestionType(question.type);
   const selectedCategory = qaCategories.find((category) => category.id === question.qaCategoryId);
   const canConfigureFatalOptions = showOptions && question.fatal;
 
@@ -94,14 +107,20 @@ export function QuestionCard({
                 value={question.type}
                 onValueChange={(val) => {
                   if (!val) return;
+                  const nextOptions =
+                    val === "BOOLEAN" && question.options.length < 2
+                      ? ["Si", "No"]
+                      : question.options;
                   onUpdate({
                     ...question,
                     type: val as QuestionType,
                     weight: val === "RATING" ? question.weight : 0,
-                    fatalOptions:
-                      val === "SELECT" || val === "RADIO"
-                        ? getValidFatalOptions(question.fatalOptions, question.options)
-                        : [],
+                    options: nextOptions,
+                    fatalOptions: isOptionQuestionType(val)
+                      ? getValidFatalOptions(question.fatalOptions, nextOptions)
+                      : [],
+                    ratingFailThreshold:
+                      val === "RATING" ? question.ratingFailThreshold : null,
                   });
                 }}
               >
@@ -309,6 +328,58 @@ export function QuestionCard({
               }
             />
           </div>
+
+          {question.fatal && (
+            <div className="grid gap-3 rounded-md border border-destructive/30 bg-destructive-tint/40 p-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Tipo de error critico (COPC)</Label>
+                <Select
+                  value={question.criticalType ?? "none"}
+                  onValueChange={(val) =>
+                    onUpdate({
+                      ...question,
+                      criticalType: val && val !== "none" ? (val as CriticalTypeValue) : null,
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(value: string | null) =>
+                        !value || value === "none"
+                          ? "Sin clasificar"
+                          : (CRITICAL_TYPE_LABELS[value as CriticalTypeValue] ?? value)
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin clasificar</SelectItem>
+                    {CRITICAL_TYPES.map((ct) => (
+                      <SelectItem key={ct} value={ct}>
+                        {CRITICAL_TYPE_LABELS[ct]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {question.type === "RATING" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Falla fatal si la nota es &lt;</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={question.ratingFailThreshold ?? 3}
+                    onChange={(event) =>
+                      onUpdate({
+                        ...question,
+                        ratingFailThreshold: Number(event.target.value) || null,
+                      })
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <Button type="button" variant="ghost" size="icon-sm" onClick={onDelete}>
