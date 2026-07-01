@@ -5,6 +5,11 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
 import type { ResponseStatus } from "@/lib/response-status";
+import {
+  computeScore,
+  type ScoringQuestion,
+  type WeightedOption,
+} from "@/lib/scoring";
 import { getCampaignScoringSettings } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
 import { emitNotification } from "@/server/notifications";
@@ -65,6 +70,7 @@ type ResponseQuestion = {
   weight: number;
   fatal: boolean;
   fatalOptions: unknown;
+  ratingFailThreshold: number | null;
   requiresCommentOnFail: boolean;
   order: number;
   formCategory?: {
@@ -210,6 +216,45 @@ function getQuestionOptions(options: unknown) {
     : [];
 }
 
+/** Accepts either plain string options or weighted `{value, points}` options. */
+function getOptionValues(options: unknown): string[] {
+  if (!Array.isArray(options)) return [];
+  return options
+    .map((o) => {
+      if (typeof o === "string") return o;
+      if (o && typeof o === "object" && "value" in o) return String((o as { value: unknown }).value);
+      return "";
+    })
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Extracts weighted options `{value, points}` if configured, else null. */
+function getWeightedOptions(options: unknown): WeightedOption[] | null {
+  if (!Array.isArray(options)) return null;
+  const weighted = options.filter(
+    (o): o is { value: unknown; points: unknown } =>
+      Boolean(o) && typeof o === "object" && "value" in o && "points" in o,
+  );
+  if (weighted.length === 0) return null;
+  return weighted.map((o) => ({ value: String(o.value), points: Number(o.points) || 0 }));
+}
+
+function toScoringQuestion(question: ResponseQuestion): ScoringQuestion {
+  return {
+    id: question.id,
+    type: question.type,
+    weight: question.weight,
+    fatal: question.fatal,
+    fatalOptions: getQuestionOptions(question.fatalOptions),
+    requiresCommentOnFail: question.requiresCommentOnFail,
+    categoryId: question.formCategory?.qaCategoryId ?? null,
+    ratingFailThreshold: question.ratingFailThreshold ?? null,
+    ratingMax: null,
+    weightedOptions: getWeightedOptions(question.options),
+  };
+}
+
 function validateAnswerValue(
   question: { type: QuestionType; options: unknown; required: boolean },
   answer: Pick<ResponseAnswerInput, "value" | "notApplicable"> | undefined,
@@ -235,9 +280,10 @@ function validateAnswerValue(
       return;
     }
     case "SELECT":
-    case "RADIO": {
-      const questionOptions = getQuestionOptions(question.options);
-      if (!questionOptions.includes(value)) {
+    case "RADIO":
+    case "BOOLEAN": {
+      const questionOptions = getOptionValues(question.options);
+      if (questionOptions.length > 0 && !questionOptions.includes(value)) {
         throw new Error("Respuesta no pertenece a las opciones del formulario");
       }
       return;
@@ -245,29 +291,11 @@ function validateAnswerValue(
   }
 }
 
-function getRatingScore(value: string) {
-  const numericValue = Number(value);
-  if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > 5) {
-    return null;
-  }
-  return (numericValue / 5) * 100;
-}
-
-function isFailedAnswer(question: { type: QuestionType; fatalOptions?: unknown }, value: string) {
-  if (!value) return false;
-  if (question.type === "SELECT" || question.type === "RADIO") {
-    return getQuestionOptions(question.fatalOptions).includes(value);
-  }
-  if (question.type !== "RATING") return false;
-  const ratingScore = getRatingScore(value);
-  return ratingScore !== null && ratingScore < 100;
-}
-
 function sanitizeAnswers(
   questions: ResponseQuestion[],
   inputAnswers: ResponseAnswerInput[],
   options: { requireComplete: boolean },
-) {
+): SanitizedAnswer[] {
   const questionsById = new Map(questions.map((question) => [question.id, question]));
   const answersByQuestionId = new Map<string, ResponseAnswerInput>();
   const sanitizedAnswers: SanitizedAnswer[] = [];
@@ -290,28 +318,15 @@ function sanitizeAnswers(
     validateAnswerValue(question, answer, options);
     answersByQuestionId.set(inputAnswer.questionId, answer);
 
-    if (
-      options.requireComplete &&
-      question.requiresCommentOnFail &&
-      !answer.notApplicable &&
-      isFailedAnswer(question, answer.value) &&
-      !answer.comment
-    ) {
-      throw new Error("Hay preguntas que requieren comentario al fallar");
-    }
-
-    const ratingScore =
-      !answer.notApplicable && question.type === "RATING" ? getRatingScore(answer.value) : null;
-    const isFatalFail =
-      !answer.notApplicable && question.fatal && isFailedAnswer(question, answer.value);
-
+    // Scoring, fatal-fail and comment-required are derived by computeScore()
+    // (shared with the client preview); here we only validate and shape.
     sanitizedAnswers.push({
       questionId: answer.questionId,
       value: answer.value,
       comment: answer.comment || undefined,
       categoryId: question.formCategory?.qaCategoryId ?? undefined,
-      score: ratingScore ?? undefined,
-      isFatalFail,
+      score: undefined,
+      isFatalFail: false,
       notApplicable: answer.notApplicable,
     });
   }
@@ -323,33 +338,6 @@ function sanitizeAnswers(
   }
 
   return sanitizedAnswers;
-}
-
-function calculateResponseScore(
-  ratingQuestions: { id: string; weight: number }[],
-  answersByQuestionId: Map<string, Pick<SanitizedAnswer, "value" | "notApplicable">>,
-) {
-  const applicableRatingQuestions = ratingQuestions.filter(
-    (question) => !answersByQuestionId.get(question.id)?.notApplicable,
-  );
-
-  if (applicableRatingQuestions.length === 0) return 0;
-
-  const totalWeight = applicableRatingQuestions.reduce((sum, question) => sum + question.weight, 0);
-
-  if (totalWeight > 0) {
-    return applicableRatingQuestions.reduce((sum, question) => {
-      const ratingScore = getRatingScore(answersByQuestionId.get(question.id)?.value ?? "") ?? 0;
-      return sum + ratingScore * (question.weight / totalWeight);
-    }, 0);
-  }
-
-  const totalValue = applicableRatingQuestions.reduce(
-    (sum, question) => sum + (Number(answersByQuestionId.get(question.id)?.value) || 0),
-    0,
-  );
-  const maxPossible = applicableRatingQuestions.length * 5;
-  return (totalValue / maxPossible) * 100;
 }
 
 function buildFormSnapshot(form: {
@@ -415,7 +403,7 @@ function buildScoringSnapshot(args: {
     result: args.result,
     hasFatalFail: args.hasFatalFail,
     passThreshold: args.passThreshold,
-    scoringMethod: "weighted_rating",
+    scoringMethod: "weighted_v2",
     naHandling: "exclude_from_rating_denominator",
     applicableRatingQuestionIds,
     notApplicableQuestionIds,
@@ -589,25 +577,42 @@ async function saveEvaluation(
     throw new Error("Disposicion invalida para esta campana");
   }
 
+  const requireComplete = status === RESPONSE_STATUS.SUBMITTED;
   const sanitizedAnswers = sanitizeAnswers(form.questions, input.answers, {
-    requireComplete: status === RESPONSE_STATUS.SUBMITTED,
+    requireComplete,
   });
 
-  const ratingQuestions = form.questions.filter((question) => question.type === "RATING");
-  const answersByQuestionId = new Map(
-    sanitizedAnswers.map((answer) => [
-      answer.questionId,
-      { value: answer.value, notApplicable: answer.notApplicable },
-    ]),
+  const scoreResult = computeScore(
+    form.questions.map(toScoringQuestion),
+    new Map(
+      sanitizedAnswers.map((answer) => [
+        answer.questionId,
+        {
+          value: answer.value,
+          notApplicable: answer.notApplicable,
+          comment: answer.comment,
+        },
+      ]),
+    ),
+    { passThreshold: scoringSettings.passThreshold },
   );
-  const score = calculateResponseScore(ratingQuestions, answersByQuestionId);
-  const hasFatalFail = sanitizedAnswers.some((answer) => answer.isFatalFail);
-  const result =
-    status === RESPONSE_STATUS.SUBMITTED
-      ? hasFatalFail || score < scoringSettings.passThreshold
-        ? "FAIL"
-        : "PASS"
-      : null;
+
+  if (requireComplete && scoreResult.blockers > 0) {
+    throw new Error("Hay preguntas que requieren comentario al fallar");
+  }
+
+  // Fold per-question scoring (fatal fail + item score) back into the answers.
+  const scoreByQuestionId = new Map(scoreResult.questions.map((q) => [q.questionId, q]));
+  for (const answer of sanitizedAnswers) {
+    const q = scoreByQuestionId.get(answer.questionId);
+    answer.isFatalFail = q?.isFatalFail ?? false;
+    answer.score = q?.itemScore ?? undefined;
+  }
+
+  const ratingQuestions = form.questions.filter((question) => question.type === "RATING");
+  const score = scoreResult.score;
+  const hasFatalFail = scoreResult.hasFatalFail;
+  const result = requireComplete ? scoreResult.result : null;
 
   const formSnapshot = buildFormSnapshot(form);
   const scoringSnapshot = buildScoringSnapshot({

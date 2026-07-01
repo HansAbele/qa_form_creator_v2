@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { DispositionOutcomeValue } from "@/lib/disposition-outcome";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
@@ -174,6 +175,7 @@ export async function createDisposition(data: {
   code?: string;
   categoryId?: string;
   campaignId: string;
+  outcomeType?: DispositionOutcomeValue | null;
 }) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
@@ -196,6 +198,7 @@ export async function createDisposition(data: {
       code: data.code?.trim() || null,
       categoryId: data.categoryId || null,
       campaignId: data.campaignId,
+      outcomeType: data.outcomeType ?? null,
       createdById: session.user.id,
     },
   });
@@ -261,7 +264,13 @@ export async function createDispositionInline(data: {
 
 export async function updateDisposition(
   id: string,
-  data: { name: string; code?: string; categoryId?: string | null; active: boolean },
+  data: {
+    name: string;
+    code?: string;
+    categoryId?: string | null;
+    active: boolean;
+    outcomeType?: DispositionOutcomeValue | null;
+  },
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
@@ -297,6 +306,7 @@ export async function updateDisposition(
       code: data.code?.trim() || null,
       categoryId: data.categoryId ?? null,
       active: data.active,
+      ...(data.outcomeType !== undefined ? { outcomeType: data.outcomeType } : {}),
     },
   });
   await writeAuditLog({

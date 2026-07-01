@@ -437,7 +437,9 @@ describe("submitResponse validation and RBAC", () => {
     );
   });
 
-  it("marks fatal failed rating as FAIL regardless of score threshold", async () => {
+  it("marks a fatal failed rating as FAIL even when the weighted score passes", async () => {
+    // Fatal question rated 2/5 (below the <3 fail threshold) but the overall
+    // weighted score is 88 (≥70): the critical overlay must still force FAIL.
     prismaMock.form.findUnique.mockResolvedValue({
       ...validForm(),
       questions: [
@@ -448,10 +450,22 @@ describe("submitResponse validation and RBAC", () => {
           required: true,
           options: null,
           fatalOptions: null,
-          weight: 100,
+          weight: 20,
           fatal: true,
           requiresCommentOnFail: true,
           formCategory: { qaCategoryId: "qa-compliance" },
+        },
+        {
+          id: "q-quality",
+          type: "RATING",
+          label: "Quality",
+          required: true,
+          options: null,
+          fatalOptions: null,
+          weight: 80,
+          fatal: false,
+          requiresCommentOnFail: false,
+          formCategory: { qaCategoryId: "qa-quality" },
         },
       ],
     });
@@ -461,18 +475,15 @@ describe("submitResponse validation and RBAC", () => {
       agentId: "agent-1",
       dispositionId: "disp-1",
       answers: [
-        {
-          questionId: "q-fatal",
-          value: "4",
-          comment: "Missing required verification.",
-        },
+        { questionId: "q-fatal", value: "2", comment: "Missing required verification." },
+        { questionId: "q-quality", value: "5" },
       ],
     });
 
     expect(prismaMock.response.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          score: 80,
+          score: 88,
           result: "FAIL",
           hasFatalFail: true,
           answers: {
@@ -482,6 +493,10 @@ describe("submitResponse validation and RBAC", () => {
                 categoryId: "qa-compliance",
                 comment: "Missing required verification.",
                 isFatalFail: true,
+              }),
+              expect.objectContaining({
+                questionId: "q-quality",
+                isFatalFail: false,
               }),
             ],
           },
@@ -571,13 +586,49 @@ describe("submitResponse validation and RBAC", () => {
       ],
     });
 
+    // 2/5 is below the <3 fail threshold → the required comment is enforced.
     await expect(
       submitResponse({
         formId: "form-1",
         agentId: "agent-1",
         dispositionId: "disp-1",
-        answers: [{ questionId: "q-comment-required", value: "4" }],
+        answers: [{ questionId: "q-comment-required", value: "2" }],
       }),
     ).rejects.toThrow("Hay preguntas que requieren comentario al fallar");
+  });
+
+  it("does not require a comment when a rating is above the fail threshold", async () => {
+    // Regression: 4/5 (=80%) must NOT count as a failed answer, so a
+    // comment-required rating passes without a comment and results in PASS.
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      questions: [
+        {
+          id: "q-comment-required",
+          type: "RATING",
+          label: "Compliance",
+          required: true,
+          options: null,
+          fatalOptions: null,
+          weight: 100,
+          fatal: false,
+          requiresCommentOnFail: true,
+          formCategory: { qaCategoryId: "qa-compliance" },
+        },
+      ],
+    });
+
+    await submitResponse({
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [{ questionId: "q-comment-required", value: "4" }],
+    });
+
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ score: 80, result: "PASS", hasFatalFail: false }),
+      }),
+    );
   });
 });

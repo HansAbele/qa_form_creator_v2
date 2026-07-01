@@ -32,6 +32,7 @@ export default async function FormsPage() {
         createdAt: f.createdAt.toISOString(),
         canEvaluate: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
         canEdit: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEditForms)),
+        canPublish: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canPublishForms)),
       }))}
       canCreate={!isSupervisor && (isAdmin || creatableCampaigns.length > 0)}
     />

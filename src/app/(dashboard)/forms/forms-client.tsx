@@ -23,6 +23,7 @@ interface FormItem {
   createdAt: string;
   canEvaluate: boolean;
   canEdit: boolean;
+  canPublish: boolean;
 }
 
 interface FormsListClientProps {
@@ -135,44 +136,43 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
                       Evaluar
                     </Link>
                   )}
+                  {form.canPublish && form.status === "DRAFT" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handlePublish(form.id, form.title)}
+                    >
+                      <Send className="mr-1 h-3.5 w-3.5" />
+                      Publicar
+                    </Button>
+                  )}
                   {form.canEdit && (
-                    <>
-                      {form.status === "DRAFT" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => handlePublish(form.id, form.title)}
-                        >
-                          <Send className="mr-1 h-3.5 w-3.5" />
-                          Publicar
-                        </Button>
-                      )}
-                      <Link
-                        href={`/forms/${form.id}/edit`}
-                        aria-label={`Editar ${form.title}`}
-                        className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Link>
-                      {form.status === "PUBLISHED" ? (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => handleArchive(form.id, form.title)}
-                        >
-                          <Archive className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => handleDelete(form.id, form.title)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
-                    </>
+                    <Link
+                      href={`/forms/${form.id}/edit`}
+                      aria-label={`Editar ${form.title}`}
+                      className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Link>
+                  )}
+                  {form.status === "PUBLISHED" && form.canPublish && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => handleArchive(form.id, form.title)}
+                    >
+                      <Archive className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  )}
+                  {form.status !== "PUBLISHED" && form.canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => handleDelete(form.id, form.title)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
                   )}
                 </div>
               </CardContent>

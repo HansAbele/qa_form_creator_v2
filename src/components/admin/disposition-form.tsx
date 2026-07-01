@@ -22,6 +22,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {
+  DISPOSITION_OUTCOMES,
+  type DispositionOutcomeValue,
+  OUTCOME_LABELS,
+} from "@/lib/disposition-outcome";
+import {
   createDisposition,
   updateDisposition,
 } from "@/server/actions/dispositions";
@@ -34,6 +39,7 @@ interface DispositionFormProps {
     categoryId: string | null;
     campaignId: string;
     active: boolean;
+    outcomeType?: string | null;
   };
   categories: { id: string; name: string }[];
   campaignId: string;
@@ -54,7 +60,10 @@ export function DispositionForm({
   const [name, setName] = useState(disposition?.name ?? "");
   const [code, setCode] = useState(disposition?.code ?? "");
   const [categoryId, setCategoryId] = useState(disposition?.categoryId ?? "none");
+  const [outcomeType, setOutcomeType] = useState(disposition?.outcomeType ?? "none");
   const [active, setActive] = useState(disposition?.active ?? true);
+
+  const outcomeValue = outcomeType === "none" ? null : (outcomeType as DispositionOutcomeValue);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +80,7 @@ export function DispositionForm({
           code: code.trim() || undefined,
           categoryId: categoryId === "none" ? null : categoryId,
           active,
+          outcomeType: outcomeValue,
         });
         toast.success("Disposición actualizada");
       } else {
@@ -79,6 +89,7 @@ export function DispositionForm({
           code: code.trim() || undefined,
           categoryId: categoryId === "none" ? undefined : categoryId,
           campaignId,
+          outcomeType: outcomeValue,
         });
         toast.success("Disposición creada");
       }
@@ -141,6 +152,30 @@ export function DispositionForm({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Resultado de la llamada</Label>
+            <Select value={outcomeType} onValueChange={(v) => v && setOutcomeType(v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string | null) => {
+                    if (!value || value === "none") return "Sin clasificar";
+                    return OUTCOME_LABELS[value as DispositionOutcomeValue] ?? value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sin clasificar</SelectItem>
+                {DISPOSITION_OUTCOMES.map((outcome) => (
+                  <SelectItem key={outcome} value={outcome}>
+                    {OUTCOME_LABELS[outcome]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Alimenta los KPIs de resolución (FCR) y escalación del dashboard.
+            </p>
           </div>
           {isEdit && (
             <div className="flex items-center gap-2">

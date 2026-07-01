@@ -26,6 +26,31 @@ enum QuestionType {
   RATING
   SELECT
   RADIO
+  BOOLEAN
+}
+
+// COPC critical-error classification (2.7.1.d). A question flagged `fatal`
+// may carry one of these so failures roll up into per-class critical accuracy.
+enum CriticalType {
+  CUSTOMER
+  BUSINESS
+  COMPLIANCE
+}
+
+// Machine-readable call outcome, so KPIs (FCR, escalation rate) stop relying
+// on disposition name-matching. One outcome per call.
+enum DispositionOutcome {
+  RESOLVED
+  ESCALATED
+  TRANSFERRED
+  FOLLOW_UP
+  CALLBACK
+  SALE
+  NO_SALE
+  NO_CONTACT
+  DNC
+  SYSTEM
+  OTHER
 }
 
 // ─── Auth.js required models ─────────────────────────
@@ -69,25 +94,25 @@ model VerificationToken {
 // ─── Usuarios y campañas ─────────────────────────────
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  password  String?
-  role      Role     @default(QA)
-  active    Boolean  @default(true)
-  image     String?
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String?
+  role          Role      @default(QA)
+  active        Boolean   @default(true)
+  image         String?
   emailVerified DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  accounts             Account[]
-  sessions             Session[]
-  campaigns            UserCampaign[]
-  forms                Form[]         @relation("FormCreator")
-  responses            Response[]     @relation("Evaluator")
-  dispositionsCreated  Disposition[]  @relation("DispositionCreator")
-  auditLogs            AuditLog[]     @relation("AuditActor")
-  notifications        Notification[] @relation("UserNotifications")
+  accounts                Account[]
+  sessions                Session[]
+  campaigns               UserCampaign[]
+  forms                   Form[]                   @relation("FormCreator")
+  responses               Response[]               @relation("Evaluator")
+  dispositionsCreated     Disposition[]            @relation("DispositionCreator")
+  auditLogs               AuditLog[]               @relation("AuditActor")
+  notifications           Notification[]           @relation("UserNotifications")
   notificationPreferences NotificationPreference[]
 }
 
@@ -166,14 +191,16 @@ model DispositionCategory {
 }
 
 model Disposition {
-  id          String   @id @default(cuid())
+  id          String              @id @default(cuid())
   name        String
   code        String?
   categoryId  String?
   campaignId  String
-  active      Boolean  @default(true)
+  active      Boolean             @default(true)
+  outcomeType DispositionOutcome?
+  isSystem    Boolean             @default(false)
   createdById String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime            @default(now())
 
   category  DispositionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   campaign  Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -205,44 +232,47 @@ model Agent {
 // ─── Formularios ─────────────────────────────────────
 
 model Form {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  campaignId  String
-  createdById String
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  campaignId   String
+  createdById  String
   parentFormId String?
-  status      String   @default("DRAFT")
-  version     String   @default("1.0.0")
-  publishedAt DateTime?
-  archivedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status       String    @default("DRAFT")
+  version      String    @default("1.0.0")
+  publishedAt  DateTime?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  campaign  Campaign   @relation(fields: [campaignId], references: [id])
-  createdBy User       @relation("FormCreator", fields: [createdById], references: [id])
-  parent    Form?      @relation("FormRevisions", fields: [parentFormId], references: [id], onDelete: SetNull)
-  revisions Form[]     @relation("FormRevisions")
+  campaign   Campaign       @relation(fields: [campaignId], references: [id])
+  createdBy  User           @relation("FormCreator", fields: [createdById], references: [id])
+  parent     Form?          @relation("FormRevisions", fields: [parentFormId], references: [id], onDelete: SetNull)
+  revisions  Form[]         @relation("FormRevisions")
   categories FormCategory[]
-  questions Question[]
-  responses Response[]
+  questions  Question[]
+  responses  Response[]
 
   @@index([parentFormId])
   @@index([status])
 }
 
 model Question {
-  id                    String       @id @default(cuid())
+  id                    String        @id @default(cuid())
   formId                String
   formCategoryId        String?
   type                  QuestionType
   label                 String
   options               Json?
-  required              Boolean      @default(false)
-  weight                Int          @default(0)
-  fatal                 Boolean      @default(false)
+  required              Boolean       @default(false)
+  weight                Int           @default(0)
+  fatal                 Boolean       @default(false)
   fatalOptions          Json?
-  requiresCommentOnFail Boolean      @default(false)
-  order                 Int          @default(0)
+  criticalType          CriticalType?
+  // For a `fatal` RATING: fails when value < ratingFailThreshold. Null → default (3, i.e. <=2 on 1-5).
+  ratingFailThreshold   Int?
+  requiresCommentOnFail Boolean       @default(false)
+  order                 Int           @default(0)
 
   form         Form          @relation(fields: [formId], references: [id], onDelete: Cascade)
   formCategory FormCategory? @relation(fields: [formCategoryId], references: [id], onDelete: SetNull)
@@ -292,24 +322,24 @@ model FormCategory {
 // ─── Evaluaciones ────────────────────────────────────
 
 model Response {
-  id            String   @id @default(cuid())
-  formId        String
-  formVersion   String?
-  agentId       String
-  evaluatorId   String
-  dispositionId String?
-  score         Decimal  @db.Decimal(5, 2)
-  result        String?
-  hasFatalFail  Boolean  @default(false)
-  status        String   @default("SUBMITTED")
-  scoringSnapshot Json?
-  settingsSnapshot Json?
-  formSnapshot     Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @default(now()) @updatedAt
-  submittedAt   DateTime?
-  cancelledAt   DateTime?
-  cancelledById String?
+  id                 String    @id @default(cuid())
+  formId             String
+  formVersion        String?
+  agentId            String
+  evaluatorId        String
+  dispositionId      String?
+  score              Decimal   @db.Decimal(5, 2)
+  result             String?
+  hasFatalFail       Boolean   @default(false)
+  status             String    @default("SUBMITTED")
+  scoringSnapshot    Json?
+  settingsSnapshot   Json?
+  formSnapshot       Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+  submittedAt        DateTime?
+  cancelledAt        DateTime?
+  cancelledById      String?
   cancellationReason String?
 
   form        Form         @relation(fields: [formId], references: [id])
@@ -328,15 +358,15 @@ model Response {
 }
 
 model Answer {
-  id         String @id @default(cuid())
-  responseId String
-  questionId String
-  categoryId String?
-  value      String
-  score      Decimal? @db.Decimal(5, 2)
-  comment    String?
-  isFatalFail Boolean @default(false)
-  notApplicable Boolean @default(false)
+  id            String   @id @default(cuid())
+  responseId    String
+  questionId    String
+  categoryId    String?
+  value         String
+  score         Decimal? @db.Decimal(5, 2)
+  comment       String?
+  isFatalFail   Boolean  @default(false)
+  notApplicable Boolean  @default(false)
 
   response Response    @relation(fields: [responseId], references: [id], onDelete: Cascade)
   question Question    @relation(fields: [questionId], references: [id])
@@ -366,6 +396,8 @@ model CampaignScoringSettings {
   targetAvgScore       Int      @default(80)
   targetDailyRate      Int      @default(20)
   fatalFailuresAllowed Int      @default(0)
+  // When a critical/fatal question fails: true → force score to 0; false → keep computed score, mark FAIL.
+  fatalZeroesScore     Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   updatedBy            String?
