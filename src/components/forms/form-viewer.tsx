@@ -356,8 +356,7 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
       {/* Left — form */}
       <div className="min-w-0 flex-1 space-y-4">
         {/* Context bar */}
-        <Card>
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
+        <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Agente evaluado</Label>
               <Select value={agentId} onValueChange={(v) => v && setAgentId(v)}>
@@ -400,8 +399,7 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
                 {format(new Date(), "d MMM yyyy", { locale: es })}
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </div>
 
         {/* Fatal banner */}
         {hasFatal && (

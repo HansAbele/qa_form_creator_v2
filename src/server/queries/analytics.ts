@@ -1016,20 +1016,33 @@ export async function getDashboardOutcomeKpis(
   const formFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
   const base = { form: formFilter, ...dw, ...submittedResponseWhere() };
-
-  const [classifiedTotal, resolved, escalated] = await Promise.all([
-    prisma.response.count({ where: { ...base, disposition: { outcomeType: { not: null } } } }),
-    prisma.response.count({ where: { ...base, disposition: { outcomeType: "RESOLVED" } } }),
-    prisma.response.count({ where: { ...base, disposition: { outcomeType: "ESCALATED" } } }),
-  ]);
-
-  return {
-    classifiedTotal,
-    resolved,
-    escalated,
-    resolutionRate: classifiedTotal > 0 ? round2((resolved / classifiedTotal) * 100) : 0,
-    escalationRate: classifiedTotal > 0 ? round2((escalated / classifiedTotal) * 100) : 0,
+  const empty = {
+    classifiedTotal: 0,
+    resolved: 0,
+    escalated: 0,
+    resolutionRate: 0,
+    escalationRate: 0,
   };
+
+  try {
+    const [classifiedTotal, resolved, escalated] = await Promise.all([
+      prisma.response.count({ where: { ...base, disposition: { outcomeType: { not: null } } } }),
+      prisma.response.count({ where: { ...base, disposition: { outcomeType: "RESOLVED" } } }),
+      prisma.response.count({ where: { ...base, disposition: { outcomeType: "ESCALATED" } } }),
+    ]);
+
+    return {
+      classifiedTotal,
+      resolved,
+      escalated,
+      resolutionRate: classifiedTotal > 0 ? round2((resolved / classifiedTotal) * 100) : 0,
+      escalationRate: classifiedTotal > 0 ? round2((escalated / classifiedTotal) * 100) : 0,
+    };
+  } catch {
+    // `outcomeType` may be missing if the DB/Prisma client hasn't been migrated
+    // yet — never let a KPI take down the whole dashboard.
+    return empty;
+  }
 }
 
 // ─── Agent Detail (drill-down) ────────────────────
