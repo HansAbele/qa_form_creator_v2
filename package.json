@@ -41,7 +41,7 @@
     "@prisma/client": "^6.19.3",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-table": "^8.21.3",
-    "ai": "^6.0.228",
+    "ai": "^7.0.30",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
