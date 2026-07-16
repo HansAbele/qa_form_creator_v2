@@ -1,18 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { motion } from "motion/react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -27,19 +14,35 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
+import { motion } from "motion/react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from "recharts";
+import {
+  DataLoadError,
+  type DataLoadStatus,
+  RestrictedResourceState,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
+import {
+  addOperationalCalendarDays,
+  formatOperationalDate,
+  useOperationalTimeZone,
+} from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  type ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  type ChartConfig,
 } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Table,
   TableBody,
@@ -49,6 +52,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getDispositionDetail } from "@/server/queries/analytics";
+import { summarizeChartData } from "@/lib/chart-accessibility";
+import { formatDateOnlyForDisplay, formatOperationalTimestamp } from "@/lib/date-display";
 
 interface ScoreTrendPoint {
   date: string;
@@ -82,6 +87,7 @@ interface RecentResponse {
   evaluatorName: string;
   formTitle: string;
   score: number;
+  result: "PASS" | "FAIL";
   createdAt: string;
 }
 
@@ -94,6 +100,7 @@ interface DispositionDetailData {
   active: boolean;
   totalEvaluations: number;
   avgScore: number;
+  passThreshold: number;
   globalAvgScore: number;
   scoreDelta: number;
   passRate: number;
@@ -117,15 +124,22 @@ const questionConfig = {
   avgScore: { label: "Score", color: "#06b6d4" },
 } satisfies ChartConfig;
 
-function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
-  if (score >= 70) return "default";
-  if (score >= 50) return "secondary";
+function scoreBadgeVariant(
+  score: number,
+  passThreshold: number,
+): "default" | "secondary" | "destructive" {
+  if (score >= passThreshold) return "default";
+  if (score >= passThreshold * 0.7) return "secondary";
   return "destructive";
 }
 
-function getQuestionBarColor(score: number): string {
-  if (score >= 70) return "#10b981";
-  if (score >= 50) return "#f59e0b";
+function resultBadgeVariant(result: "PASS" | "FAIL"): "default" | "destructive" {
+  return result === "PASS" ? "default" : "destructive";
+}
+
+function getQuestionBarColor(score: number, passThreshold: number): string {
+  if (score >= passThreshold) return "#10b981";
+  if (score >= passThreshold * 0.7) return "#f59e0b";
   return "#f43f5e";
 }
 
@@ -160,50 +174,59 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
   );
 }
 
-export function DispositionDetailClient({
-  dispositionId,
-}: {
-  dispositionId: string;
-}) {
+export function DispositionDetailClient({ dispositionId }: { dispositionId: string }) {
+  const chartAnimation = useChartAnimation();
+  const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
   const [data, setData] = useState<DispositionDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const requestGeneration = useRef(0);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++requestGeneration.current;
+    setLoadStatus("loading");
     try {
       const result = await getDispositionDetail(
         dispositionId,
         dateFrom || undefined,
         dateTo || undefined,
       );
+      if (requestId !== requestGeneration.current) return;
       setData(result);
+      setLoadStatus(result ? "success" : "empty");
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      if (requestId !== requestGeneration.current) return;
+      reportDataLoadError(e, "disposition-detail");
+      setLoadStatus("error");
     }
   }, [dispositionId, dateFrom, dateTo]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [loadData]);
 
   const setQuickRange = (days: number) => {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    setDateFrom(from.toISOString().slice(0, 10));
-    setDateTo(to.toISOString().slice(0, 10));
+    const to = formatOperationalDate(new Date(), operationalTimeZone);
+    setDateFrom(addOperationalCalendarDays(to, -(days - 1)));
+    setDateTo(to);
   };
 
-  if (loading && !data) return <LoadingSkeleton />;
-  if (!data) return <EmptyState label="Disposición no encontrada" />;
+  if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
+  if (loadStatus === "error") {
+    return (
+      <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar la disposición" />
+    );
+  }
+  if (loadStatus === "empty" || !data) {
+    return <RestrictedResourceState resourceLabel="La disposición" />;
+  }
 
-  const deltaIcon =
-    data.scoreDelta > 0.5 ? ArrowUp : data.scoreDelta < -0.5 ? ArrowDown : Minus;
+  const deltaIcon = data.scoreDelta > 0.5 ? ArrowUp : data.scoreDelta < -0.5 ? ArrowDown : Minus;
   const deltaTone: "emerald" | "rose" | "navy" =
     data.scoreDelta > 0.5 ? "emerald" : data.scoreDelta < -0.5 ? "rose" : "navy";
   const deltaLabel =
@@ -247,9 +270,7 @@ export function DispositionDetailClient({
                       </Badge>
                     )}
                     <Badge variant="secondary">{data.campaignName}</Badge>
-                    {data.categoryName && (
-                      <Badge variant="secondary">{data.categoryName}</Badge>
-                    )}
+                    {data.categoryName && <Badge variant="secondary">{data.categoryName}</Badge>}
                     {!data.active && <Badge variant="destructive">Inactiva</Badge>}
                   </div>
                 </div>
@@ -258,12 +279,7 @@ export function DispositionDetailClient({
               <div className="flex flex-wrap items-end gap-2">
                 <div className="flex gap-1">
                   {[7, 30, 90].map((d) => (
-                    <Button
-                      key={d}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setQuickRange(d)}
-                    >
+                    <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
                       {d}d
                     </Button>
                   ))}
@@ -280,8 +296,11 @@ export function DispositionDetailClient({
                 </div>
                 <div className="flex items-end gap-2">
                   <div>
-                    <Label className="text-xs">Desde</Label>
+                    <Label htmlFor="disposition-detail-date-from" className="text-xs">
+                      Desde
+                    </Label>
                     <Input
+                      id="disposition-detail-date-from"
                       type="date"
                       value={dateFrom}
                       onChange={(e) => setDateFrom(e.target.value)}
@@ -289,8 +308,11 @@ export function DispositionDetailClient({
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Hasta</Label>
+                    <Label htmlFor="disposition-detail-date-to" className="text-xs">
+                      Hasta
+                    </Label>
                     <Input
+                      id="disposition-detail-date-to"
                       type="date"
                       value={dateTo}
                       onChange={(e) => setDateTo(e.target.value)}
@@ -318,7 +340,13 @@ export function DispositionDetailClient({
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={data.avgScore >= 70 ? "emerald" : data.avgScore >= 50 ? "amber" : "rose"}
+          tone={
+            data.avgScore >= data.passThreshold
+              ? "emerald"
+              : data.avgScore >= data.passThreshold * 0.7
+                ? "amber"
+                : "rose"
+          }
           index={1}
         />
         <KpiCard
@@ -350,7 +378,17 @@ export function DispositionDetailClient({
           </CardHeader>
           <CardContent>
             {data.scoreTrend.length > 0 ? (
-              <ChartContainer config={scoreTrendConfig} className="h-[260px] w-full">
+              <ChartContainer
+                config={scoreTrendConfig}
+                accessibilityLabel="Tendencia del score promedio para la disposición"
+                accessibilityDescription={summarizeChartData(
+                  data.scoreTrend.map(
+                    (point) =>
+                      `${formatDateOnlyForDisplay(point.date)}: ${point.avgScore.toFixed(1)}%`,
+                  ),
+                )}
+                className="h-[260px] w-full"
+              >
                 <LineChart data={data.scoreTrend} margin={{ left: 8, right: 12 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
                   <XAxis
@@ -358,17 +396,15 @@ export function DispositionDetailClient({
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
-                    tickFormatter={(v) => new Date(v).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                    tickFormatter={(v) =>
+                      formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                    }
                   />
-                  <YAxis
-                    domain={[0, 100]}
-                    tickLine={false}
-                    axisLine={false}
-                    className="text-xs"
-                  />
+                  <YAxis domain={[0, 100]} tickLine={false} axisLine={false} className="text-xs" />
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
+                        labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
                         formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
                       />
                     }
@@ -380,6 +416,7 @@ export function DispositionDetailClient({
                     strokeWidth={2}
                     dot={{ r: 3 }}
                     animationDuration={900}
+                    isAnimationActive={chartAnimation}
                   />
                 </LineChart>
               </ChartContainer>
@@ -398,7 +435,17 @@ export function DispositionDetailClient({
           </CardHeader>
           <CardContent>
             {data.scoreTrend.length > 0 ? (
-              <ChartContainer config={volumeTrendConfig} className="h-[260px] w-full">
+              <ChartContainer
+                config={volumeTrendConfig}
+                accessibilityLabel="Volumen de evaluaciones para la disposición por fecha"
+                accessibilityDescription={summarizeChartData(
+                  data.scoreTrend.map(
+                    (point) =>
+                      `${formatDateOnlyForDisplay(point.date)}: ${point.count} evaluaciones`,
+                  ),
+                )}
+                className="h-[260px] w-full"
+              >
                 <BarChart data={data.scoreTrend} margin={{ left: 8, right: 12 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
                   <XAxis
@@ -406,7 +453,9 @@ export function DispositionDetailClient({
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
-                    tickFormatter={(v) => new Date(v).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                    tickFormatter={(v) =>
+                      formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                    }
                   />
                   <YAxis
                     allowDecimals={false}
@@ -414,12 +463,20 @@ export function DispositionDetailClient({
                     axisLine={false}
                     className="text-xs"
                   />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                  <ChartTooltip
+                    cursor={false}
+                    content={
+                      <ChartTooltipContent
+                        labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                      />
+                    }
+                  />
                   <Bar
                     dataKey="count"
                     fill="#8b5cf6"
                     radius={[6, 6, 0, 0]}
                     animationDuration={900}
+                    isAnimationActive={chartAnimation}
                   />
                 </BarChart>
               </ChartContainer>
@@ -440,13 +497,28 @@ export function DispositionDetailClient({
           </CardHeader>
           <CardContent>
             {data.scoreByQuestion.length > 0 ? (
-              <ChartContainer config={questionConfig} className="h-[320px] w-full">
+              <ChartContainer
+                config={questionConfig}
+                accessibilityLabel="Score promedio por pregunta para la disposición"
+                accessibilityDescription={summarizeChartData(
+                  data.scoreByQuestion
+                    .slice(0, 8)
+                    .map(
+                      (question) => `${question.question}: ${question.avgScore.toFixed(1)}%`,
+                    ),
+                )}
+                className="h-[320px] w-full"
+              >
                 <BarChart
                   data={data.scoreByQuestion.slice(0, 8)}
                   layout="vertical"
                   margin={{ left: 20, right: 12 }}
                 >
-                  <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                  <CartesianGrid
+                    horizontal={false}
+                    strokeDasharray="3 3"
+                    className="stroke-border"
+                  />
                   <XAxis
                     type="number"
                     domain={[0, 100]}
@@ -461,9 +533,7 @@ export function DispositionDetailClient({
                     axisLine={false}
                     width={150}
                     className="text-xs"
-                    tickFormatter={(v: string) =>
-                      v.length > 22 ? `${v.slice(0, 20)}…` : v
-                    }
+                    tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 20)}…` : v)}
                   />
                   <ChartTooltip
                     content={
@@ -472,9 +542,17 @@ export function DispositionDetailClient({
                       />
                     }
                   />
-                  <Bar dataKey="avgScore" radius={[0, 6, 6, 0]} animationDuration={900}>
+                  <Bar
+                    dataKey="avgScore"
+                    radius={[0, 6, 6, 0]}
+                    animationDuration={900}
+                    isAnimationActive={chartAnimation}
+                  >
                     {data.scoreByQuestion.slice(0, 8).map((q) => (
-                      <Cell key={q.question} fill={getQuestionBarColor(q.avgScore)} />
+                      <Cell
+                        key={q.question}
+                        fill={getQuestionBarColor(q.avgScore, data.passThreshold)}
+                      />
                     ))}
                   </Bar>
                 </BarChart>
@@ -512,7 +590,10 @@ export function DispositionDetailClient({
                       <TableCell className="font-medium">{e.name}</TableCell>
                       <TableCell className="text-center tabular-nums">{e.count}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={scoreBadgeVariant(e.avgScore)} className="tabular-nums">
+                        <Badge
+                          variant={scoreBadgeVariant(e.avgScore, data.passThreshold)}
+                          className="tabular-nums"
+                        >
                           {e.avgScore.toFixed(1)}%
                         </Badge>
                       </TableCell>
@@ -555,7 +636,10 @@ export function DispositionDetailClient({
                       <TableCell className="font-medium">{a.name}</TableCell>
                       <TableCell className="text-center tabular-nums">{a.count}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={scoreBadgeVariant(a.avgScore)} className="tabular-nums">
+                        <Badge
+                          variant={scoreBadgeVariant(a.avgScore, data.passThreshold)}
+                          className="tabular-nums"
+                        >
                           {a.avgScore.toFixed(1)}%
                         </Badge>
                       </TableCell>
@@ -594,12 +678,14 @@ export function DispositionDetailClient({
                       <TableCell className="font-medium">{r.agentName}</TableCell>
                       <TableCell className="text-muted-foreground">{r.evaluatorName}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={scoreBadgeVariant(r.score)} className="tabular-nums">
-                          {r.score.toFixed(1)}%
+                        <Badge variant={resultBadgeVariant(r.result)} className="tabular-nums">
+                          {r.score.toFixed(1)}% · {r.result}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground">
-                        {new Date(r.createdAt).toLocaleDateString("es-ES")}
+                        {formatOperationalTimestamp(r.createdAt, operationalTimeZone, {
+                          dateStyle: "short",
+                        })}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -643,14 +729,13 @@ export function DispositionDetailClient({
                     onClick={() => router.push(`/analytics/dispositions/${s.id}`)}
                   >
                     <TableCell className="font-medium">{s.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {s.code ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-center tabular-nums">
-                      {s.totalEvaluations}
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{s.code ?? "—"}</TableCell>
+                    <TableCell className="text-center tabular-nums">{s.totalEvaluations}</TableCell>
                     <TableCell className="text-center">
-                      <Badge variant={scoreBadgeVariant(s.avgScore)} className="tabular-nums">
+                      <Badge
+                        variant={scoreBadgeVariant(s.avgScore, data.passThreshold)}
+                        className="tabular-nums"
+                      >
                         {s.avgScore.toFixed(1)}%
                       </Badge>
                     </TableCell>

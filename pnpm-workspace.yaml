@@ -1,17 +1,12 @@
-allowBuilds:
-  '"': true
-  ',': true
-  /: true
-  '@': true
-  '[': true
-  ']': true
-  a: true
-  e: true
-  g: true
-  h: true
-  i: true
-  m: true
-  n: true
-  p: true
-  r: true
-  s: true
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - sharp
+  - esbuild
+
+overrides:
+  "exceljs@4.4.0>uuid": 11.1.1
+  "next@16.2.10>postcss": 8.5.19
+  tmp: 0.2.7
+  vite: 8.0.16

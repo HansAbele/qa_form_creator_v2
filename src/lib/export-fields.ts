@@ -9,6 +9,7 @@ export type ExportFieldKey =
   | "evaluator"
   | "disposition"
   | "dispositionCategory"
+  | "outcome"
   | "score"
   | "result"
   | "fatalFail"
@@ -40,6 +41,7 @@ export const EXPORT_FIELD_GROUPS: ExportFieldGroup[] = [
       { key: "evaluator", label: "Evaluador" },
       { key: "disposition", label: "Disposicion" },
       { key: "dispositionCategory", label: "Categoria disposicion" },
+      { key: "outcome", label: "Resultado llamada (outcome)" },
     ],
   },
   {
@@ -86,6 +88,7 @@ export const DEFAULT_EXPORT_FIELDS: ExportFieldKey[] = [
   "team",
   "evaluator",
   "disposition",
+  "outcome",
   "score",
   "result",
   "fatalFail",

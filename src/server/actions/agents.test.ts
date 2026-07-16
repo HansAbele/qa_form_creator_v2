@@ -20,7 +20,14 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { createAgent, deleteAgent, updateAgent } from "./agents";
+import {
+  createAgent,
+  deleteAgent,
+  getAgents,
+  getAgentsForEvaluation,
+  getAgentsForManagement,
+  updateAgent,
+} from "./agents";
 
 const qaUser = {
   id: "qa-1",
@@ -42,10 +49,89 @@ describe("agent mutations RBAC", () => {
       canManageAgents: false,
     });
 
-    await expect(
-      createAgent({ name: "Ana", campaignId: "campaign-1" }),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    await expect(createAgent({ name: "Ana", campaignId: "campaign-1" })).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
     expect(prismaMock.agent.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the detailed agent reader admin-only", async () => {
+    await expect(getAgents()).rejects.toThrow("No autorizado");
+    expect(prismaMock.agent.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns a minimal active selector for authorized evaluators", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEvaluate: true,
+    });
+    prismaMock.agent.findMany.mockResolvedValue([]);
+
+    await getAgentsForEvaluation("campaign-1");
+
+    expect(prismaMock.agent.findMany).toHaveBeenCalledWith({
+      where: { campaignId: "campaign-1", active: true, campaign: { active: true } },
+      select: { id: true, name: true, agentCode: true },
+      orderBy: { name: "asc" },
+    });
+  });
+
+  it("hides foreign team metadata and counts only campaign-consistent responses", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canManageAgents: true },
+    ]);
+    prismaMock.agent.findMany.mockResolvedValue([
+      {
+        id: "agent-valid",
+        name: "Ana",
+        campaignId: "campaign-1",
+        campaign: { id: "campaign-1", name: "Campana 1" },
+        team: { id: "team-1", name: "Equipo 1", campaignId: "campaign-1" },
+      },
+      {
+        id: "agent-corrupt",
+        name: "Beto",
+        campaignId: "campaign-1",
+        campaign: { id: "campaign-1", name: "Campana 1" },
+        team: { id: "team-2", name: "Equipo ajeno", campaignId: "campaign-2" },
+      },
+    ]);
+    prismaMock.response.groupBy.mockResolvedValue([
+      { agentId: "agent-valid", _count: { _all: 2 } },
+      { agentId: "agent-corrupt", _count: { _all: 1 } },
+    ]);
+
+    const result = await getAgentsForManagement();
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: "agent-valid",
+        team: { id: "team-1", name: "Equipo 1" },
+        _count: { responses: 2 },
+      }),
+      expect.objectContaining({
+        id: "agent-corrupt",
+        team: null,
+        _count: { responses: 1 },
+      }),
+    ]);
+    expect(prismaMock.response.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            {
+              AND: [
+                { form: { campaignId: "campaign-1" } },
+                { agent: { campaignId: "campaign-1" } },
+                {
+                  OR: [{ dispositionId: null }, { disposition: { campaignId: "campaign-1" } }],
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
   });
 
   it("rejects create when the selected team belongs to another campaign", async () => {

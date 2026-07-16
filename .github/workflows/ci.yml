@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+        env:
+          POSTGRES_USER: qore_ci
+          POSTGRES_PASSWORD: qore_ci_only
+          POSTGRES_DB: qore_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qore_ci -d qore_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CI: true
+      DATABASE_URL: postgresql://qore_ci:qore_ci_only@127.0.0.1:5432/qore_ci?schema=public
+      AUTH_SECRET: ci-only-auth-secret-with-at-least-32-characters
+      RATE_LIMIT_HASH_SECRET: ci-only-rate-limit-secret-with-at-least-32-characters
+      AUTH_URL: http://localhost:3100
+      AUTH_TRUST_HOST: true
+      NEXT_TELEMETRY_DISABLED: 1
+      QORE_SEED_ADMIN_PASSWORD: Ci-Admin-Secure-2026!
+      QORE_SEED_QA_PASSWORD: Ci-Qa-Secure-2026!
+      QORE_SEED_QA_ELEVATED_PASSWORD: Ci-Qa-Elevated-2026!
+      QORE_SEED_SUPERVISOR_PASSWORD: Ci-Supervisor-Secure-2026!
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Reject tracked or historical secret files
+        run: bash scripts/verify-repository-secrets.sh
+
+      - name: Scan all Git history with pinned Gitleaks
+        run: |
+          curl --fail --location --silent --show-error \
+            --output /tmp/gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" \
+            | sha256sum --check
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git --redact --no-banner --verbose --log-opts="--all" .
+
+      - name: Validate operational shell scripts
+        run: find scripts -type f -name '*.sh' -print0 | xargs -0 -n 1 bash -n
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Validate Prisma schema
+        run: pnpm db:validate
+
+      - name: Apply migrations to an empty database
+        run: pnpm db:migrate:deploy
+
+      - name: Generate ephemeral runtime database credentials
+        run: |
+          DB_APP_PASSWORD="$(openssl rand -hex 32)"
+          DB_APP_DATABASE_URL="postgresql://qore_ci_app:${DB_APP_PASSWORD}@127.0.0.1:5432/qore_ci?schema=public"
+          echo "::add-mask::${DB_APP_PASSWORD}"
+          echo "::add-mask::${DB_APP_DATABASE_URL}"
+          {
+            echo "DB_APP_PASSWORD=${DB_APP_PASSWORD}"
+            echo "DB_APP_DATABASE_URL=${DB_APP_DATABASE_URL}"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify runtime database isolation and append-only audit
+        env:
+          DB_NAME: qore_ci
+          DB_OWNER_USER: qore_ci
+          DB_APP_USER: qore_ci_app
+          QORE_EPHEMERAL_DB: true
+        run: |
+          DB_CONTAINER="$(docker ps --filter publish=5432 --format '{{.ID}}' | head -n 1)"
+          test -n "$DB_CONTAINER"
+          export DB_CONTAINER
+          bash scripts/test-db-security.sh
+
+      - name: Verify atomic concurrent login admission
+        run: DATABASE_URL="$DB_APP_DATABASE_URL" pnpm exec tsx scripts/test-rate-limit-concurrency.ts
+
+      - name: Verify optimistic response concurrency on PostgreSQL 16
+        run: |
+          test -n "$DB_APP_DATABASE_URL"
+          admin_database_url="$DATABASE_URL"
+          DATABASE_URL="$DB_APP_DATABASE_URL" \
+            RESPONSE_CONCURRENCY_DATABASE_URL="$DB_APP_DATABASE_URL" \
+            RESPONSE_CONCURRENCY_ADMIN_DATABASE_URL="$admin_database_url" \
+            pnpm test:integration:response-concurrency
+
+      - name: Verify concurrent export admission on PostgreSQL 16
+        run: |
+          test -n "$DB_APP_DATABASE_URL"
+          admin_database_url="$DATABASE_URL"
+          DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_ADMISSION_DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_ADMISSION_ADMIN_DATABASE_URL="$admin_database_url" \
+            pnpm test:integration:export-admission
+
+      - name: Verify authorized CSV export lifecycle on PostgreSQL 16
+        run: |
+          test -n "$DB_APP_DATABASE_URL"
+          admin_database_url="$DATABASE_URL"
+          DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_DOWNLOAD_DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_DOWNLOAD_ADMIN_DATABASE_URL="$admin_database_url" \
+            pnpm test:integration:export-download
+
+      - name: Reject migration drift
+        run: >-
+          pnpm exec prisma migrate diff
+          --from-url "$DATABASE_URL"
+          --to-schema-datamodel prisma/schema.prisma
+          --exit-code
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test:ci
+
+      - name: Scan dependency lockfile with pinned OSV-Scanner
+        run: |
+          curl --fail --location --silent --show-error \
+            --output /tmp/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64
+          echo "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0  /tmp/osv-scanner" \
+            | sha256sum --check
+          chmod 700 /tmp/osv-scanner
+          /tmp/osv-scanner scan source \
+            --lockfile=pnpm-lock.yaml \
+            --format=vertical \
+            --verbosity=error
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Seed E2E identities and fixtures
+        run: pnpm db:seed
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Role and navigation E2E tests
+        run: DATABASE_URL="$DB_APP_DATABASE_URL" pnpm test:e2e
+
+      - name: Build production application image
+        run: docker build --target runner --progress=plain .
+
+      - name: Build pinned migration image
+        run: docker build --target migrator --progress=plain .

@@ -1,46 +1,47 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { ADMIN_AUTH_STATE, QA_AUTH_STATE } from "./auth-state";
 
-test.describe("Forms (Admin)", () => {
+test.describe("Forms (QA Manager)", () => {
+  test.use({ storageState: ADMIN_AUTH_STATE });
   test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByLabel("Email").fill("admin@qa.local");
-    await page.getByLabel("Contraseña").fill("Admin.2026");
-    await page.getByRole("button", { name: "Ingresar" }).click();
-    await expect(page).toHaveURL("/");
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 
   test("should show forms list", async ({ page }) => {
     await page.getByRole("link", { name: "Formularios" }).click();
-    await expect(page.getByText("Formularios")).toBeVisible();
-    await expect(page.getByText("Nuevo formulario")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Nuevo formulario" })).toBeVisible();
   });
 
   test("should open form builder", async ({ page }) => {
     await page.goto("/forms/new");
-    await expect(page.getByText("Nuevo Formulario")).toBeVisible();
-    await expect(page.getByText("Editor")).toBeVisible();
-    await expect(page.getByText("Vista previa")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Nuevo Formulario" })).toBeVisible();
+    const editorTab = page.getByRole("tab", { name: "Editor" });
+    const previewTab = page.getByRole("tab", { name: "Vista previa" });
+    await expect(editorTab).toHaveCount(1);
+    await expect(previewTab).toHaveCount(1);
+    await expect(editorTab).toBeVisible();
+    await expect(previewTab).toBeVisible();
   });
 
   test("should add a question in form builder", async ({ page }) => {
     await page.goto("/forms/new");
-    await page.getByRole("button", { name: "Agregar pregunta" }).click();
-    await expect(page.getByPlaceholder("Texto de la pregunta...")).toBeVisible();
+    await page.getByRole("button", { name: "Agregar pregunta", exact: true }).click();
+    await expect(page.getByText("Texto de la pregunta", { exact: true })).toBeVisible();
   });
 });
 
 test.describe("Forms (QA)", () => {
+  test.use({ storageState: QA_AUTH_STATE });
   test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByLabel("Email").fill("qa@qa.local");
-    await page.getByLabel("Contraseña").fill("Qa.2026");
-    await page.getByRole("button", { name: "Ingresar" }).click();
-    await expect(page).toHaveURL("/");
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 
   test("should show forms list without create button", async ({ page }) => {
-    await page.getByRole("link", { name: "Formularios" }).click();
-    await expect(page.getByText("Formularios")).toBeVisible();
-    await expect(page.getByText("Nuevo formulario")).not.toBeVisible();
+    await page.goto("/forms");
+    await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Nuevo formulario" })).not.toBeVisible();
   });
 });

@@ -1,7 +1,5 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   DndContext,
   KeyboardSensor,
@@ -18,6 +16,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { AlertTriangle, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,10 +37,12 @@ import {
   type CriticalTypeValue,
   isOptionQuestionType,
   isScoredQuestionType,
+  type RatingStyleValue,
 } from "@/types/form-builder";
 import type { QuestionType } from "@prisma/client";
 import { FormPreview } from "./form-preview";
-import { QuestionCard, type QuestionData } from "./question-card";
+import { type QuestionData, QuestionPanel } from "./question-panel";
+import { QuestionRow } from "./question-row";
 import { WeightBalanceMeter } from "./weight-balance-meter";
 
 interface Campaign {
@@ -80,6 +82,8 @@ interface FormBuilderProps {
       fatal: boolean;
       criticalType?: CriticalTypeValue | null;
       ratingFailThreshold?: number | null;
+      ratingMax?: number | null;
+      ratingStyle?: string | null;
       requiresCommentOnFail: boolean;
       order: number;
       formCategory?: {
@@ -116,10 +120,15 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
         fatal: q.fatal,
         criticalType: q.criticalType ?? null,
         ratingFailThreshold: q.ratingFailThreshold ?? null,
+        ratingMax: q.ratingMax ?? null,
+        ratingStyle: (q.ratingStyle as RatingStyleValue | null) ?? null,
         requiresCommentOnFail: q.requiresCommentOnFail,
       };
     }) ?? [],
   );
+  const [draft, setDraft] = useState<QuestionData | null>(null);
+  const [panelMode, setPanelMode] = useState<"add" | "edit">("add");
+
   const editingPublished = initialData?.status === "PUBLISHED";
   const statusText =
     initialData?.status === "PUBLISHED"
@@ -128,59 +137,74 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
         ? "Archivado"
         : "Borrador";
 
-  const scoredWeightTotal = questions.reduce(
-    (sum, question) => sum + (isScoredQuestionType(question.type) ? question.weight : 0),
-    0,
-  );
-
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // Reorder only within the same category; category changes go through the panel.
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
-    if (over && active.id !== over.id) {
-      setQuestions((items) => {
-        const oldIndex = items.findIndex((i) => i.id === active.id);
-        const newIndex = items.findIndex((i) => i.id === over.id);
-        return arrayMove(items, oldIndex, newIndex);
-      });
-    }
+    if (!over || active.id === over.id) return;
+    setQuestions((items) => {
+      const from = items.find((item) => item.id === active.id);
+      const to = items.find((item) => item.id === over.id);
+      if (!from || !to || from.qaCategoryId !== to.qaCategoryId) return items;
+      const oldIndex = items.findIndex((item) => item.id === active.id);
+      const newIndex = items.findIndex((item) => item.id === over.id);
+      return arrayMove(items, oldIndex, newIndex);
+    });
   }, []);
 
-  const addQuestion = () => {
-    setQuestions((prev) => {
-      const hasRatingQuestion = prev.some((question) => question.type === "RATING");
-      const defaultCategory = qaCategories[0];
+  // Persist an in-progress, complete draft so switching panels never loses it.
+  const commitDraft = () => {
+    if (draft?.label.trim() && draft.qaCategoryId) {
+      setQuestions((prev) => mergeDraft(prev, draft, panelMode));
+    }
+  };
 
-      return [
-        ...prev,
-        {
-          id: generateTempId(),
-          type: "RATING" as QuestionType,
-          label: "",
-          options: [],
-          optionPoints: [],
-          required: true,
-          qaCategoryId: defaultCategory?.id ?? "",
-          weight: hasRatingQuestion ? 0 : 100,
-          fatal: false,
-          fatalOptions: [],
-          criticalType: null,
-          ratingFailThreshold: null,
-          requiresCommentOnFail: Boolean(defaultCategory?.requiresCommentOnFail),
-        },
-      ];
+  const startAdd = (categoryId?: string) => {
+    commitDraft();
+    const hasScoredQuestion = questions.some((question) => isScoredQuestionType(question.type));
+    const category = qaCategories.find((item) => item.id === categoryId) ?? qaCategories[0];
+    setPanelMode("add");
+    setDraft({
+      id: generateTempId(),
+      type: "RATING" as QuestionType,
+      label: "",
+      options: [],
+      optionPoints: [],
+      required: true,
+      qaCategoryId: category?.id ?? "",
+      weight: hasScoredQuestion ? 0 : 100,
+      fatal: false,
+      fatalOptions: [],
+      criticalType: null,
+      ratingFailThreshold: null,
+      ratingMax: null,
+      ratingStyle: null,
+      requiresCommentOnFail: Boolean(category?.requiresCommentOnFail),
     });
   };
 
-  const updateQuestion = (index: number, updated: QuestionData) => {
-    setQuestions((prev) => prev.map((q, i) => (i === index ? updated : q)));
+  const startEdit = (question: QuestionData) => {
+    if (panelMode === "edit" && draft?.id === question.id) return; // already open
+    commitDraft();
+    setPanelMode("edit");
+    setDraft({ ...question });
   };
 
-  const deleteQuestion = (index: number) => {
-    setQuestions((prev) => prev.filter((_, i) => i !== index));
+  const submitPanel = () => {
+    if (!draft) return;
+    setQuestions((prev) =>
+      panelMode === "edit" ? prev.map((q) => (q.id === draft.id ? draft : q)) : [...prev, draft],
+    );
+    setDraft(null);
+  };
+
+  const deleteQuestion = (id: string) => {
+    setQuestions((prev) => prev.filter((question) => question.id !== id));
+    setDraft((current) => (current?.id === id ? null : current));
   };
 
   const handleSave = async () => {
@@ -196,19 +220,30 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       toast.error("No hay categorias QA activas para asignar");
       return;
     }
-    if (questions.length === 0) {
+
+    // Fold an open, complete draft into the set so it is never silently lost.
+    let effectiveQuestions = questions;
+    if (draft) {
+      if (!draft.label.trim() || !draft.qaCategoryId) {
+        toast.error("Termina la pregunta abierta en el panel antes de guardar");
+        return;
+      }
+      effectiveQuestions = mergeDraft(questions, draft, panelMode);
+    }
+
+    if (effectiveQuestions.length === 0) {
       toast.error("Agrega al menos una pregunta");
       return;
     }
-    if (questions.some((q) => !q.label.trim())) {
+    if (effectiveQuestions.some((q) => !q.label.trim())) {
       toast.error("Todas las preguntas deben tener un texto");
       return;
     }
-    if (questions.some((q) => !q.qaCategoryId)) {
+    if (effectiveQuestions.some((q) => !q.qaCategoryId)) {
       toast.error("Todas las preguntas deben tener una categoria QA");
       return;
     }
-    const invalidFatal = questions.some((question) => {
+    const invalidFatal = effectiveQuestions.some((question) => {
       const category = qaCategories.find((item) => item.id === question.qaCategoryId);
       return question.fatal && !category?.canBeFatal;
     });
@@ -216,7 +251,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       toast.error("Hay fallas fatales en categorias que no lo permiten");
       return;
     }
-    const optionQuestionWithoutOptions = questions.some((question) => {
+    const optionQuestionWithoutOptions = effectiveQuestions.some((question) => {
       if (!isOptionQuestionType(question.type)) return false;
       return question.options.filter((option) => option.trim()).length < 2;
     });
@@ -224,7 +259,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       toast.error("Seleccion y opcion multiple requieren al menos 2 opciones");
       return;
     }
-    const fatalOptionQuestionWithoutRules = questions.some((question) => {
+    const fatalOptionQuestionWithoutRules = effectiveQuestions.some((question) => {
       if (!question.fatal || !isOptionQuestionType(question.type)) return false;
       const validFatalOptions = getValidFatalOptions(question.fatalOptions, question.options);
       return validFatalOptions.length === 0;
@@ -233,9 +268,13 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       toast.error("Selecciona al menos una opcion fatal en preguntas criticas");
       return;
     }
+    const scoredTotal = effectiveQuestions.reduce(
+      (sum, question) => sum + (isScoredQuestionType(question.type) ? question.weight : 0),
+      0,
+    );
     if (
-      questions.some((question) => isScoredQuestionType(question.type)) &&
-      scoredWeightTotal !== 100
+      effectiveQuestions.some((question) => isScoredQuestionType(question.type)) &&
+      scoredTotal !== 100
     ) {
       toast.error("Los pesos de las preguntas puntuables deben sumar 100%");
       return;
@@ -247,7 +286,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
         title: title.trim(),
         description: description.trim() || undefined,
         campaignId,
-        questions: questions.map((q) => {
+        questions: effectiveQuestions.map((q) => {
           // Keep options and their points aligned after dropping blanks.
           const keptIndexes = q.options
             .map((option, index) => (option.trim() ? index : -1))
@@ -272,6 +311,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
             criticalType: q.fatal ? (q.criticalType ?? undefined) : undefined,
             ratingFailThreshold:
               q.fatal && q.type === "RATING" ? (q.ratingFailThreshold ?? undefined) : undefined,
+            ratingMax: q.type === "RATING" ? (q.ratingMax ?? undefined) : undefined,
+            ratingStyle: q.type === "RATING" ? (q.ratingStyle ?? undefined) : undefined,
             requiresCommentOnFail: q.requiresCommentOnFail,
           };
         }),
@@ -298,6 +339,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       setSaving(false);
     }
   };
+
+  const groups = groupByCategory(questions, qaCategories);
 
   return (
     <div className="space-y-6">
@@ -353,9 +396,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
                       <SelectValue placeholder="Seleccionar campana">
                         {(value: string | null) => {
                           if (!value) return "Seleccionar campana";
-                          return (
-                            campaigns.find((c) => c.id === value)?.name ?? "Seleccionar campana"
-                          );
+                          return campaigns.find((c) => c.id === value)?.name ?? "Seleccionar campana";
                         }}
                       </SelectValue>
                     </SelectTrigger>
@@ -380,61 +421,96 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <h3 className="font-heading text-lg font-semibold">
-                    Preguntas ({questions.length})
-                  </h3>
-                  <Button type="button" variant="outline" onClick={addQuestion}>
-                    <Plus className="mr-1 h-4 w-4" />
-                    Agregar pregunta
-                  </Button>
-                </div>
+              <div className="flex items-center justify-between">
+                <h3 className="font-heading text-lg font-semibold">
+                  Preguntas ({questions.length})
+                </h3>
+                <Button type="button" variant="outline" onClick={() => startAdd()}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Agregar pregunta
+                </Button>
+              </div>
 
+              {questions.length === 0 ? (
+                <div className="flex h-32 items-center justify-center rounded-xl border border-dashed text-muted-foreground">
+                  Haz clic en &quot;Agregar pregunta&quot; para comenzar
+                </div>
+              ) : (
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
                   onDragEnd={handleDragEnd}
                 >
-                  <SortableContext
-                    items={questions.map((q) => q.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-3">
-                      {questions.map((question, index) => (
-                        <QuestionCard
-                          key={question.id}
-                          question={question}
-                          index={index}
-                          qaCategories={qaCategories}
-                          onUpdate={(updated) => updateQuestion(index, updated)}
-                          onDelete={() => deleteQuestion(index)}
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-
-                {questions.length === 0 && (
-                  <div className="flex h-32 items-center justify-center rounded-xl border border-dashed text-muted-foreground">
-                    Haz clic en &quot;Agregar pregunta&quot; para comenzar
+                  <div className="space-y-4">
+                    {groups.map((group, gi) => (
+                      <div key={group.catId} className="rounded-xl border border-border bg-card">
+                        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: group.color ?? "hsl(var(--primary))" }}
+                          />
+                          <span className="font-heading text-sm font-semibold">{group.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {group.items.length} pregunta{group.items.length === 1 ? "" : "s"}
+                          </span>
+                          {group.weight > 0 && (
+                            <Badge variant="outline" className="text-[10px] tabular-nums">
+                              Peso {group.weight}%
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="space-y-2 p-3">
+                          <SortableContext
+                            items={group.items.map((q) => q.id)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            {group.items.map((question, ii) => (
+                              <QuestionRow
+                                key={question.id}
+                                question={question}
+                                index={`${gi + 1}.${ii + 1}`}
+                                active={draft?.id === question.id}
+                                onEdit={() => startEdit(question)}
+                                onDelete={() => deleteQuestion(question.id)}
+                              />
+                            ))}
+                          </SortableContext>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            className="w-full border border-dashed border-border text-muted-foreground"
+                            onClick={() => startAdd(group.catId)}
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Agregar pregunta a {group.name}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                )}
-              </div>
+                </DndContext>
+              )}
             </div>
 
-            {/* Sticky panel — balance + actions */}
-            <div className="space-y-4 lg:sticky lg:top-[82px] lg:w-[340px] lg:shrink-0">
+            {/* Sticky panel — balance + add/edit + actions */}
+            <div className="space-y-4 lg:sticky lg:top-[82px] lg:w-[360px] lg:shrink-0">
               <WeightBalanceMeter questions={questions} qaCategories={qaCategories} />
+              {draft && (
+                <QuestionPanel
+                  draft={draft}
+                  qaCategories={qaCategories}
+                  mode={panelMode}
+                  onChange={setDraft}
+                  onSubmit={submitPanel}
+                  onCancel={() => setDraft(null)}
+                />
+              )}
               <div className="space-y-2 rounded-xl border border-border bg-card p-4">
                 <Button onClick={handleSave} disabled={saving} className="w-full">
                   {saving ? "Guardando..." : initialData ? "Actualizar" : "Crear formulario"}
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push("/forms")}
-                  className="w-full"
-                >
+                <Button variant="outline" onClick={() => router.push("/forms")} className="w-full">
                   Cancelar
                 </Button>
               </div>
@@ -450,6 +526,46 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
   );
 }
 
+function mergeDraft(
+  list: QuestionData[],
+  draft: QuestionData,
+  mode: "add" | "edit",
+): QuestionData[] {
+  return mode === "edit" ? list.map((q) => (q.id === draft.id ? draft : q)) : [...list, draft];
+}
+
+interface QuestionGroup {
+  catId: string;
+  name: string;
+  color: string | null;
+  weight: number;
+  items: QuestionData[];
+}
+
+function groupByCategory(
+  questions: QuestionData[],
+  qaCategories: QACategoryOption[],
+): QuestionGroup[] {
+  const order: string[] = [];
+  for (const question of questions) {
+    if (!order.includes(question.qaCategoryId)) order.push(question.qaCategoryId);
+  }
+  return order.map((catId) => {
+    const items = questions.filter((question) => question.qaCategoryId === catId);
+    const category = qaCategories.find((c) => c.id === catId);
+    return {
+      catId,
+      name: category?.name ?? "Sin categoria",
+      color: category?.systemColor ?? null,
+      weight: items.reduce(
+        (sum, question) => sum + (isScoredQuestionType(question.type) ? question.weight : 0),
+        0,
+      ),
+      items,
+    };
+  });
+}
+
 /** Parses stored options (legacy `string[]` or weighted `[{value, points}]`). */
 function parseStoredOptions(raw: unknown): { options: string[]; optionPoints: number[] } {
   if (!Array.isArray(raw)) return { options: [], optionPoints: [] };
@@ -461,9 +577,7 @@ function parseStoredOptions(raw: unknown): { options: string[]; optionPoints: nu
       optionPoints.push(0);
     } else if (item && typeof item === "object" && "value" in item) {
       options.push(String((item as { value: unknown }).value));
-      optionPoints.push(
-        "points" in item ? Number((item as { points: unknown }).points) || 0 : 0,
-      );
+      optionPoints.push("points" in item ? Number((item as { points: unknown }).points) || 0 : 0);
     }
   }
   return { options, optionPoints };

@@ -16,14 +16,17 @@ Role mapping (hr_employee.job_title, case-insensitive):
 Campaigns = hr_departments that have at least one Agent/TL employee.
 Internal departments (QA, IT, HR, etc.) are excluded from campaigns.
 
-All QA + ADMIN users are linked to every campaign.
+QA users are linked only to their operational department when it maps to a
+campaign. Generic/internal QA users remain unassigned for manual review.
+Global ADMIN users do not receive redundant campaign assignments.
 Agents are linked only to their own department/campaign.
 
 Idempotent: safe to run multiple times without duplicates.
-Initial password for all imported users: configured with QORE_INITIAL_PASSWORD
+Imported users are created without a password. An administrator must assign an
+individual credential later through the audited user-management flow.
 
 Usage:
-    pip install psycopg2-binary paramiko bcrypt
+    pip install psycopg2-binary paramiko
     python scripts/migrate-from-odoo.py
 """
 
@@ -31,39 +34,38 @@ from __future__ import annotations
 import sys
 import os
 import re
+import shlex
 import uuid
 import hashlib
+from urllib.parse import unquote, urlparse
 
 import psycopg2
 import psycopg2.extras
 import paramiko
 
-try:
-    import bcrypt as _bcrypt
-
-    def hash_pw(pw: str) -> str:
-        return _bcrypt.hashpw(pw.encode(), _bcrypt.gensalt(12)).decode()
-
-except ImportError:
-    sys.exit("ERROR: pip install bcrypt  is required to run this script.")
-
 
 # ─── Configuration ────────────────────────────────────────────────────────────
+
+def require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        sys.exit(f"ERROR: {name} is required.")
+    return value
+
 
 ODOO = dict(
     host="192.168.80.240",
     port=5432,
     dbname="dbodoo",
     user="wfm",
-    password=os.environ["ODOO_DB_PASSWORD"],
+    password=require_env("ODOO_DB_PASSWORD"),
 )
 
 SSH_HOST     = "192.168.80.243"
 SSH_USER     = "root"
-SSH_PASS     = os.environ["QORE_SSH_PASSWORD"]
+SSH_PASS     = require_env("QORE_SSH_PASSWORD")
 DB_CONTAINER = "qa_form_creator_db"
 
-DEFAULT_PW   = os.environ["QORE_INITIAL_PASSWORD"]
 EMAIL_DOMAIN = "@tnoutsourcing.com"
 
 # job_title substrings that map to ADMIN role in Qore
@@ -204,7 +206,7 @@ def fetch_odoo() -> tuple[dict, list]:
 
 # ─── SQL builder ──────────────────────────────────────────────────────────────
 
-def build_sql(depts: dict, employees: list, pw_hash: str) -> str:
+def build_sql(depts: dict, employees: list) -> str:
     by_role: dict[str, list] = {"ADMIN": [], "QA": [], "AGENT": []}
     for e in employees:
         by_role[classify(e["job_title"])].append(e)
@@ -244,14 +246,20 @@ def build_sql(depts: dict, employees: list, pw_hash: str) -> str:
 
     # ── Users (login accounts) ─────────────────────────────────────────────────
     sql += ["", "-- ── Users (ADMIN + QA login accounts) ──────────────────────────────────"]
-    login_emails: list[str] = []
+    qa_assignments: list[tuple[str, str]] = []
+    unassigned_qa = 0
 
     for e in by_role["ADMIN"] + by_role["QA"]:
         role  = classify(e["job_title"])
         raw   = e["work_email"] or ""
         email = raw if "@" in raw else derive_email(e["name"])
         uid   = rand_id()
-        login_emails.append(email)
+        if role == "QA":
+            campaign_id = camp_id_map.get(e["department_id"])
+            if campaign_id:
+                qa_assignments.append((email, campaign_id))
+            else:
+                unassigned_qa += 1
         sql.append(
             f'INSERT INTO "User" '
             f'(id, email, name, password, role, active, "createdAt", "updatedAt") '
@@ -259,27 +267,43 @@ def build_sql(depts: dict, employees: list, pw_hash: str) -> str:
             f"'{uid}', "
             f"'{esc(email)}', "
             f"'{esc(e['name'])}', "
-            f"'{pw_hash}', "
+            f"NULL, "
             f"'{role}'::\"Role\", "
             f"true, NOW(), NOW()) "
             f"ON CONFLICT (email) DO UPDATE SET "
             f"name = EXCLUDED.name, "
             f"role = EXCLUDED.role, "
-            f"active = true;"
+            f'"sessionVersion" = CASE '
+            f'WHEN "User".role IS DISTINCT FROM EXCLUDED.role '
+            f'THEN "User"."sessionVersion" + 1 '
+            f'ELSE "User"."sessionVersion" END;'
         )
 
-    # ── UserCampaign: all login users linked to every campaign ─────────────────
-    if login_emails and camp_id_map:
-        email_list = ", ".join(f"'{esc(e)}'" for e in login_emails)
-        sql += ["", "-- ── UserCampaign (all QA/ADMIN users linked to every campaign) ─────────"]
-        sql.append(
-            f'INSERT INTO "UserCampaign" ("userId", "campaignId", "assignedAt") '
-            f'SELECT u.id, c.id, NOW() '
-            f'FROM "User" u '
-            f'CROSS JOIN "Campaign" c '
-            f"WHERE u.email IN ({email_list}) "
-            f'ON CONFLICT ("userId", "campaignId") DO NOTHING;'
-        )
+    # QA access is campaign-scoped and explicitly least-privileged. Global ADMIN
+    # users do not need UserCampaign rows because their application role already
+    # grants global access.
+    if qa_assignments:
+        sql += ["", "-- QA campaign access (operational department only)"]
+        for email, campaign_id in qa_assignments:
+            safe_email = esc(email)
+            sql.append(
+                f'INSERT INTO "UserCampaign" ('
+                f'"userId", "campaignId", "assignedAt", "roleInCampaign", '
+                f'"canViewDashboard", "canViewKPIs", "canViewForms", '
+                f'"canCreateForms", "canEditForms", "canPublishForms", '
+                f'"canEvaluate", "canEditEvaluations", "canViewReports", '
+                f'"canExport", "canManageAgents", "canManageDispositions", '
+                f'"canManageCampaignScoring", "canViewAudit") '
+                f'SELECT u.id, \'{campaign_id}\', NOW(), \'EVALUATOR\'::"CampaignAccessLevel", '
+                f'true, false, true, false, false, false, true, false, false, '
+                f'false, false, false, false, false '
+                f'FROM "User" u WHERE u.email = \'{safe_email}\' '
+                f'ON CONFLICT ("userId", "campaignId") DO NOTHING;'
+            )
+
+    log(f"  QA assignments: {len(qa_assignments)} campaign-scoped")
+    if unassigned_qa:
+        log(f"  QA requiring manual campaign assignment: {unassigned_qa}")
 
     # ── Agents ────────────────────────────────────────────────────────────────
     sql += ["", "-- ── Agents (from hr_employee) ───────────────────────────────────────────"]
@@ -320,25 +344,36 @@ def detect_qore_db(client: paramiko.SSHClient) -> tuple[str, str]:
         "grep DATABASE_URL /opt/qa-form-creator/.env.production 2>/dev/null | head -1"
     )
     line = out.read().decode().strip()
-    # postgresql://user:pass@host:port/dbname
-    m = re.search(r"postgresql://([^:]+):[^@]+@[^/:]+(?::\d+)?/(\S+)", line)
-    if m:
-        return m.group(1), m.group(2)
-    log("  WARNING: Could not detect DB credentials from env, using known defaults.")
-    return "qa_user", "qa_form_creator"
+    value = line.partition("=")[2].strip().strip("'\"")
+    parsed = urlparse(value)
+    db_user = unquote(parsed.username or "")
+    db_name = unquote(parsed.path.lstrip("/").split("?", 1)[0])
+    identifier = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    if identifier.fullmatch(db_user) and identifier.fullmatch(db_name):
+        return db_user, db_name
+
+    db_user = os.environ.get("QORE_DB_USER", "qa_user")
+    db_name = os.environ.get("QORE_DB_NAME", "qa_form_creator")
+    if identifier.fullmatch(db_user) and identifier.fullmatch(db_name):
+        return db_user, db_name
+    raise RuntimeError("QORE_DB_USER and QORE_DB_NAME must be safe PostgreSQL identifiers.")
 
 
 def apply_sql(sql: str) -> None:
     log("\nConnecting to Qore server via SSH...")
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(SSH_HOST, username=SSH_USER, password=SSH_PASS, timeout=15)
 
     db_user, db_name = detect_qore_db(client)
     log(f"  DB: {db_name}   user: {db_user}")
     log(f"  Piping SQL ({len(sql):,} bytes) into {DB_CONTAINER}...")
 
-    cmd = f"docker exec -i {DB_CONTAINER} psql -U {db_user} -d {db_name}"
+    cmd = (
+        f"docker exec -i {shlex.quote(DB_CONTAINER)} psql -v ON_ERROR_STOP=1 "
+        f"-U {shlex.quote(db_user)} -d {shlex.quote(db_name)}"
+    )
     stdin, stdout, stderr = client.exec_command(cmd, timeout=180)
     stdin.write(sql.encode())
     stdin.channel.shutdown_write()
@@ -365,23 +400,27 @@ def main() -> None:
     log("  Odoo -> Qore Migration")
     log("=" * 60)
 
-    log("\n[1/4] Hashing default password...")
-    pw_hash = hash_pw(DEFAULT_PW)
-    log(f"  {DEFAULT_PW}  ->  {pw_hash[:30]}...")
-
-    log("\n[2/4] Reading Odoo data...")
+    log("\n[1/4] Reading Odoo data...")
     depts, employees = fetch_odoo()
 
-    log("\n[3/4] Building SQL...")
-    sql = build_sql(depts, employees, pw_hash)
+    if by_role := [employee for employee in employees if classify(employee["job_title"]) == "ADMIN"]:
+        if os.environ.get("QORE_ALLOW_ADMIN_IMPORT") != "true":
+            sys.exit(
+                f"ERROR: source contains {len(by_role)} ADMIN account(s); "
+                "set QORE_ALLOW_ADMIN_IMPORT=true only after explicit review."
+            )
+
+    log("\n[2/4] Building SQL...")
+    sql = build_sql(depts, employees)
 
     sql_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migration.sql")
-    with open(sql_file, "w", encoding="utf-8") as f:
+    descriptor = os.open(sql_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as f:
         f.write(sql)
     log(f"\n  SQL saved to  scripts/migration.sql  ({len(sql):,} bytes)")
     log("  Open it to review before applying.")
 
-    confirm = input("\n[4/4] Apply to production now? [y/N]: ").strip().lower()
+    confirm = input("\n[3/4] Apply to production now? [y/N]: ").strip().lower()
     if confirm != "y":
         log("Aborted. The SQL file is saved — run again or apply manually when ready.")
         sys.exit(0)
@@ -389,8 +428,8 @@ def main() -> None:
     apply_sql(sql)
 
     log("\n" + "=" * 60)
-    log(f"  Initial password for ALL new users: {DEFAULT_PW}")
-    log("  Ask users to change it on first login.")
+    log("  Migration complete. New login accounts have no password.")
+    log("  Assign each user an individual credential through the audited admin flow.")
     log("=" * 60)
 
 

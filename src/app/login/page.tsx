@@ -42,18 +42,27 @@ export default function LoginPage() {
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+    try {
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
 
-    if (result?.error) {
-      setError("Invalid credentials");
-      setLoading(false);
-    } else {
+      if (result?.error) {
+        setError("Invalid credentials");
+        return;
+      }
+
       router.push("/");
       router.refresh();
+    } catch {
+      // Auth.js may reject credentials by throwing instead of returning an
+      // error result. Keep the response generic so account existence and
+      // rate-limit details are not disclosed from the browser.
+      setError("Invalid credentials");
+    } finally {
+      setLoading(false);
     }
   }
 

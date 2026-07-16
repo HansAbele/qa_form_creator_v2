@@ -10,7 +10,7 @@ You are an expert in Playwright E2E testing for Next.js applications.
 ## Project Context
 
 - **Framework:** Playwright with TypeScript
-- **App:** QA Form Creator (Next.js 15)
+- **App:** QA Form Creator (Next.js 16)
 - **Auth:** Email/password login with Auth.js v5
 - **Key flows:** Login, create form, submit evaluation, view dashboard, export data
 

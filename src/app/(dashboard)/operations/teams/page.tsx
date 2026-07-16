@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getAgentManagementCampaigns } from "@/server/actions/campaigns";
 import { getTeamsForManagement } from "@/server/actions/teams";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { TeamsClient } from "../../admin/teams/teams-client";
@@ -10,7 +10,7 @@ export default async function OperationsTeamsPage() {
 
   const [rawTeams, rawCampaigns] = await Promise.all([
     getTeamsForManagement(),
-    getCampaignsForPermission("canManageAgents"),
+    getAgentManagementCampaigns(),
   ]);
 
   const teams = rawTeams.map((team) => ({

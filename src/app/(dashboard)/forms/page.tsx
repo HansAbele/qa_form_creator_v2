@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getForms } from "@/server/actions/forms";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getFormCreationCampaigns } from "@/server/actions/campaigns";
+import { getAccessibleEvaluationDrafts } from "@/server/queries/drafts";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { FormsListClient } from "./forms-client";
 
@@ -10,9 +11,10 @@ export default async function FormsPage() {
   if (!session?.user) redirect("/login");
   if (!(await hasAnyCampaignPermission("canViewForms"))) redirect("/settings");
 
-  const [forms, creatableCampaigns] = await Promise.all([
+  const [forms, creatableCampaigns, evaluationDrafts] = await Promise.all([
     getForms(),
-    getCampaignsForPermission("canCreateForms"),
+    getFormCreationCampaigns(),
+    getAccessibleEvaluationDrafts(),
   ]);
   const isAdmin = session.user.role === "ADMIN";
   const isSupervisor = session.user.role === "SUPERVISOR";
@@ -28,11 +30,17 @@ export default async function FormsPage() {
         version: f.version,
         publishedAt: f.publishedAt?.toISOString() ?? null,
         questionCount: f._count.questions,
-        responseCount: f._count.responses,
         createdAt: f.createdAt.toISOString(),
-        canEvaluate: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
+        canEvaluate:
+          f.campaign.active &&
+          !isSupervisor &&
+          (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
         canEdit: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEditForms)),
         canPublish: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canPublishForms)),
+      }))}
+      evaluationDrafts={evaluationDrafts.map((draft) => ({
+        ...draft,
+        updatedAt: draft.updatedAt.toISOString(),
       }))}
       canCreate={!isSupervisor && (isAdmin || creatableCampaigns.length > 0)}
     />

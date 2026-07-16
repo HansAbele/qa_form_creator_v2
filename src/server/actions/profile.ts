@@ -1,9 +1,11 @@
 "use server";
 
+import { compare, hash } from "bcryptjs";
 import { revalidatePath } from "next/cache";
-import { hash, compare } from "bcryptjs";
-import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { assertStrongPassword } from "@/lib/password-policy";
+import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/server/audit-log";
 
 // ─── Profile shape returned to the client ──────────────
 export interface ProfileInfo {
@@ -69,9 +71,45 @@ export async function updateMyName(name: string): Promise<void> {
     throw new Error("El nombre no puede exceder 100 caracteres");
   }
 
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { name: trimmed },
+  await prisma.$transaction(async (tx) => {
+    const before = await tx.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, name: true, active: true, sessionVersion: true },
+    });
+    if (!before?.active) throw new Error("Usuario no encontrado o inactivo");
+    if (
+      session.user.sessionVersion !== undefined &&
+      before.sessionVersion !== session.user.sessionVersion
+    ) {
+      throw new Error("La sesion cambio; vuelve a iniciar sesion");
+    }
+
+    const updated = await tx.user.updateMany({
+      where: {
+        id: before.id,
+        active: true,
+        name: before.name,
+        sessionVersion: before.sessionVersion,
+      },
+      data: { name: trimmed },
+    });
+    if (updated.count !== 1) {
+      throw new Error("El perfil cambio en otra sesion; vuelve a intentarlo");
+    }
+
+    await writeAuditLog(
+      {
+        userId: before.id,
+        module: "profile",
+        action: "profile_name_updated",
+        entityType: "user",
+        entityId: before.id,
+        beforeValue: { name: before.name },
+        afterValue: { name: trimmed },
+        impact: "El usuario actualizo su nombre de perfil.",
+      },
+      tx,
+    );
   });
 
   revalidatePath("/settings");
@@ -89,22 +127,23 @@ export async function changeMyPassword(
   if (!currentPassword) {
     throw new Error("Debes ingresar tu contraseña actual");
   }
-  if (!newPassword || newPassword.length < 8) {
-    throw new Error("La nueva contraseña debe tener al menos 8 caracteres");
-  }
-  if (newPassword.length > 128) {
-    throw new Error("La contraseña no puede exceder 128 caracteres");
-  }
+  assertStrongPassword(newPassword);
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { password: true },
+    select: { id: true, password: true, active: true, sessionVersion: true },
   });
 
-  if (!user) throw new Error("Usuario no encontrado");
+  if (!user?.active) throw new Error("Usuario no encontrado o inactivo");
 
   if (!user.password) {
     throw new Error("Esta cuenta usa inicio de sesión externo (SSO) y no tiene contraseña.");
+  }
+  if (
+    session.user.sessionVersion !== undefined &&
+    user.sessionVersion !== session.user.sessionVersion
+  ) {
+    throw new Error("La sesion cambio; vuelve a iniciar sesion");
   }
 
   const valid = await compare(currentPassword, user.password);
@@ -112,10 +151,33 @@ export async function changeMyPassword(
     throw new Error("La contraseña actual es incorrecta");
   }
 
-  const hashed = await hash(newPassword, 10);
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { password: hashed },
+  const hashed = await hash(newPassword, 12);
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.updateMany({
+      where: {
+        id: user.id,
+        active: true,
+        password: user.password,
+        sessionVersion: user.sessionVersion,
+      },
+      data: { password: hashed, sessionVersion: { increment: 1 } },
+    });
+    if (updated.count !== 1) {
+      throw new Error("La contrasena o la sesion cambiaron; vuelve a intentarlo");
+    }
+
+    await writeAuditLog(
+      {
+        userId: user.id,
+        module: "profile",
+        action: "password_changed",
+        entityType: "user",
+        entityId: user.id,
+        afterValue: { passwordChanged: true, sessionsRevoked: true },
+        impact: "Contrasena actualizada y sesiones anteriores revocadas.",
+      },
+      tx,
+    );
   });
 
   revalidatePath("/settings");

@@ -20,7 +20,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { assignAgentsToTeam, createTeam } from "./teams";
+import { assignAgentsToTeam, createTeam, getTeams, getTeamsForManagement } from "./teams";
 
 const qaUser = {
   id: "qa-1",
@@ -42,10 +42,38 @@ describe("team mutations RBAC", () => {
       canManageAgents: false,
     });
 
-    await expect(
-      createTeam({ name: "Support", campaignId: "campaign-1" }),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    await expect(createTeam({ name: "Support", campaignId: "campaign-1" })).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
     expect(prismaMock.team.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the detailed team reader admin-only", async () => {
+    await expect(getTeams()).rejects.toThrow("No autorizado");
+    expect(prismaMock.team.findMany).not.toHaveBeenCalled();
+  });
+
+  it("counts only agents that belong to the team's campaign", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canManageAgents: true },
+    ]);
+    prismaMock.team.findMany.mockResolvedValue([
+      {
+        id: "team-1",
+        name: "Support",
+        campaignId: "campaign-1",
+        campaign: { id: "campaign-1", name: "Campana 1" },
+        agents: [
+          { campaignId: "campaign-1" },
+          { campaignId: "campaign-1" },
+          { campaignId: "campaign-2" },
+        ],
+      },
+    ]);
+
+    await expect(getTeamsForManagement()).resolves.toEqual([
+      expect.objectContaining({ id: "team-1", _count: { agents: 2 } }),
+    ]);
   });
 
   it("rejects assigning agents from a different campaign", async () => {
@@ -59,9 +87,9 @@ describe("team mutations RBAC", () => {
       { id: "agent-2", campaignId: "campaign-2" },
     ]);
 
-    await expect(
-      assignAgentsToTeam("team-1", ["agent-1", "agent-2"]),
-    ).rejects.toThrow("Agentes invalidos para este equipo");
+    await expect(assignAgentsToTeam("team-1", ["agent-1", "agent-2"])).rejects.toThrow(
+      "Agentes invalidos para este equipo",
+    );
     expect(prismaMock.agent.updateMany).not.toHaveBeenCalled();
   });
 });

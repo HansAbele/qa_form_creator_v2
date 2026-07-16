@@ -20,7 +20,19 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { archiveForm, getFormByIdForPermission, publishForm, updateForm } from "./forms";
+import {
+  archiveForm,
+  createForm,
+  getFormById,
+  getFormForDraftCorrection,
+  getFormForEvaluation,
+  getFormForEvaluationCorrection,
+  getForms,
+  getFormsForExport,
+  getFormsForReports,
+  publishForm,
+  updateForm,
+} from "./forms";
 
 const qaUser = {
   id: "qa-1",
@@ -53,10 +65,17 @@ describe("form revision workflow", () => {
     authMock.mockResolvedValue({ user: qaUser });
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
+      canCreateForms: true,
       canEditForms: true,
       canPublishForms: true,
       canEvaluate: true,
     });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewForms: true,
+      },
+    ]);
     prismaMock.qACategory.findMany.mockResolvedValue([
       {
         id: "qa-resolution",
@@ -68,6 +87,12 @@ describe("form revision workflow", () => {
     prismaMock.formCategory.create.mockResolvedValue({ id: "form-category-1" });
     prismaMock.question.createMany.mockResolvedValue({ count: 1 });
     prismaMock.auditLog.create.mockResolvedValue({ id: "audit-1" });
+  });
+
+  it("does not export client-selectable form permission helpers", async () => {
+    const formActions = await import("./forms");
+    expect(formActions).not.toHaveProperty("getFormsForPermission");
+    expect(formActions).not.toHaveProperty("getFormByIdForPermission");
   });
 
   it("creates a draft revision when editing a published form", async () => {
@@ -145,6 +170,7 @@ describe("form revision workflow", () => {
     expect(prismaMock.form.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
+          campaignId: "campaign-1",
           status: "PUBLISHED",
           id: { not: "form-draft" },
           OR: [{ id: "form-1" }, { parentFormId: "form-1" }],
@@ -224,11 +250,400 @@ describe("form revision workflow", () => {
       id: "form-draft",
       campaignId: "campaign-1",
       status: "DRAFT",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
       questions: [],
     });
 
-    await expect(getFormByIdForPermission("form-draft", "canEvaluate")).rejects.toThrow(
+    await expect(getFormForEvaluation("form-draft")).rejects.toThrow("Formulario no publicado");
+  });
+
+  it("does not allow evaluating published forms from an inactive campaign", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-published",
+      campaignId: "campaign-1",
+      status: "PUBLISHED",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: false },
+      questions: [],
+    });
+
+    await expect(getFormForEvaluation("form-published")).rejects.toThrow(
+      "La campana del formulario esta inactiva",
+    );
+  });
+
+  it("loads an archived form for historical correction but not for a draft", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEditEvaluations: true,
+    });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-archived",
+      campaignId: "campaign-1",
+      status: "ARCHIVED",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: false },
+      parent: null,
+      revisions: [],
+      questions: [],
+    });
+
+    await expect(getFormForEvaluationCorrection("form-archived")).resolves.toMatchObject({
+      id: "form-archived",
+      status: "ARCHIVED",
+    });
+    await expect(getFormForDraftCorrection("form-archived")).rejects.toThrow(
       "Formulario no publicado",
+    );
+  });
+
+  it("does not expose a draft by id to a read-only evaluator", async () => {
+    prismaMock.userCampaign.findUnique
+      .mockResolvedValueOnce({ campaignId: "campaign-1", canViewForms: true })
+      .mockResolvedValueOnce({
+        campaignId: "campaign-1",
+        canCreateForms: false,
+        canEditForms: false,
+        canPublishForms: false,
+      });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-draft",
+      campaignId: "campaign-1",
+      status: "DRAFT",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
+      questions: [],
+    });
+
+    await expect(getFormById("form-draft")).rejects.toThrow("Formulario no publicado");
+  });
+
+  it("does not expose an inactive campaign form by id to a read-only evaluator", async () => {
+    prismaMock.userCampaign.findUnique
+      .mockResolvedValueOnce({ campaignId: "campaign-1", canViewForms: true })
+      .mockResolvedValueOnce({
+        campaignId: "campaign-1",
+        canCreateForms: false,
+        canEditForms: false,
+        canPublishForms: false,
+      });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-published",
+      campaignId: "campaign-1",
+      status: "PUBLISHED",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: false },
+      questions: [],
+    });
+
+    await expect(getFormById("form-published")).rejects.toThrow(
+      "La campana del formulario esta inactiva",
+    );
+  });
+
+  it("does not expose draft revision metadata to a read-only evaluator", async () => {
+    prismaMock.userCampaign.findUnique
+      .mockResolvedValueOnce({ campaignId: "campaign-1", canViewForms: true })
+      .mockResolvedValueOnce({
+        campaignId: "campaign-1",
+        canCreateForms: false,
+        canEditForms: false,
+        canPublishForms: false,
+      });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-published",
+      campaignId: "campaign-1",
+      status: "PUBLISHED",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
+      parent: { id: "form-parent", version: "1.0.0", status: "ARCHIVED" },
+      revisions: [{ id: "form-secret-draft", version: "1.1.0", status: "DRAFT" }],
+      questions: [],
+    });
+
+    const form = await getFormById("form-published");
+
+    expect(form.revisions).toEqual([]);
+    expect(form.parent).toBeNull();
+  });
+
+  it("does not expose revision-family metadata linked from another campaign", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canViewForms: true,
+      canEditForms: true,
+    });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-published",
+      campaignId: "campaign-1",
+      status: "PUBLISHED",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
+      parent: {
+        id: "foreign-parent",
+        version: "9.0.0",
+        status: "DRAFT",
+        campaignId: "campaign-2",
+      },
+      revisions: [
+        {
+          id: "local-revision",
+          version: "1.1.0",
+          status: "DRAFT",
+          campaignId: "campaign-1",
+        },
+        {
+          id: "foreign-revision",
+          version: "9.1.0",
+          status: "DRAFT",
+          campaignId: "campaign-2",
+        },
+      ],
+      questions: [],
+    });
+
+    const form = await getFormById("form-published");
+
+    expect(form.parent).toBeNull();
+    expect(form.revisions).toEqual([{ id: "local-revision", version: "1.1.0", status: "DRAFT" }]);
+  });
+
+  it("lists only active published forms for a QA without form-management permissions", async () => {
+    prismaMock.form.findMany.mockResolvedValue([]);
+
+    await getForms();
+
+    expect(prismaMock.form.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            {
+              status: "PUBLISHED",
+              campaign: { active: true },
+            },
+          ]),
+          status: { not: "ARCHIVED" },
+        }),
+      }),
+    );
+  });
+
+  it("keeps report and export form readers on published or archived history", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewReports: true,
+        canExport: true,
+      },
+    ]);
+    prismaMock.form.findMany.mockResolvedValue([]);
+
+    await getFormsForReports();
+    await getFormsForExport();
+
+    for (const call of prismaMock.form.findMany.mock.calls.slice(-2)) {
+      expect(call[0]).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { in: ["PUBLISHED", "ARCHIVED"] },
+          }),
+        }),
+      );
+    }
+  });
+
+  it("lists only active published forms for a read-only supervisor", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "supervisor-1", role: "SUPERVISOR", campaignIds: ["campaign-1"] },
+    });
+    prismaMock.form.findMany.mockResolvedValue([]);
+
+    await getForms();
+
+    expect(prismaMock.form.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            {
+              status: "PUBLISHED",
+              campaign: { active: true },
+            },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("does not expose a draft by id to a supervisor with legacy write bits", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "supervisor-1", role: "SUPERVISOR", campaignIds: ["campaign-1"] },
+    });
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canViewForms: true,
+      canCreateForms: true,
+      canEditForms: true,
+      canPublishForms: true,
+    });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-draft",
+      campaignId: "campaign-1",
+      status: "DRAFT",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
+      questions: [],
+    });
+
+    await expect(getFormById("form-draft")).rejects.toThrow("Formulario no publicado");
+  });
+
+  it("does not allow moving a draft revision to another campaign", async () => {
+    authMock.mockResolvedValue({
+      user: { ...qaUser, campaignIds: ["campaign-1", "campaign-2"] },
+    });
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-draft",
+      title: "QA Form",
+      description: null,
+      campaignId: "campaign-1",
+      createdById: "qa-1",
+      parentFormId: "form-root",
+      status: "DRAFT",
+      version: "1.1.0",
+      questions: [],
+    });
+
+    await expect(
+      updateForm("form-draft", { ...formInput, campaignId: "campaign-2" }),
+    ).rejects.toThrow("No se puede cambiar la campana de una familia de revisiones");
+
+    expect(prismaMock.form.update).not.toHaveBeenCalled();
+  });
+
+  it("does not update a revision whose parent belongs to another campaign", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-draft",
+      title: "QA Form",
+      description: null,
+      campaignId: "campaign-1",
+      createdById: "qa-1",
+      parentFormId: "form-root",
+      parent: { campaignId: "campaign-2" },
+      status: "DRAFT",
+      version: "1.1.0",
+      questions: [],
+    });
+
+    await expect(updateForm("form-draft", formInput)).rejects.toThrow(
+      "La revision no pertenece a la misma campana que su formulario base",
+    );
+    expect(prismaMock.form.update).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a revision whose root belongs to another campaign", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-draft",
+      title: "QA Form",
+      campaignId: "campaign-1",
+      parentFormId: "form-root",
+      parent: { id: "form-root", campaignId: "campaign-2" },
+      status: "DRAFT",
+      version: "1.1.0",
+      questions: [],
+    });
+
+    await expect(publishForm("form-draft")).rejects.toThrow(
+      "La revision no pertenece a la misma campana que su formulario base",
+    );
+
+    expect(prismaMock.form.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("creates a form persisting new types (BOOLEAN, weighted options, critical type, rating scale)", async () => {
+    prismaMock.qACategory.findMany.mockResolvedValue([
+      { id: "qa-quality", canBeFatal: true, requiresCommentOnFail: false },
+    ]);
+    prismaMock.form.create.mockResolvedValue({ id: "form-new" });
+    prismaMock.form.findUniqueOrThrow.mockResolvedValue({
+      id: "form-new",
+      title: "Rich QA Form",
+      description: null,
+      campaignId: "campaign-1",
+      status: "DRAFT",
+      version: "1.0.0",
+      questions: [{ id: "q1" }, { id: "q2" }, { id: "q3" }],
+      categories: [{ id: "form-category-1" }],
+    });
+
+    await createForm({
+      title: "Rich QA Form",
+      campaignId: "campaign-1",
+      questions: [
+        {
+          type: "RATING",
+          label: "Quality",
+          required: true,
+          qaCategoryId: "qa-quality",
+          weight: 50,
+          fatal: true,
+          requiresCommentOnFail: true,
+          criticalType: "COMPLIANCE",
+          ratingFailThreshold: 3,
+          ratingMax: 10,
+          ratingStyle: "stars",
+        },
+        {
+          type: "BOOLEAN",
+          label: "Greeting",
+          required: true,
+          qaCategoryId: "qa-quality",
+          weight: 30,
+          fatal: false,
+          requiresCommentOnFail: false,
+          options: ["Si", "No"],
+          optionPoints: [1, 0],
+        },
+        {
+          type: "SELECT",
+          label: "Resolution",
+          required: true,
+          qaCategoryId: "qa-quality",
+          weight: 20,
+          fatal: true,
+          requiresCommentOnFail: true,
+          options: ["Full", "Partial", "No"],
+          optionPoints: [2, 1, 0],
+          fatalOptions: ["No"],
+        },
+      ],
+    });
+
+    expect(prismaMock.question.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            type: "RATING",
+            weight: 50,
+            fatal: true,
+            criticalType: "COMPLIANCE",
+            ratingFailThreshold: 3,
+            ratingMax: 10,
+            ratingStyle: "stars",
+          }),
+          expect.objectContaining({
+            type: "BOOLEAN",
+            weight: 30,
+            options: [
+              { value: "Si", points: 1 },
+              { value: "No", points: 0 },
+            ],
+          }),
+          expect.objectContaining({
+            type: "SELECT",
+            weight: 20,
+            fatal: true,
+            fatalOptions: ["No"],
+            options: [
+              { value: "Full", points: 2 },
+              { value: "Partial", points: 1 },
+              { value: "No", points: 0 },
+            ],
+          }),
+        ]),
+      }),
     );
   });
 });

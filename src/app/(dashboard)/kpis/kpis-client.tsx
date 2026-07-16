@@ -1,23 +1,41 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, TrendingDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
-import { AlertTriangle, CheckCircle2, TrendingDown, Activity, ShieldAlert } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CeaDetail } from "@/components/dashboard/cea-detail";
+import {
+  DataEmptyState,
+  DataLoadError,
+  type DataLoadStatus,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
+import { EvaluatorCalibrationTable } from "@/components/dashboard/evaluator-calibration-table";
+import {
+  addOperationalCalendarDays,
+  formatOperationalDate,
+  useOperationalTimeZone,
+} from "@/components/providers/operational-time-provider";
+import { AccessibleChart } from "@/components/ui/accessible-chart";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import {
-  getCampaignKpis,
-  getScoreByQuestion,
-  getEvaluatorActivity,
-  getQACategoryMetrics,
-} from "@/server/queries/analytics";
-import type { AppSettings } from "@/lib/settings";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Table,
   TableBody,
@@ -26,22 +44,39 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { AppSettings } from "@/lib/settings";
+import { getKpiBundle } from "@/server/queries/analytics";
 
 interface CampaignKpi {
-  id: string; name: string; totalForms: number; totalAgents: number;
-  totalEvaluators: number; totalEvaluations: number; avgScore: number;
-  passRate: number; dailyRate: number; fatalFailCount: number;
-  passThreshold: number; targetPassRate: number; targetAvgScore: number;
-  targetDailyRate: number; fatalFailuresAllowed: number;
+  id: string;
+  name: string;
+  totalForms: number;
+  totalAgents: number;
+  totalEvaluators: number;
+  totalEvaluations: number;
+  avgScore: number;
+  passRate: number;
+  dailyRate: number;
+  fatalFailCount: number;
+  passThreshold: number;
+  targetPassRate: number;
+  targetAvgScore: number;
+  targetDailyRate: number;
+  fatalFailuresAllowed: number;
 }
 
 interface QuestionScore {
-  question: string; avgScore: number; totalAnswers: number;
+  question: string;
+  avgScore: number;
+  totalAnswers: number;
 }
 
 interface EvaluatorData {
-  id: string; name: string; totalEvaluations: number;
-  avgScore: number; stdDev: number;
+  id: string;
+  name: string;
+  totalEvaluations: number;
+  avgScore: number;
+  stdDev: number;
 }
 
 interface QACategoryMetric {
@@ -80,54 +115,105 @@ function targetVariant(isMet: boolean): "default" | "destructive" {
   return isMet ? "default" : "destructive";
 }
 
+function RecapItem({
+  label,
+  value,
+  target,
+  met,
+}: {
+  label: string;
+  value: string;
+  target: string;
+  met: boolean;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={`font-semibold tabular-nums ${met ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+      >
+        {value}
+      </span>
+      <span className="text-xs text-muted-foreground">/ {target}</span>
+    </span>
+  );
+}
+
 export function KpisClient({ settings }: { settings: AppSettings }) {
+  const chartAnimation = useChartAnimation();
+  const operationalTimeZone = useOperationalTimeZone();
+  const router = useRouter();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [kpis, setKpis] = useState<CampaignKpi[]>([]);
   const [questionScores, setQuestionScores] = useState<QuestionScore[]>([]);
   const [evaluators, setEvaluators] = useState<EvaluatorData[]>([]);
   const [qaCategoryMetrics, setQACategoryMetrics] = useState<QACategoryMetric[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [ceaDetail, setCeaDetail] = useState<
+    Awaited<ReturnType<typeof getKpiBundle>>["ceaDetail"] | null
+  >(null);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
+  const requestGeneration = useRef(0);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++requestGeneration.current;
+    setLoadStatus("loading");
     try {
-      const [k, qs, ev, qa] = await Promise.all([
-        getCampaignKpis(undefined, dateFrom || undefined, dateTo || undefined),
-        getScoreByQuestion(undefined, dateFrom || undefined, dateTo || undefined),
-        getEvaluatorActivity(undefined, dateFrom || undefined, dateTo || undefined),
-        getQACategoryMetrics(undefined, dateFrom || undefined, dateTo || undefined),
-      ]);
-      setKpis(k);
-      setQuestionScores(qs);
-      setEvaluators(ev);
-      setQACategoryMetrics(qa);
+      const data = await getKpiBundle(dateFrom || undefined, dateTo || undefined);
+      if (requestId !== requestGeneration.current) return;
+      setKpis(data.campaignKpis);
+      setQuestionScores(data.scoreByQuestion);
+      setEvaluators(data.evaluatorActivity);
+      setQACategoryMetrics(data.qaCategoryMetrics);
+      setCeaDetail(data.ceaDetail);
+      setLoadStatus(data.campaignKpis.length === 0 ? "empty" : "success");
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      if (requestId !== requestGeneration.current) return;
+      reportDataLoadError(e, "kpis");
+      setLoadStatus("error");
     }
   }, [dateFrom, dateTo]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    void loadData();
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [loadData]);
 
   const setQuickRange = (days: number) => {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    setDateFrom(from.toISOString().slice(0, 10));
-    setDateTo(to.toISOString().slice(0, 10));
+    const to = formatOperationalDate(new Date(), operationalTimeZone);
+    setDateFrom(addOperationalCalendarDays(to, -(days - 1)));
+    setDateTo(to);
   };
 
-  if (loading && kpis.length === 0) {
-    return <div className="flex h-[50vh] items-center justify-center text-muted-foreground">Cargando KPIs...</div>;
+  if (loadStatus === "loading" && kpis.length === 0) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center text-muted-foreground">
+        Cargando KPIs...
+      </div>
+    );
+  }
+  if (loadStatus === "error") {
+    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar los KPIs" />;
+  }
+  if (loadStatus === "empty") {
+    return <DataEmptyState title="No hay KPIs disponibles" />;
   }
 
   const totalEvaluations = kpis.reduce((sum, k) => sum + k.totalEvaluations, 0);
-  const overallAvg = totalEvaluations > 0
-    ? kpis.reduce((sum, k) => sum + k.avgScore * k.totalEvaluations, 0) / totalEvaluations : 0;
-  const overallPassRate = totalEvaluations > 0
-    ? Math.round(kpis.reduce((sum, k) => sum + (k.passRate / 100) * k.totalEvaluations, 0) / totalEvaluations * 100) : 0;
+  const overallAvg =
+    totalEvaluations > 0
+      ? kpis.reduce((sum, k) => sum + k.avgScore * k.totalEvaluations, 0) / totalEvaluations
+      : 0;
+  const overallPassRate =
+    totalEvaluations > 0
+      ? Math.round(
+          (kpis.reduce((sum, k) => sum + (k.passRate / 100) * k.totalEvaluations, 0) /
+            totalEvaluations) *
+            100,
+        )
+      : 0;
   const overallDailyRate = kpis.reduce((sum, k) => sum + k.dailyRate, 0);
   const totalFatalFailures = kpis.reduce((sum, k) => sum + k.fatalFailCount, 0);
   const targets = {
@@ -144,24 +230,48 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
   // Alerts
   const alerts: { type: "warning" | "success"; msg: string }[] = [];
   if (overallPassRate < targets.passRate)
-    alerts.push({ type: "warning", msg: `Pass Rate (${overallPassRate}%) por debajo del target (${targets.passRate}%)` });
+    alerts.push({
+      type: "warning",
+      msg: `Pass Rate (${overallPassRate}%) por debajo del target (${targets.passRate}%)`,
+    });
   else
-    alerts.push({ type: "success", msg: `Pass Rate (${overallPassRate}%) cumple el target (${targets.passRate}%)` });
+    alerts.push({
+      type: "success",
+      msg: `Pass Rate (${overallPassRate}%) cumple el target (${targets.passRate}%)`,
+    });
 
   if (overallAvg < targets.avgScore)
-    alerts.push({ type: "warning", msg: `Score promedio (${overallAvg.toFixed(1)}%) por debajo del target (${targets.avgScore}%)` });
+    alerts.push({
+      type: "warning",
+      msg: `Score promedio (${overallAvg.toFixed(1)}%) por debajo del target (${targets.avgScore}%)`,
+    });
   else
-    alerts.push({ type: "success", msg: `Score promedio (${overallAvg.toFixed(1)}%) cumple el target (${targets.avgScore}%)` });
+    alerts.push({
+      type: "success",
+      msg: `Score promedio (${overallAvg.toFixed(1)}%) cumple el target (${targets.avgScore}%)`,
+    });
 
   if (overallDailyRate < targets.dailyRate)
-    alerts.push({ type: "warning", msg: `Tasa diaria (${overallDailyRate.toFixed(1)}/día) por debajo del target (${targets.dailyRate}/día)` });
+    alerts.push({
+      type: "warning",
+      msg: `Tasa diaria (${overallDailyRate.toFixed(1)}/día) por debajo del target (${targets.dailyRate}/día)`,
+    });
   else
-    alerts.push({ type: "success", msg: `Tasa diaria (${overallDailyRate.toFixed(1)}/día) cumple el target (${targets.dailyRate}/día)` });
+    alerts.push({
+      type: "success",
+      msg: `Tasa diaria (${overallDailyRate.toFixed(1)}/día) cumple el target (${targets.dailyRate}/día)`,
+    });
 
   if (totalFatalFailures > targets.fatalFailuresAllowed)
-    alerts.push({ type: "warning", msg: `Fallas fatales (${totalFatalFailures}) exceden lo permitido (${targets.fatalFailuresAllowed})` });
+    alerts.push({
+      type: "warning",
+      msg: `Fallas fatales (${totalFatalFailures}) exceden lo permitido (${targets.fatalFailuresAllowed})`,
+    });
   else
-    alerts.push({ type: "success", msg: `Fallas fatales (${totalFatalFailures}) dentro del límite (${targets.fatalFailuresAllowed})` });
+    alerts.push({
+      type: "success",
+      msg: `Fallas fatales (${totalFatalFailures}) dentro del límite (${targets.fatalFailuresAllowed})`,
+    });
 
   // Evaluator consistency alerts
   const inconsistentEvaluators = evaluators.filter((e) => e.stdDev > 20 && e.totalEvaluations >= 5);
@@ -182,7 +292,26 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
     });
   }
 
-  const pieData = kpis.filter((k) => k.totalEvaluations > 0).map((k) => ({ name: k.name, value: k.totalEvaluations }));
+  // CEA below benchmark (COPC 2.7.1.d)
+  if (ceaDetail?.configured) {
+    const CEA_LABEL: Record<string, string> = {
+      CUSTOMER: "Customer",
+      BUSINESS: "Business",
+      COMPLIANCE: "Compliance",
+    };
+    for (const fam of ceaDetail.overall) {
+      if (fam.configured && fam.accuracy !== null && fam.accuracy < fam.target) {
+        alerts.push({
+          type: "warning",
+          msg: `${CEA_LABEL[fam.family]} CEA (${fam.accuracy.toFixed(1)}%) por debajo del benchmark (${fam.target}%)`,
+        });
+      }
+    }
+  }
+
+  const pieData = kpis
+    .filter((k) => k.totalEvaluations > 0)
+    .map((k) => ({ name: k.name, value: k.totalEvaluations }));
   const qaCategoryChartData = [...qaCategoryMetrics].sort((a, b) => a.avgScore - b.avgScore);
 
   return (
@@ -193,63 +322,101 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex gap-1">
             {[7, 30, 90].map((d) => (
-              <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>{d}d</Button>
+              <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
+                {d}d
+              </Button>
             ))}
-            <Button variant="outline" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>Todo</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+            >
+              Todo
+            </Button>
           </div>
           <div className="flex items-end gap-2">
-            <div><Label className="text-xs">Desde</Label><Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-8 w-36" /></div>
-            <div><Label className="text-xs">Hasta</Label><Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-8 w-36" /></div>
+            <div>
+              <Label htmlFor="kpi-date-from" className="text-xs">
+                Desde
+              </Label>
+              <Input
+                id="kpi-date-from"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-8 w-36"
+              />
+            </div>
+            <div>
+              <Label htmlFor="kpi-date-to" className="text-xs">
+                Hasta
+              </Label>
+              <Input
+                id="kpi-date-to"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-8 w-36"
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* KPI Summary with targets */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Total Evaluaciones</p>
-            <p className="text-2xl font-bold">{totalEvaluations}</p>
-          </CardContent>
-        </Card>
-        <Card className={overallAvg >= targets.avgScore ? "border-green-200" : "border-red-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Score Global</p>
-            <p className="text-2xl font-bold">{overallAvg.toFixed(1)}%</p>
-            <p className="text-xs text-muted-foreground">Target: {targets.avgScore}%</p>
-          </CardContent>
-        </Card>
-        <Card className={overallPassRate >= targets.passRate ? "border-green-200" : "border-red-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Pass Rate</p>
-            <p className="text-2xl font-bold">{overallPassRate}%</p>
-            <p className="text-xs text-muted-foreground">Target: {targets.passRate}%</p>
-          </CardContent>
-        </Card>
-        <Card className={overallDailyRate >= targets.dailyRate ? "border-green-200" : "border-amber-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Tasa Diaria</p>
-            <p className="text-2xl font-bold">{overallDailyRate.toFixed(1)}</p>
-            <p className="text-xs text-muted-foreground">Target: {targets.dailyRate}/día</p>
-          </CardContent>
-        </Card>
-        <Card className={totalFatalFailures <= targets.fatalFailuresAllowed ? "border-green-200" : "border-red-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Fallas Fatales</p>
-            <p className="text-2xl font-bold">{totalFatalFailures}</p>
-            <p className="text-xs text-muted-foreground">Permitidas: {targets.fatalFailuresAllowed}</p>
-          </CardContent>
-        </Card>
+      {/* Compact target recap — the hero KPI cards live on the Dashboard; KPIs leads with diagnostics */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-card px-4 py-3 text-sm">
+        <span className="flex items-center gap-1.5">
+          <span className="font-semibold tabular-nums">{totalEvaluations}</span>
+          <span className="text-muted-foreground">evaluaciones</span>
+        </span>
+        <RecapItem
+          label="Score"
+          value={`${overallAvg.toFixed(1)}%`}
+          target={`${targets.avgScore}%`}
+          met={overallAvg >= targets.avgScore}
+        />
+        <RecapItem
+          label="Pass Rate"
+          value={`${overallPassRate}%`}
+          target={`${targets.passRate}%`}
+          met={overallPassRate >= targets.passRate}
+        />
+        <RecapItem
+          label="Tasa diaria"
+          value={overallDailyRate.toFixed(1)}
+          target={`${targets.dailyRate}/d`}
+          met={overallDailyRate >= targets.dailyRate}
+        />
+        <RecapItem
+          label="Fatales"
+          value={String(totalFatalFailures)}
+          target={String(targets.fatalFailuresAllowed)}
+          met={totalFatalFailures <= targets.fatalFailuresAllowed}
+        />
       </div>
 
       {/* Alerts */}
       {alerts.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Activity className="h-4 w-4" /> Alertas</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4" /> Alertas
+            </CardTitle>
+          </CardHeader>
           <CardContent className="space-y-2">
             {alerts.map((a) => (
-              <div key={`${a.type}-${a.msg}`} className={`flex items-center gap-2 rounded-lg p-2 text-sm ${a.type === "warning" ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200"}`}>
-                {a.type === "warning" ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />}
+              <div
+                key={`${a.type}-${a.msg}`}
+                className={`flex items-center gap-2 rounded-lg p-2 text-sm ${a.type === "warning" ? "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200"}`}
+              >
+                {a.type === "warning" ? (
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                )}
                 {a.msg}
               </div>
             ))}
@@ -257,53 +424,97 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         </Card>
       )}
 
+      {/* CEA deep-dive (COPC 2.7.1.d) — the KPIs protagonist */}
+      {ceaDetail && <CeaDetail data={ceaDetail} />}
+
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="text-base">Score Promedio por Campaña</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Score Promedio por Campaña</CardTitle>
+          </CardHeader>
           <CardContent>
             {kpis.length > 0 ? (
               (() => {
                 const sorted = [...kpis].sort((a, b) => b.avgScore - a.avgScore);
                 return (
-                  <ResponsiveContainer width="100%" height={Math.max(320, sorted.length * 32)}>
-                    <BarChart data={sorted} layout="vertical" margin={{ right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis type="number" domain={[0, 100]} />
-                      <YAxis
-                        dataKey="name"
-                        type="category"
-                        width={160}
-                        className="text-xs"
-                        tickFormatter={(v: string) =>
-                          v.length > 20 ? `${v.slice(0, 18)}…` : v
-                        }
-                      />
-                      <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
-                      <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
-                        {sorted.map((item, i) => (<Cell key={item.id} fill={COLORS[i % COLORS.length]} />))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <AccessibleChart
+                    label="Score promedio por campaña"
+                    description={sorted
+                      .map((item) => `${item.name}: ${item.avgScore.toFixed(1)}%`)
+                      .join("; ")}
+                  >
+                    <ResponsiveContainer width="100%" height={Math.max(320, sorted.length * 32)}>
+                      <BarChart data={sorted} layout="vertical" margin={{ right: 16 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis type="number" domain={[0, 100]} />
+                        <YAxis
+                          dataKey="name"
+                          type="category"
+                          width={160}
+                          className="text-xs"
+                          tickFormatter={(v: string) => (v.length > 20 ? `${v.slice(0, 18)}…` : v)}
+                        />
+                        <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
+                        <Bar
+                          dataKey="avgScore"
+                          radius={[0, 4, 4, 0]}
+                          isAnimationActive={chartAnimation}
+                        >
+                          {sorted.map((item, i) => (
+                            <Cell key={item.id} fill={COLORS[i % COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </AccessibleChart>
                 );
               })()
-            ) : <div className="flex h-[300px] items-center justify-center text-muted-foreground">Sin datos</div>}
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                Sin datos
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Distribución de Evaluaciones</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Distribución de Evaluaciones</CardTitle>
+          </CardHeader>
           <CardContent>
             {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" outerRadius={100} dataKey="value" label={(props) => `${props.name}: ${props.value}`}>
-                    {pieData.map((item, i) => (<Cell key={item.name} fill={COLORS[i % COLORS.length]} />))}
-                  </Pie>
-                  <Tooltip /><Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : <div className="flex h-[300px] items-center justify-center text-muted-foreground">Sin datos</div>}
+              <AccessibleChart
+                label="Distribución de evaluaciones por campaña"
+                description={pieData
+                  .map((item) => `${item.name}: ${item.value} evaluaciones`)
+                  .join("; ")}
+              >
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      dataKey="value"
+                      label={(props) => `${props.name}: ${props.value}`}
+                      isAnimationActive={chartAnimation}
+                    >
+                      {pieData.map((item, i) => (
+                        <Cell key={item.name} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </AccessibleChart>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                Sin datos
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -318,20 +529,44 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         </CardHeader>
         <CardContent>
           {questionScores.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(200, questionScores.length * 40)}>
-              <BarChart data={questionScores} layout="vertical" margin={{ left: 150 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis type="number" domain={[0, 100]} />
-                <YAxis dataKey="question" type="category" width={145} className="text-xs" />
-                <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
-                <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
-                  {questionScores.map((q) => (
-                    <Cell key={q.question} fill={q.avgScore >= targets.avgScore ? "#22c55e" : q.avgScore >= targets.passThreshold ? "#f59e0b" : "#ef4444"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : <div className="flex h-[200px] items-center justify-center text-muted-foreground">Sin datos de preguntas tipo RATING</div>}
+            <AccessibleChart
+              label="Score por pregunta, ordenado de menor a mayor"
+              description={questionScores
+                .map((item) => `${item.question}: ${item.avgScore.toFixed(1)}%`)
+                .join("; ")}
+            >
+              <ResponsiveContainer width="100%" height={Math.max(200, questionScores.length * 40)}>
+                <BarChart data={questionScores} layout="vertical" margin={{ left: 150 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis type="number" domain={[0, 100]} />
+                  <YAxis dataKey="question" type="category" width={145} className="text-xs" />
+                  <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
+                  <Bar
+                    dataKey="avgScore"
+                    radius={[0, 4, 4, 0]}
+                    isAnimationActive={chartAnimation}
+                  >
+                    {questionScores.map((q) => (
+                      <Cell
+                        key={q.question}
+                        fill={
+                          q.avgScore >= targets.avgScore
+                            ? "#22c55e"
+                            : q.avgScore >= targets.passThreshold
+                              ? "#f59e0b"
+                              : "#ef4444"
+                        }
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </AccessibleChart>
+          ) : (
+            <div className="flex h-[200px] items-center justify-center text-muted-foreground">
+              Sin datos de preguntas tipo RATING
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -346,34 +581,52 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
           </CardHeader>
           <CardContent>
             {qaCategoryChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(240, qaCategoryChartData.length * 42)}>
-                <BarChart data={qaCategoryChartData} layout="vertical" margin={{ left: 150, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis
-                    dataKey="name"
-                    type="category"
-                    width={145}
-                    className="text-xs"
-                    tickFormatter={(value: string) =>
-                      value.length > 20 ? `${value.slice(0, 18)}...` : value
-                    }
-                  />
-                  <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
-                  <Bar dataKey="avgScore" radius={[0, 4, 4, 0]}>
-                    {qaCategoryChartData.map((category, index) => (
-                      <Cell
-                        key={category.id}
-                        fill={
-                          category.avgScore >= targets.passThreshold
-                            ? (category.color ?? COLORS[index % COLORS.length])
-                            : "#ef4444"
-                        }
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <AccessibleChart
+                label="Score por categoría QA"
+                description={qaCategoryChartData
+                  .map((item) => `${item.name}: ${item.avgScore.toFixed(1)}%`)
+                  .join("; ")}
+              >
+                <ResponsiveContainer
+                  width="100%"
+                  height={Math.max(240, qaCategoryChartData.length * 42)}
+                >
+                  <BarChart
+                    data={qaCategoryChartData}
+                    layout="vertical"
+                    margin={{ left: 150, right: 16 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis type="number" domain={[0, 100]} />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      width={145}
+                      className="text-xs"
+                      tickFormatter={(value: string) =>
+                        value.length > 20 ? `${value.slice(0, 18)}...` : value
+                      }
+                    />
+                    <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
+                    <Bar
+                      dataKey="avgScore"
+                      radius={[0, 4, 4, 0]}
+                      isAnimationActive={chartAnimation}
+                    >
+                      {qaCategoryChartData.map((category, index) => (
+                        <Cell
+                          key={category.id}
+                          fill={
+                            category.avgScore >= targets.passThreshold
+                              ? (category.color ?? COLORS[index % COLORS.length])
+                              : "#ef4444"
+                          }
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </AccessibleChart>
             ) : (
               <div className="flex h-[240px] items-center justify-center text-muted-foreground">
                 Sin datos por categoria QA
@@ -412,7 +665,9 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge
-                          variant={category.avgScore >= targets.passThreshold ? "default" : "destructive"}
+                          variant={
+                            category.avgScore >= targets.passThreshold ? "default" : "destructive"
+                          }
                           className="tabular-nums"
                         >
                           {category.avgScore.toFixed(1)}%
@@ -450,23 +705,13 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         </Card>
       </div>
 
-      {/* Evaluator Activity */}
-      <Card>
-        <CardHeader><CardTitle className="text-base">Actividad de Evaluadores</CardTitle></CardHeader>
-        <CardContent>
-          {evaluators.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={evaluators.slice(0, 10)}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="name" className="text-xs" angle={-20} textAnchor="end" height={60} />
-                <YAxis allowDecimals={false} className="text-xs" />
-                <Tooltip formatter={(value, name) => [name === "avgScore" ? `${Number(value).toFixed(1)}%` : value, name === "avgScore" ? "Score Promedio" : "Evaluaciones"]} />
-                <Bar dataKey="totalEvaluations" fill="#ff6600" radius={[4, 4, 0, 0]} name="Evaluaciones" />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : <div className="flex h-[300px] items-center justify-center text-muted-foreground">Sin datos</div>}
-        </CardContent>
-      </Card>
+      {/* Evaluator calibration (full — stdDev + delta vs global) */}
+      <EvaluatorCalibrationTable
+        evaluators={evaluators}
+        teamAvg={overallAvg}
+        interactive
+        onNavigate={(href) => router.push(href)}
+      />
 
       {/* Campaign Detail Cards */}
       <h2 className="text-xl font-semibold">Detalle por Campaña</h2>
@@ -483,13 +728,27 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
                 : ""
             }
           >
-            <CardHeader className="pb-2"><CardTitle className="text-base">{kpi.name}</CardTitle></CardHeader>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">{kpi.name}</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><p className="text-muted-foreground">Formularios</p><p className="font-medium">{kpi.totalForms}</p></div>
-                <div><p className="text-muted-foreground">Agentes</p><p className="font-medium">{kpi.totalAgents}</p></div>
-                <div><p className="text-muted-foreground">Evaluadores</p><p className="font-medium">{kpi.totalEvaluators}</p></div>
-                <div><p className="text-muted-foreground">Evaluaciones</p><p className="font-medium">{kpi.totalEvaluations}</p></div>
+                <div>
+                  <p className="text-muted-foreground">Formularios</p>
+                  <p className="font-medium">{kpi.totalForms}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Agentes</p>
+                  <p className="font-medium">{kpi.totalAgents}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Evaluadores</p>
+                  <p className="font-medium">{kpi.totalEvaluators}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Evaluaciones</p>
+                  <p className="font-medium">{kpi.totalEvaluations}</p>
+                </div>
               </div>
               <div className="flex items-center justify-between border-t pt-3">
                 <div>

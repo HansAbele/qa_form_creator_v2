@@ -1,16 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { ArrowLeft, Award, ClipboardCheck, Filter, TrendingDown, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
-  Award,
-  ClipboardCheck,
-  Filter,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
+  DataLoadError,
+  type DataLoadStatus,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,11 +31,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getFilteredResponses } from "@/server/queries/analytics";
-import type { AppSettings } from "@/lib/settings";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
+import { formatOperationalTimestamp } from "@/lib/date-display";
+
+type ResultStatus = "PASS" | "FAIL";
 
 interface ResponseRow {
   id: string;
   score: number;
+  result: ResultStatus;
+  hasFatalFail: boolean;
+  campaignId: string;
   createdAt: string;
   agent: { id: string; name: string; campaignName: string };
   evaluator: { id: string; name: string };
@@ -52,12 +56,10 @@ interface ResponsesListData {
   limit: number;
 }
 
-type StatusKey = "all" | "pass" | "fail" | "custom";
+type StatusKey = "all" | "pass" | "fail";
 
-function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
-  if (score >= 70) return "default";
-  if (score >= 50) return "secondary";
-  return "destructive";
+function scoreBadgeVariant(result: ResultStatus): "default" | "destructive" {
+  return result === "PASS" ? "default" : "destructive";
 }
 
 function parseNumber(v: string | undefined): number | undefined {
@@ -66,56 +68,49 @@ function parseNumber(v: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function deriveStatus(
-  min: number | undefined,
-  max: number | undefined,
-  threshold: number,
-): StatusKey {
-  if (min === undefined && max === undefined) return "all";
-  if (min === threshold && max === undefined) return "pass";
-  if (min === undefined && max !== undefined && max < threshold) return "fail";
-  return "custom";
+function parseResultStatus(value: string | undefined): ResultStatus | undefined {
+  const normalized = value?.toUpperCase();
+  return normalized === "PASS" || normalized === "FAIL" ? normalized : undefined;
 }
 
 export function ResponsesListClient({
-  settings,
   campaigns,
   initialMinScore,
   initialMaxScore,
   initialCampaignId,
   initialDateFrom,
   initialDateTo,
+  initialResultStatus,
 }: {
-  settings: AppSettings;
   campaigns: { id: string; name: string }[];
   initialMinScore?: string;
   initialMaxScore?: string;
   initialCampaignId?: string;
   initialDateFrom?: string;
   initialDateTo?: string;
+  initialResultStatus?: string;
 }) {
+  const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
-  const threshold = settings.passThreshold;
 
-  const [minScore, setMinScore] = useState<number | undefined>(
-    parseNumber(initialMinScore),
-  );
-  const [maxScore, setMaxScore] = useState<number | undefined>(
-    parseNumber(initialMaxScore),
-  );
+  const [minScore, setMinScore] = useState<number | undefined>(parseNumber(initialMinScore));
+  const [maxScore, setMaxScore] = useState<number | undefined>(parseNumber(initialMaxScore));
   const [campaignId, setCampaignId] = useState(initialCampaignId ?? "");
   const [dateFrom, setDateFrom] = useState(initialDateFrom ?? "");
   const [dateTo, setDateTo] = useState(initialDateTo ?? "");
-  const [data, setData] = useState<ResponsesListData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const status = useMemo(
-    () => deriveStatus(minScore, maxScore, threshold),
-    [minScore, maxScore, threshold],
+  const [resultStatus, setResultStatus] = useState<ResultStatus | undefined>(
+    parseResultStatus(initialResultStatus),
   );
+  const [data, setData] = useState<ResponsesListData | null>(null);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
+  const requestGeneration = useRef(0);
+
+  const status: StatusKey =
+    resultStatus === "PASS" ? "pass" : resultStatus === "FAIL" ? "fail" : "all";
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++requestGeneration.current;
+    setLoadStatus("loading");
     try {
       const result = await getFilteredResponses({
         minScore,
@@ -123,17 +118,23 @@ export function ResponsesListClient({
         campaignId: campaignId || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
+        resultStatus,
       });
+      if (requestId !== requestGeneration.current) return;
       setData(result);
+      setLoadStatus(result.responses.length === 0 ? "empty" : "success");
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      if (requestId !== requestGeneration.current) return;
+      reportDataLoadError(e, "responses-list");
+      setLoadStatus("error");
     }
-  }, [minScore, maxScore, campaignId, dateFrom, dateTo]);
+  }, [minScore, maxScore, campaignId, dateFrom, dateTo, resultStatus]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [loadData]);
 
   // Sync filters → URL (so users can bookmark / share)
@@ -144,38 +145,30 @@ export function ResponsesListClient({
     if (campaignId) params.set("campaignId", campaignId);
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
+    if (resultStatus) params.set("status", resultStatus.toLowerCase());
     const qs = params.toString();
     router.replace(qs ? `/analytics/responses?${qs}` : "/analytics/responses", {
       scroll: false,
     });
-  }, [minScore, maxScore, campaignId, dateFrom, dateTo, router]);
+  }, [minScore, maxScore, campaignId, dateFrom, dateTo, resultStatus, router]);
 
   const handleStatusChange = (next: StatusKey) => {
-    if (next === "all") {
-      setMinScore(undefined);
-      setMaxScore(undefined);
-    } else if (next === "pass") {
-      setMinScore(threshold);
-      setMaxScore(undefined);
-    } else if (next === "fail") {
-      setMinScore(undefined);
-      setMaxScore(threshold - 0.01);
-    }
-    // "custom" keeps whatever is there
+    setResultStatus(next === "pass" ? "PASS" : next === "fail" ? "FAIL" : undefined);
   };
 
-  const activeCampaignName = campaignId
-    ? campaigns.find((c) => c.id === campaignId)?.name
-    : null;
+  const activeCampaignName = campaignId ? campaigns.find((c) => c.id === campaignId)?.name : null;
 
   const statusLabel =
     status === "pass"
-      ? `Pass (≥${threshold}%)`
+      ? "Solo PASS efectivo"
       : status === "fail"
-        ? `Fail (<${threshold}%)`
-        : status === "custom"
-          ? `Rango ${minScore ?? 0}–${maxScore ?? 100}%`
-          : "Todas";
+        ? "Solo FAIL efectivo"
+        : "Todos los resultados";
+
+  const scoreRangeLabel =
+    minScore !== undefined || maxScore !== undefined
+      ? `Score ${minScore ?? 0}–${maxScore ?? 100}%`
+      : null;
 
   return (
     <div className="space-y-6">
@@ -211,61 +204,60 @@ export function ResponsesListClient({
 
               <div className="flex flex-wrap items-end gap-3 border-t pt-4">
                 <div>
-                  <Label className="text-xs">Estado</Label>
+                  <Label htmlFor="responses-status" className="text-xs">
+                    Estado
+                  </Label>
                   <Select value={status} onValueChange={(v) => handleStatusChange(v as StatusKey)}>
-                    <SelectTrigger className="h-8 w-40">
+                    <SelectTrigger id="responses-status" className="h-8 w-40">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">Todas</SelectItem>
-                      <SelectItem value="pass">Solo Pass</SelectItem>
-                      <SelectItem value="fail">Solo Fail</SelectItem>
-                      <SelectItem value="custom">Rango personalizado</SelectItem>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="pass">Solo PASS</SelectItem>
+                      <SelectItem value="fail">Solo FAIL</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {status === "custom" && (
-                  <>
-                    <div>
-                      <Label className="text-xs">Score mín</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={minScore ?? ""}
-                        onChange={(e) =>
-                          setMinScore(parseNumber(e.target.value))
-                        }
-                        className="h-8 w-24"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Score máx</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={maxScore ?? ""}
-                        onChange={(e) =>
-                          setMaxScore(parseNumber(e.target.value))
-                        }
-                        className="h-8 w-24"
-                      />
-                    </div>
-                  </>
-                )}
+                <div>
+                  <Label htmlFor="responses-score-min" className="text-xs">
+                    Score mín
+                  </Label>
+                  <Input
+                    id="responses-score-min"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={minScore ?? ""}
+                    onChange={(e) => setMinScore(parseNumber(e.target.value))}
+                    className="h-8 w-24"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="responses-score-max" className="text-xs">
+                    Score máx
+                  </Label>
+                  <Input
+                    id="responses-score-max"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={maxScore ?? ""}
+                    onChange={(e) => setMaxScore(parseNumber(e.target.value))}
+                    className="h-8 w-24"
+                  />
+                </div>
 
                 {campaigns.length > 1 && (
                   <div>
-                    <Label className="text-xs">Campaña</Label>
+                    <Label htmlFor="responses-campaign" className="text-xs">
+                      Campaña
+                    </Label>
                     <Select
                       value={campaignId || "all"}
-                      onValueChange={(v) =>
-                        setCampaignId(v === "all" || !v ? "" : v)
-                      }
+                      onValueChange={(v) => setCampaignId(v === "all" || !v ? "" : v)}
                     >
-                      <SelectTrigger className="h-8 w-44">
+                      <SelectTrigger id="responses-campaign" className="h-8 w-44">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -281,8 +273,11 @@ export function ResponsesListClient({
                 )}
 
                 <div>
-                  <Label className="text-xs">Desde</Label>
+                  <Label htmlFor="responses-date-from" className="text-xs">
+                    Desde
+                  </Label>
                   <Input
+                    id="responses-date-from"
                     type="date"
                     value={dateFrom}
                     onChange={(e) => setDateFrom(e.target.value)}
@@ -290,8 +285,11 @@ export function ResponsesListClient({
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Hasta</Label>
+                  <Label htmlFor="responses-date-to" className="text-xs">
+                    Hasta
+                  </Label>
                   <Input
+                    id="responses-date-to"
                     type="date"
                     value={dateTo}
                     onChange={(e) => setDateTo(e.target.value)}
@@ -309,7 +307,7 @@ export function ResponsesListClient({
           <div className="flex flex-wrap items-center gap-2 border-b pb-3 text-sm">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Mostrando</span>
-            {loading ? (
+            {loadStatus === "loading" ? (
               <Skeleton className="h-5 w-32" />
             ) : data ? (
               <>
@@ -327,11 +325,7 @@ export function ResponsesListClient({
             )}
             <Badge
               variant={
-                status === "pass"
-                  ? "default"
-                  : status === "fail"
-                    ? "destructive"
-                    : "secondary"
+                status === "pass" ? "default" : status === "fail" ? "destructive" : "secondary"
               }
               className="gap-1"
             >
@@ -340,9 +334,8 @@ export function ResponsesListClient({
               {status === "all" && <Award className="h-3 w-3" />}
               {statusLabel}
             </Badge>
-            {activeCampaignName && (
-              <Badge variant="secondary">{activeCampaignName}</Badge>
-            )}
+            {scoreRangeLabel && <Badge variant="outline">{scoreRangeLabel}</Badge>}
+            {activeCampaignName && <Badge variant="secondary">{activeCampaignName}</Badge>}
             {(dateFrom || dateTo) && (
               <Badge variant="outline">
                 {dateFrom || "…"} → {dateTo || "hoy"}
@@ -350,19 +343,26 @@ export function ResponsesListClient({
             )}
             {data && data.shownCount < data.totalCount && (
               <span className="ml-auto text-xs text-muted-foreground">
-                Mostrando las {data.limit} más recientes. Refina los filtros para ver
-                menos.
+                Mostrando las {data.limit} más recientes. Refina los filtros para ver menos.
               </span>
             )}
           </div>
 
-          {loading ? (
+          {loadStatus === "loading" ? (
             <div className="space-y-2 pt-4">
               {["agent", "evaluator", "campaign", "form", "score", "date"].map((key) => (
                 <Skeleton key={key} className="h-10 w-full" />
               ))}
             </div>
-          ) : data && data.responses.length > 0 ? (
+          ) : loadStatus === "error" ? (
+            <div className="pt-4">
+              <DataLoadError
+                compact
+                onRetry={() => void loadData()}
+                title="No pudimos cargar las evaluaciones"
+              />
+            </div>
+          ) : loadStatus === "success" && data && data.responses.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -370,7 +370,7 @@ export function ResponsesListClient({
                   <TableHead>Evaluador</TableHead>
                   <TableHead>Formulario</TableHead>
                   <TableHead>Disposición</TableHead>
-                  <TableHead className="text-center">Score</TableHead>
+                  <TableHead className="text-center">Score / estado</TableHead>
                   <TableHead className="text-right">Fecha</TableHead>
                 </TableRow>
               </TableHeader>
@@ -382,27 +382,20 @@ export function ResponsesListClient({
                     onClick={() => router.push(`/analytics/responses/${r.id}`)}
                   >
                     <TableCell className="font-medium">{r.agent.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {r.evaluator.name}
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{r.evaluator.name}</TableCell>
                     <TableCell className="max-w-[220px] truncate text-muted-foreground">
                       {r.form.title}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {r.disposition?.name ?? (
-                        <span className="italic">—</span>
-                      )}
+                      {r.disposition?.name ?? <span className="italic">—</span>}
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge
-                        variant={scoreBadgeVariant(r.score)}
-                        className="tabular-nums"
-                      >
-                        {r.score.toFixed(1)}%
+                      <Badge variant={scoreBadgeVariant(r.result)} className="tabular-nums">
+                        {r.score.toFixed(1)}% · {r.result}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right text-xs text-muted-foreground">
-                      {new Date(r.createdAt).toLocaleString("es-ES", {
+                      {formatOperationalTimestamp(r.createdAt, operationalTimeZone, {
                         dateStyle: "short",
                         timeStyle: "short",
                       })}

@@ -1,42 +1,40 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  useReactTable,
+  type ColumnDef,
+  flexRender,
   getCoreRowModel,
   getSortedRowModel,
-  flexRender,
-  type ColumnDef,
   type SortingState,
+  useReactTable,
 } from "@tanstack/react-table";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { ArrowUpDown, Award, BarChart3, ClipboardCheck, Tag } from "lucide-react";
 import { motion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 import {
-  ArrowUpDown,
-  Award,
-  BarChart3,
-  ClipboardCheck,
-  Tag,
-} from "lucide-react";
+  DataLoadError,
+  type DataLoadStatus,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
+import {
+  addOperationalCalendarDays,
+  formatOperationalDate,
+  useOperationalTimeZone,
+} from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  type ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  type ChartConfig,
 } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Label } from "@/components/ui/label";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Select,
   SelectContent,
@@ -53,8 +51,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getKpiCampaigns } from "@/server/actions/campaigns";
 import { getDispositionAnalytics } from "@/server/queries/analytics";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { summarizeChartData } from "@/lib/chart-accessibility";
 
 // ─── Chart configs ────────────────────────────────────────────────────────────
 
@@ -88,14 +87,7 @@ function scoreColor(score: number): string {
   return "#f43f5e";
 }
 
-const BAR_COLORS = [
-  "#ff6600",
-  "#1a2b45",
-  "#8b5cf6",
-  "#06b6d4",
-  "#f59e0b",
-  "#10b981",
-];
+const BAR_COLORS = ["#ff6600", "#1a2b45", "#8b5cf6", "#06b6d4", "#f59e0b", "#10b981"];
 
 // ─── Animated section wrapper ─────────────────────────────────────────────────
 
@@ -127,56 +119,77 @@ function LoadingSkeleton() {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function DispositionsAnalyticsClient() {
+  const chartAnimation = useChartAnimation();
+  const operationalTimeZone = useOperationalTimeZone();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [campaignId, setCampaignId] = useState("all");
-  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>(
-    [],
-  );
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
   const [data, setData] = useState<DispositionData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "totalEvaluations", desc: true },
-  ]);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
+  const [campaignLoadStatus, setCampaignLoadStatus] = useState<DataLoadStatus>("loading");
+  const [sorting, setSorting] = useState<SortingState>([{ id: "totalEvaluations", desc: true }]);
+  const campaignRequestGeneration = useRef(0);
+  const dataRequestGeneration = useRef(0);
 
   // ─── Load campaigns once ────────────────────────────────────────────────────
 
-  useEffect(() => {
-    getCampaignsForPermission("canViewKPIs").then((cs) =>
-      setCampaigns(cs.map((c) => ({ id: c.id, name: c.name }))),
-    );
+  const loadCampaigns = useCallback(async () => {
+    const requestId = ++campaignRequestGeneration.current;
+    setCampaignLoadStatus("loading");
+    try {
+      const result = await getKpiCampaigns();
+      if (requestId !== campaignRequestGeneration.current) return;
+      setCampaigns(result.map((campaign) => ({ id: campaign.id, name: campaign.name })));
+      setCampaignLoadStatus(result.length === 0 ? "empty" : "success");
+    } catch (error) {
+      if (requestId !== campaignRequestGeneration.current) return;
+      reportDataLoadError(error, "disposition-campaign-filter");
+      setCampaignLoadStatus("error");
+    }
   }, []);
+
+  useEffect(() => {
+    void loadCampaigns();
+    return () => {
+      campaignRequestGeneration.current += 1;
+    };
+  }, [loadCampaigns]);
 
   // ─── Load disposition data ──────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++dataRequestGeneration.current;
+    setLoadStatus("loading");
     try {
       const result = await getDispositionAnalytics(
         campaignId === "all" ? undefined : campaignId,
         dateFrom || undefined,
         dateTo || undefined,
       );
+      if (requestId !== dataRequestGeneration.current) return;
       setData(result);
+      setLoadStatus(result.length === 0 ? "empty" : "success");
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      if (requestId !== dataRequestGeneration.current) return;
+      reportDataLoadError(e, "dispositions-analytics");
+      setLoadStatus("error");
     }
   }, [campaignId, dateFrom, dateTo]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    return () => {
+      dataRequestGeneration.current += 1;
+    };
   }, [loadData]);
 
   // ─── Quick range helper ─────────────────────────────────────────────────────
 
   const setQuickRange = (days: number) => {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    setDateFrom(from.toISOString().slice(0, 10));
-    setDateTo(to.toISOString().slice(0, 10));
+    const to = formatOperationalDate(new Date(), operationalTimeZone);
+    setDateFrom(addOperationalCalendarDays(to, -(days - 1)));
+    setDateTo(to);
   };
 
   // ─── KPI computations ──────────────────────────────────────────────────────
@@ -184,19 +197,12 @@ export function DispositionsAnalyticsClient() {
   const totalDispositions = data.length;
   const mostUsed = data.length > 0 ? data[0] : null; // already sorted desc by totalEvaluations
   const bestScore =
-    data.length > 0
-      ? data.reduce((best, d) =>
-          d.avgScore > best.avgScore ? d : best,
-        )
-      : null;
+    data.length > 0 ? data.reduce((best, d) => (d.avgScore > best.avgScore ? d : best)) : null;
 
   // ─── Chart data (top 15 by volume) ──────────────────────────────────────────
 
   const volumeChartData = useMemo(
-    () =>
-      [...data]
-        .sort((a, b) => b.totalEvaluations - a.totalEvaluations)
-        .slice(0, 15),
+    () => [...data].sort((a, b) => b.totalEvaluations - a.totalEvaluations).slice(0, 15),
     [data],
   );
 
@@ -210,17 +216,13 @@ export function DispositionsAnalyticsClient() {
           <Button
             variant="ghost"
             size="xs"
-            onClick={() =>
-              column.toggleSorting(column.getIsSorted() === "asc")
-            }
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             Nombre
             <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
-        cell: ({ row }) => (
-          <span className="font-medium">{row.original.name}</span>
-        ),
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
       },
       {
         accessorKey: "code",
@@ -252,17 +254,13 @@ export function DispositionsAnalyticsClient() {
           <Button
             variant="ghost"
             size="xs"
-            onClick={() =>
-              column.toggleSorting(column.getIsSorted() === "asc")
-            }
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             Evaluaciones
             <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
-        cell: ({ getValue }) => (
-          <span className="tabular-nums">{getValue<number>()}</span>
-        ),
+        cell: ({ getValue }) => <span className="tabular-nums">{getValue<number>()}</span>,
       },
       {
         accessorKey: "avgScore",
@@ -270,9 +268,7 @@ export function DispositionsAnalyticsClient() {
           <Button
             variant="ghost"
             size="xs"
-            onClick={() =>
-              column.toggleSorting(column.getIsSorted() === "asc")
-            }
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             Avg Score
             <ArrowUpDown className="ml-1 h-3 w-3" />
@@ -282,9 +278,7 @@ export function DispositionsAnalyticsClient() {
           const score = getValue<number>();
           return (
             <div className="flex items-center gap-2">
-              <Badge variant={scoreBadgeVariant(score)}>
-                {score.toFixed(1)}%
-              </Badge>
+              <Badge variant={scoreBadgeVariant(score)}>{score.toFixed(1)}%</Badge>
               <div className="hidden h-2 w-20 overflow-hidden rounded-full bg-muted sm:block">
                 <div
                   className="h-full rounded-full"
@@ -304,9 +298,7 @@ export function DispositionsAnalyticsClient() {
           <Button
             variant="ghost"
             size="xs"
-            onClick={() =>
-              column.toggleSorting(column.getIsSorted() === "asc")
-            }
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             Pass Rate
             <ArrowUpDown className="ml-1 h-3 w-3" />
@@ -344,12 +336,24 @@ export function DispositionsAnalyticsClient() {
 
   // ─── Loading state ──────────────────────────────────────────────────────────
 
-  if (loading && data.length === 0) return <LoadingSkeleton />;
+  if (loadStatus === "loading" && data.length === 0) return <LoadingSkeleton />;
+  if (loadStatus === "error") {
+    return (
+      <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar las disposiciones" />
+    );
+  }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
+      {campaignLoadStatus === "error" ? (
+        <DataLoadError
+          compact
+          onRetry={() => void loadCampaigns()}
+          title="No pudimos cargar el filtro de campañas"
+        />
+      ) : null}
       {/* ─── Header + Filters ──────────────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
@@ -360,20 +364,15 @@ export function DispositionsAnalyticsClient() {
         <div>
           <div className="flex items-center gap-2">
             <Tag className="h-5 w-5 text-cyan-500" />
-            <h1 className="font-heading text-3xl font-bold tracking-tight">
-              Disposiciones
-            </h1>
+            <h1 className="font-heading text-3xl font-bold tracking-tight">Disposiciones</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             Analisis de rendimiento por disposicion
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <Select
-            value={campaignId}
-            onValueChange={(v) => v && setCampaignId(v)}
-          >
-            <SelectTrigger className="w-48">
+          <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
+            <SelectTrigger aria-label="Campaña" className="w-48">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -387,12 +386,7 @@ export function DispositionsAnalyticsClient() {
           </Select>
           <div className="flex gap-1">
             {[7, 30, 90].map((d) => (
-              <Button
-                key={d}
-                variant="outline"
-                size="sm"
-                onClick={() => setQuickRange(d)}
-              >
+              <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
                 {d}d
               </Button>
             ))}
@@ -409,8 +403,11 @@ export function DispositionsAnalyticsClient() {
           </div>
           <div className="flex items-end gap-2">
             <div>
-              <Label className="text-xs">Desde</Label>
+              <Label htmlFor="dispositions-date-from" className="text-xs">
+                Desde
+              </Label>
               <Input
+                id="dispositions-date-from"
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
@@ -418,8 +415,11 @@ export function DispositionsAnalyticsClient() {
               />
             </div>
             <div>
-              <Label className="text-xs">Hasta</Label>
+              <Label htmlFor="dispositions-date-to" className="text-xs">
+                Hasta
+              </Label>
               <Input
+                id="dispositions-date-to"
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
@@ -475,14 +475,17 @@ export function DispositionsAnalyticsClient() {
             {volumeChartData.length > 0 ? (
               <ChartContainer
                 config={volumeConfig}
+                accessibilityLabel="Volumen de evaluaciones por disposición"
+                accessibilityDescription={summarizeChartData(
+                  volumeChartData.map(
+                    (disposition) =>
+                      `${disposition.name}: ${disposition.totalEvaluations} evaluaciones`,
+                  ),
+                )}
                 className="h-[300px] w-full"
               >
                 <BarChart data={volumeChartData}>
-                  <CartesianGrid
-                    vertical={false}
-                    strokeDasharray="3 3"
-                    className="stroke-border"
-                  />
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
                   <XAxis
                     dataKey="name"
                     angle={-25}
@@ -501,20 +504,15 @@ export function DispositionsAnalyticsClient() {
                     axisLine={false}
                     className="text-xs"
                   />
-                  <ChartTooltip
-                    cursor={false}
-                    content={<ChartTooltipContent />}
-                  />
+                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
                   <Bar
                     dataKey="totalEvaluations"
                     radius={[6, 6, 0, 0]}
                     animationDuration={900}
+                    isAnimationActive={chartAnimation}
                   >
                     {volumeChartData.map((item, i) => (
-                      <Cell
-                        key={item.id}
-                        fill={BAR_COLORS[i % BAR_COLORS.length]}
-                      />
+                      <Cell key={item.id} fill={BAR_COLORS[i % BAR_COLORS.length]} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -550,10 +548,7 @@ export function DispositionsAnalyticsClient() {
                           <TableHead key={header.id}>
                             {header.isPlaceholder
                               ? null
-                              : flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext(),
-                                )}
+                              : flexRender(header.column.columnDef.header, header.getContext())}
                           </TableHead>
                         ))}
                       </TableRow>
@@ -565,10 +560,7 @@ export function DispositionsAnalyticsClient() {
                         <TableRow key={row.id}>
                           {row.getVisibleCells().map((cell) => (
                             <TableCell key={cell.id}>
-                              {flexRender(
-                                cell.column.columnDef.cell,
-                                cell.getContext(),
-                              )}
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableCell>
                           ))}
                         </TableRow>
@@ -600,8 +592,7 @@ export function DispositionsAnalyticsClient() {
         transition={{ delay: 3 * 0.08 }}
       >
         <p className="text-right text-sm text-muted-foreground">
-          {data.length} disposicion{data.length !== 1 ? "es" : ""} con
-          evaluaciones
+          {data.length} disposicion{data.length !== 1 ? "es" : ""} con evaluaciones
           {campaignId !== "all" && " en la campana seleccionada"}
         </p>
       </motion.div>

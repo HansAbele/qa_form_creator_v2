@@ -23,6 +23,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   targetDailyRate: 20,
 };
 
+/** COPC 2.7.1.d default Critical Error Accuracy benchmarks (%). */
+export const DEFAULT_CEA_TARGETS = {
+  customerCeaTarget: 95,
+  businessCeaTarget: 90,
+  complianceCeaTarget: 99.5,
+} as const;
+
 export type SettingKey = keyof AppSettings;
 
 export interface CampaignScoringSettings extends AppSettings {
@@ -31,6 +38,10 @@ export interface CampaignScoringSettings extends AppSettings {
   fatalFailuresAllowed: number;
   /** When a critical/fatal question fails: true → force score to 0; false → keep score, mark FAIL. */
   fatalZeroesScore: boolean;
+  /** COPC 2.7.1.d Critical Error Accuracy benchmarks (%) per family. */
+  customerCeaTarget: number;
+  businessCeaTarget: number;
+  complianceCeaTarget: number;
 }
 
 export type CampaignScoringPatch = Partial<
@@ -38,92 +49,11 @@ export type CampaignScoringPatch = Partial<
     usesGlobalDefaults: boolean;
     fatalFailuresAllowed: number;
     fatalZeroesScore: boolean;
+    customerCeaTarget: number;
+    businessCeaTarget: number;
+    complianceCeaTarget: number;
   }
 >;
-
-export interface EvaluationOperationalSettings {
-  campaignConsistency: boolean;
-  answerValidation: boolean;
-  answerScoring: boolean;
-  advancedEvaluationFlow: boolean;
-}
-
-export interface FormsOperationalSettings {
-  formStates: boolean;
-  qaStructure: boolean;
-  publishedRevision: boolean;
-  weightValidation: boolean;
-}
-
-export interface DashboardKpisOperationalSettings {
-  managerGlobalView: boolean;
-  campaignQaView: boolean;
-  supervisorView: boolean;
-  widgetPreferences: boolean;
-}
-
-export interface ReportsExportOperationalSettings {
-  scopedExports: boolean;
-  exportAudit: boolean;
-  supervisorExports: boolean;
-  fieldSelection: boolean;
-}
-
-export interface NotificationsOperationalSettings {
-  criticalEvaluation: boolean;
-  agentRisk: boolean;
-  campaignRisk: boolean;
-  recipientMatrix: boolean;
-}
-
-export interface OperationalSettings {
-  evaluations: EvaluationOperationalSettings;
-  forms: FormsOperationalSettings;
-  dashboardKpis: DashboardKpisOperationalSettings;
-  reportsExport: ReportsExportOperationalSettings;
-  notifications: NotificationsOperationalSettings;
-}
-
-export type OperationalSettingsPatch = {
-  [K in keyof OperationalSettings]?: Partial<OperationalSettings[K]>;
-};
-
-export const DEFAULT_OPERATIONAL_SETTINGS: OperationalSettings = {
-  evaluations: {
-    campaignConsistency: true,
-    answerValidation: true,
-    answerScoring: true,
-    advancedEvaluationFlow: false,
-  },
-  forms: {
-    formStates: true,
-    qaStructure: true,
-    publishedRevision: true,
-    weightValidation: true,
-  },
-  dashboardKpis: {
-    managerGlobalView: true,
-    campaignQaView: true,
-    supervisorView: false,
-    widgetPreferences: false,
-  },
-  reportsExport: {
-    scopedExports: true,
-    exportAudit: true,
-    supervisorExports: false,
-    fieldSelection: false,
-  },
-  notifications: {
-    criticalEvaluation: false,
-    agentRisk: false,
-    campaignRisk: false,
-    recipientMatrix: false,
-  },
-};
-
-const OPERATIONAL_SECTION_KEYS = Object.keys(
-  DEFAULT_OPERATIONAL_SETTINGS,
-) as (keyof OperationalSettings)[];
 
 // ─── Zod-like runtime validation ──────────────────────
 // Keeping it lightweight (no zod dep here) — enforce type + range.
@@ -179,52 +109,13 @@ export function validateCampaignScoringPatch(patch: CampaignScoringPatch): Campa
     validated.fatalZeroesScore = Boolean(patch.fatalZeroesScore);
   }
 
+  for (const key of ["customerCeaTarget", "businessCeaTarget", "complianceCeaTarget"] as const) {
+    if (patch[key] !== undefined) {
+      validated[key] = clamp(num(patch[key], key), 0, 100);
+    }
+  }
+
   return validated;
-}
-
-export function sanitizeOperationalSettings(value: unknown): OperationalSettings {
-  if (!isRecord(value)) return structuredClone(DEFAULT_OPERATIONAL_SETTINGS);
-
-  const sanitized = structuredClone(DEFAULT_OPERATIONAL_SETTINGS);
-  for (const sectionKey of OPERATIONAL_SECTION_KEYS) {
-    const section = value[sectionKey];
-    if (!isRecord(section)) continue;
-
-    for (const itemKey of Object.keys(sanitized[sectionKey])) {
-      const rawValue = section[itemKey];
-      if (typeof rawValue === "boolean") {
-        (sanitized[sectionKey] as unknown as Record<string, boolean>)[itemKey] = rawValue;
-      }
-    }
-  }
-
-  return sanitized;
-}
-
-export function mergeOperationalSettingsPatch(
-  current: OperationalSettings,
-  patch: OperationalSettingsPatch,
-): OperationalSettings {
-  const merged = sanitizeOperationalSettings(current);
-
-  for (const sectionKey of OPERATIONAL_SECTION_KEYS) {
-    const sectionPatch = patch[sectionKey];
-    if (!isRecord(sectionPatch)) continue;
-    const sectionPatchRecord = sectionPatch as Record<string, unknown>;
-
-    for (const itemKey of Object.keys(merged[sectionKey])) {
-      const value = sectionPatchRecord[itemKey];
-      if (typeof value === "boolean") {
-        (merged[sectionKey] as unknown as Record<string, boolean>)[itemKey] = value;
-      }
-    }
-  }
-
-  return merged;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // ─── Cached reader ─────────────────────────────────────
@@ -232,27 +123,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // forces re-read on next request.
 
 async function loadSettingsFromDb(): Promise<AppSettings> {
-  try {
-    const rows = await prisma.appSetting.findMany();
-    const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
-    for (const r of rows) {
-      // Prisma JSON field -> unknown
-      merged[r.key] = r.value;
-    }
-    // Re-validate to guarantee shape (defaults are already valid)
-    const out: AppSettings = { ...DEFAULT_SETTINGS };
-    for (const k of Object.keys(DEFAULT_SETTINGS) as SettingKey[]) {
-      try {
-        out[k] = validateSetting(k, merged[k]);
-      } catch {
-        out[k] = DEFAULT_SETTINGS[k];
-      }
-    }
-    return out;
-  } catch {
-    // Table might not exist yet before migration — fallback to defaults.
-    return { ...DEFAULT_SETTINGS };
+  const rows = await prisma.appSetting.findMany();
+  const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
+  for (const row of rows) {
+    merged[row.key] = row.value;
   }
+
+  const settings: AppSettings = { ...DEFAULT_SETTINGS };
+  for (const key of Object.keys(DEFAULT_SETTINGS) as SettingKey[]) {
+    settings[key] = validateSetting(key, merged[key]);
+  }
+  return settings;
 }
 
 export const getSettings = unstable_cache(loadSettingsFromDb, ["app-settings"], {
@@ -275,17 +156,10 @@ type CampaignScoringRow = {
   targetDailyRate: number;
   fatalFailuresAllowed: number;
   fatalZeroesScore: boolean;
+  customerCeaTarget?: number | null;
+  businessCeaTarget?: number | null;
+  complianceCeaTarget?: number | null;
 };
-
-function getCampaignScoringDelegate() {
-  return (
-    prisma as unknown as {
-      campaignScoringSettings?: {
-        findUnique: (args: { where: { campaignId: string } }) => Promise<CampaignScoringRow | null>;
-      };
-    }
-  ).campaignScoringSettings;
-}
 
 function mergeCampaignScoring(
   campaignId: string,
@@ -299,6 +173,9 @@ function mergeCampaignScoring(
       usesGlobalDefaults: true,
       fatalFailuresAllowed: row?.fatalFailuresAllowed ?? 0,
       fatalZeroesScore: row?.fatalZeroesScore ?? false,
+      customerCeaTarget: row?.customerCeaTarget ?? DEFAULT_CEA_TARGETS.customerCeaTarget,
+      businessCeaTarget: row?.businessCeaTarget ?? DEFAULT_CEA_TARGETS.businessCeaTarget,
+      complianceCeaTarget: row?.complianceCeaTarget ?? DEFAULT_CEA_TARGETS.complianceCeaTarget,
     };
   }
 
@@ -311,6 +188,9 @@ function mergeCampaignScoring(
     targetDailyRate: row.targetDailyRate,
     fatalFailuresAllowed: row.fatalFailuresAllowed,
     fatalZeroesScore: row.fatalZeroesScore ?? false,
+    customerCeaTarget: row.customerCeaTarget ?? DEFAULT_CEA_TARGETS.customerCeaTarget,
+    businessCeaTarget: row.businessCeaTarget ?? DEFAULT_CEA_TARGETS.businessCeaTarget,
+    complianceCeaTarget: row.complianceCeaTarget ?? DEFAULT_CEA_TARGETS.complianceCeaTarget,
   };
 }
 
@@ -318,13 +198,28 @@ export async function getCampaignScoringSettings(
   campaignId: string,
 ): Promise<CampaignScoringSettings> {
   const globalSettings = await getSettings();
-  try {
-    const delegate = getCampaignScoringDelegate();
-    const row = delegate ? await delegate.findUnique({ where: { campaignId } }) : null;
-    return mergeCampaignScoring(campaignId, globalSettings, row);
-  } catch {
-    return mergeCampaignScoring(campaignId, globalSettings);
-  }
+  const row = await prisma.campaignScoringSettings.findUnique({ where: { campaignId } });
+  return mergeCampaignScoring(campaignId, globalSettings, row);
+}
+
+export async function getCampaignScoringSettingsMap(campaignIds: string[]) {
+  const uniqueCampaignIds = [...new Set(campaignIds.filter(Boolean))];
+  if (uniqueCampaignIds.length === 0) return new Map<string, CampaignScoringSettings>();
+
+  const [globalSettings, rows] = await Promise.all([
+    getSettings(),
+    prisma.campaignScoringSettings.findMany({
+      where: { campaignId: { in: uniqueCampaignIds } },
+    }),
+  ]);
+  const rowsByCampaign = new Map(rows.map((row) => [row.campaignId, row]));
+
+  return new Map(
+    uniqueCampaignIds.map((campaignId) => [
+      campaignId,
+      mergeCampaignScoring(campaignId, globalSettings, rowsByCampaign.get(campaignId)),
+    ]),
+  );
 }
 
 export async function getEffectiveSettingsForCampaign(campaignId?: string): Promise<AppSettings> {

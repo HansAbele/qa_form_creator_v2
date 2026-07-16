@@ -3,18 +3,32 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: qa-form-creator:latest
+    image: qa-form-creator:${IMAGE_TAG:-latest}
     container_name: qa_form_creator_app
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      - DATABASE_URL=postgresql://qa_user:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/qa_form_creator
+      - DATABASE_URL=postgresql://${DB_APP_USER:-qa_app}:${DB_APP_PASSWORD:?DB_APP_PASSWORD is required}@db:5432/qa_form_creator
       - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET is required}
+      - RATE_LIMIT_HASH_SECRET=${RATE_LIMIT_HASH_SECRET:?RATE_LIMIT_HASH_SECRET is required}
       - AUTH_URL=${AUTH_URL:?AUTH_URL is required}
       - AUTH_TRUST_HOST=true
       - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - OPERATIONAL_TIME_ZONE=${OPERATIONAL_TIME_ZONE:?OPERATIONAL_TIME_ZONE is required}
+      - EXPORT_MAX_EVALUATIONS=${EXPORT_MAX_EVALUATIONS:-1000}
+      - EXPORT_MAX_ANSWER_ROWS=${EXPORT_MAX_ANSWER_ROWS:-10000}
+      - EXPORT_MAX_QUESTION_COLUMNS=${EXPORT_MAX_QUESTION_COLUMNS:-100}
+      - EXPORT_MAX_CELLS=${EXPORT_MAX_CELLS:-100000}
+      - EXPORT_MAX_TEXT_BYTES=${EXPORT_MAX_TEXT_BYTES:-8000000}
+      - EXPORT_MAX_REQUESTS_PER_MINUTE=${EXPORT_MAX_REQUESTS_PER_MINUTE:-4}
+      - EXPORT_MAX_CONCURRENT_PER_USER=${EXPORT_MAX_CONCURRENT_PER_USER:-1}
+      - EXPORT_MAX_CONCURRENT_GLOBAL=${EXPORT_MAX_CONCURRENT_GLOBAL:-2}
+      - EXPORT_LEASE_TIMEOUT_SECONDS=${EXPORT_LEASE_TIMEOUT_SECONDS:-900}
+      - OBSERVABILITY_SERVICE_NAME=${OBSERVABILITY_SERVICE_NAME:-qore-production}
+      - ERROR_REPORTING_WEBHOOK_URL=${ERROR_REPORTING_WEBHOOK_URL:?ERROR_REPORTING_WEBHOOK_URL is required}
+      - ERROR_REPORTING_WEBHOOK_TOKEN=${ERROR_REPORTING_WEBHOOK_TOKEN:?ERROR_REPORTING_WEBHOOK_TOKEN is required}
     depends_on:
       db:
         condition: service_healthy
@@ -26,20 +40,33 @@ services:
       start_period: 15s
 
   db:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: qa_form_creator_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: qa_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_USER: ${DB_OWNER_USER:-qa_owner}
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD is required}
       POSTGRES_DB: qa_form_creator
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U qa_user -d qa_form_creator"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_OWNER_USER:-qa_owner} -d qa_form_creator"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    image: qa-form-creator-migrator:${IMAGE_TAG:-latest}
+    profiles: ["tools"]
+    environment:
+      - DATABASE_URL=postgresql://${DB_OWNER_USER:-qa_owner}:${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD is required}@db:5432/qa_form_creator
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -1,8 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Ban,
@@ -16,7 +13,17 @@ import {
   User,
   Users,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  DataLoadError,
+  type DataLoadStatus,
+  RestrictedResourceState,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,8 +36,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cancelResponse } from "@/server/actions/responses";
+import { formatOperationalTimestamp } from "@/lib/date-display";
+import { cancelResponseAction } from "@/server/actions/responses";
 import { getResponseDetail } from "@/server/queries/analytics";
+import { questionTypeLabel } from "@/types/form-builder";
 
 interface Answer {
   id: string;
@@ -45,6 +54,7 @@ interface Answer {
   questionWeight: number;
   fatal: boolean;
   requiresCommentOnFail: boolean;
+  ratingMax: number | null;
 }
 
 interface ResponseDetailData {
@@ -54,6 +64,7 @@ interface ResponseDetailData {
   hasFatalFail: boolean;
   status: string;
   createdAt: string;
+  updatedAt: string;
   submittedAt: string | null;
   cancelledAt: string | null;
   cancellationReason: string | null;
@@ -65,7 +76,7 @@ interface ResponseDetailData {
     agentCode: string | null;
     campaignName: string;
   };
-  evaluator: { id: string; name: string; email: string };
+  evaluator: { id: string; name: string };
   disposition: { id: string; name: string; code: string | null } | null;
   answers: Answer[];
 }
@@ -76,26 +87,11 @@ function scoreBadgeVariant(score: number): "default" | "secondary" | "destructiv
   return "destructive";
 }
 
-function scoreTone(score: number, status: string): string {
+function scoreTone(result: string | null, status: string): string {
   if (status === "CANCELLED") return "text-muted-foreground";
-  if (score >= 70) return "text-emerald-600 dark:text-emerald-400";
-  if (score >= 50) return "text-amber-600 dark:text-amber-400";
-  return "text-rose-600 dark:text-rose-400";
-}
-
-function questionTypeLabel(type: string): string {
-  switch (type) {
-    case "RATING":
-      return "Calificacion";
-    case "TEXT":
-      return "Texto";
-    case "SELECT":
-      return "Seleccion";
-    case "RADIO":
-      return "Opcion";
-    default:
-      return type;
-  }
+  if (result === "PASS") return "text-emerald-600 dark:text-emerald-400";
+  if (result === "FAIL") return "text-rose-600 dark:text-rose-400";
+  return "text-amber-600 dark:text-amber-400";
 }
 
 function LoadingSkeleton() {
@@ -117,29 +113,44 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
 }
 
 export function ResponseDetailClient({ responseId }: { responseId: string }) {
+  const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
   const [data, setData] = useState<ResponseDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
   const [cancelling, setCancelling] = useState(false);
+  const requestGeneration = useRef(0);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++requestGeneration.current;
+    setLoadStatus("loading");
     try {
       const result = await getResponseDetail(responseId);
+      if (requestId !== requestGeneration.current) return;
       setData(result);
+      setLoadStatus(result ? "success" : "empty");
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      if (requestId !== requestGeneration.current) return;
+      reportDataLoadError(e, "response-detail");
+      setLoadStatus("error");
     }
   }, [responseId]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [loadData]);
 
-  if (loading && !data) return <LoadingSkeleton />;
-  if (!data) return <EmptyState label="Evaluacion no encontrada" />;
+  if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
+  if (loadStatus === "error") {
+    return (
+      <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar la evaluación" />
+    );
+  }
+  if (loadStatus === "empty" || !data) {
+    return <RestrictedResourceState resourceLabel="La evaluación" />;
+  }
 
   const handleCancel = async () => {
     const reason = window.prompt("Razon de anulacion");
@@ -147,7 +158,12 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
 
     setCancelling(true);
     try {
-      await cancelResponse({ id: data.id, reason });
+      const result = await cancelResponseAction({
+        id: data.id,
+        reason,
+        expectedUpdatedAt: data.updatedAt,
+      });
+      if (!result.ok) throw new Error(result.error.message);
       toast.success("Evaluacion anulada");
       await loadData();
     } catch (error) {
@@ -181,7 +197,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <Badge variant="secondary" className="gap-1">
                     <Calendar className="h-3 w-3" />
-                    {new Date(data.createdAt).toLocaleString("es-ES", {
+                    {formatOperationalTimestamp(data.createdAt, operationalTimeZone, {
                       dateStyle: "medium",
                       timeStyle: "short",
                     })}
@@ -206,7 +222,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                 </span>
                 <div
                   className={`font-heading text-5xl font-bold tabular-nums ${scoreTone(
-                    data.score,
+                    data.result,
                     data.status,
                   )}`}
                 >
@@ -260,7 +276,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
           icon={<Users className="h-5 w-5 text-violet-600 dark:text-violet-400" />}
           label="Evaluador"
           title={data.evaluator.name}
-          detail={data.evaluator.email}
+          detail={null}
           onClick={() => router.push(`/analytics/evaluators/${data.evaluator.id}`)}
         />
         <InfoCard
@@ -343,10 +359,12 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                         <Badge variant="secondary">N/A</Badge>
                       ) : answer.questionType === "RATING" ? (
                         <Badge
-                          variant={scoreBadgeVariant((Number(answer.value) / 5) * 100)}
+                          variant={
+                            answer.score !== null ? scoreBadgeVariant(answer.score) : "secondary"
+                          }
                           className="tabular-nums"
                         >
-                          {answer.value} / 5
+                          {answer.value} / {answer.ratingMax ?? 5}
                         </Badge>
                       ) : (
                         <span className="whitespace-pre-wrap text-sm">

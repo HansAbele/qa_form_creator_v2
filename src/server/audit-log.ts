@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export type AuditLogInput = {
@@ -17,32 +18,28 @@ function normalizeJsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value));
 }
 
-export async function writeAuditLog(input: AuditLogInput) {
-  try {
-    const auditLog = (
-      prisma as unknown as {
-        auditLog?: {
-          create: (args: { data: Record<string, unknown> }) => Promise<unknown>;
-        };
-      }
-    ).auditLog;
+type AuditDatabaseClient = Pick<Prisma.TransactionClient, "auditLog">;
 
-    if (!auditLog) return;
-
-    await auditLog.create({
-      data: {
-        userId: input.userId ?? null,
-        campaignId: input.campaignId ?? null,
-        module: input.module,
-        action: input.action,
-        entityType: input.entityType ?? null,
-        entityId: input.entityId ?? null,
-        beforeValue: normalizeJsonValue(input.beforeValue),
-        afterValue: normalizeJsonValue(input.afterValue),
-        impact: input.impact ?? null,
-      },
-    });
-  } catch (error) {
-    console.error("Failed to write audit log", error);
-  }
+/**
+ * Persists an audit record and deliberately propagates database errors.
+ * Mutations must pass their transaction client so the business write and its
+ * audit record either commit together or roll back together.
+ */
+export async function writeAuditLog(
+  input: AuditLogInput,
+  database: AuditDatabaseClient = prisma,
+) {
+  return database.auditLog.create({
+    data: {
+      userId: input.userId ?? null,
+      campaignId: input.campaignId ?? null,
+      module: input.module,
+      action: input.action,
+      entityType: input.entityType ?? null,
+      entityId: input.entityId ?? null,
+      beforeValue: normalizeJsonValue(input.beforeValue),
+      afterValue: normalizeJsonValue(input.afterValue),
+      impact: input.impact ?? null,
+    },
+  });
 }

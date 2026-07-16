@@ -1,19 +1,98 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import type { Prisma, Role } from "@prisma/client";
 import { hash } from "bcryptjs";
-import { writeAuditLog } from "@/server/audit-log";
-import type { Role } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { auth } from "@/lib/auth";
 import {
   CAMPAIGN_PERMISSION_KEYS,
+  type CampaignAccessLevel,
+  type CampaignPermissionKey,
   getCampaignAccessPreset,
   getDefaultCampaignAccessForUserRole,
   normalizeCampaignPermissionsForRole,
-  type CampaignAccessLevel,
-  type CampaignPermissionKey,
 } from "@/lib/campaign-permissions";
+import { assertStrongPassword } from "@/lib/password-policy";
+import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/server/audit-log";
+
+const roleSchema = z.enum(["ADMIN", "QA", "SUPERVISOR"]);
+const campaignIdsSchema = z
+  .array(z.string().trim().min(1).max(100))
+  .max(500)
+  .transform((campaignIds) => [...new Set(campaignIds)]);
+const createUserSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  name: z.string().trim().min(2).max(100),
+  password: z.string(),
+  role: roleSchema,
+  campaignIds: campaignIdsSchema,
+});
+const updateUserSchema = createUserSchema.extend({
+  password: z.string().optional(),
+  active: z.boolean(),
+});
+const ACTIVE_ADMIN_LOCK_KEY = "qa-form-creator:active-admin-guard";
+
+const SAFE_USER_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  active: true,
+  createdAt: true,
+} as const satisfies Prisma.UserSelect;
+
+function parseUserInput<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Datos de usuario inválidos");
+  }
+  return parsed.data;
+}
+
+async function assertNotRemovingLastActiveAdmin(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  before: { role: Role; active: boolean },
+  after: { role: Role; active: boolean },
+) {
+  if (before.role !== "ADMIN" || !before.active || (after.role === "ADMIN" && after.active)) {
+    return;
+  }
+
+  const otherActiveAdmins = await tx.user.count({
+    where: { id: { not: userId }, role: "ADMIN", active: true },
+  });
+  if (otherActiveAdmins === 0) {
+    throw new Error("No puedes desactivar o degradar al último QA Manager activo");
+  }
+}
+
+async function lockAndAssertActiveAdmin(
+  tx: Prisma.TransactionClient,
+  actor: { id: string; sessionVersion?: number },
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ACTIVE_ADMIN_LOCK_KEY}, 0))`;
+
+  const where: Prisma.UserWhereInput = {
+    id: actor.id,
+    role: "ADMIN",
+    active: true,
+  };
+  if (actor.sessionVersion !== undefined) {
+    where.sessionVersion = actor.sessionVersion;
+  }
+
+  const authoritativeActor = await tx.user.findFirst({
+    where,
+    select: { id: true },
+  });
+  if (!authoritativeActor) {
+    throw new Error("No autorizado: la cuenta de QA Manager ya no esta activa");
+  }
+}
 
 export async function getUsers() {
   const session = await auth();
@@ -67,25 +146,31 @@ export async function createUser(data: {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
-  const existing = await prisma.user.findUnique({ where: { email: data.email } });
-  if (existing) throw new Error("Ya existe un usuario con ese email");
+  const input = parseUserInput(createUserSchema, data);
+  assertStrongPassword(input.password);
 
-  const hashedPassword = await hash(data.password, 10);
+  const hashedPassword = await hash(input.password, 12);
 
   const user = await prisma.$transaction(async (tx) => {
+    await lockAndAssertActiveAdmin(tx, session.user);
+
+    const existing = await tx.user.findUnique({ where: { email: input.email } });
+    if (existing) throw new Error("Ya existe un usuario con ese email");
+
     const newUser = await tx.user.create({
       data: {
-        email: data.email,
-        name: data.name,
+        email: input.email,
+        name: input.name,
         password: hashedPassword,
-        role: data.role,
+        role: input.role,
       },
+      select: SAFE_USER_SELECT,
     });
 
-    if (data.campaignIds.length > 0) {
-      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(data.role);
+    if (input.campaignIds.length > 0) {
+      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(input.role);
       await tx.userCampaign.createMany({
-        data: data.campaignIds.map((campaignId) => ({
+        data: input.campaignIds.map((campaignId) => ({
           userId: newUser.id,
           campaignId,
           ...defaultCampaignAccess,
@@ -93,23 +178,26 @@ export async function createUser(data: {
       });
     }
 
-    return newUser;
-  });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        module: "users",
+        action: "created",
+        entityType: "user",
+        entityId: newUser.id,
+        afterValue: {
+          id: newUser.id,
+          email: newUser.email,
+          name: newUser.name,
+          role: newUser.role,
+          campaignIds: input.campaignIds,
+        },
+        impact: "Usuario creado y asignado a campanas iniciales.",
+      },
+      tx,
+    );
 
-  await writeAuditLog({
-    userId: session.user.id,
-    module: "users",
-    action: "created",
-    entityType: "user",
-    entityId: user.id,
-    afterValue: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      campaignIds: data.campaignIds,
-    },
-    impact: "Usuario creado y asignado a campanas iniciales.",
+    return newUser;
   });
 
   revalidatePath("/admin/users");
@@ -131,36 +219,65 @@ export async function updateUser(
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
+  const input = parseUserInput(updateUserSchema, data);
+  if (input.password) assertStrongPassword(input.password);
+
   const updateData: Record<string, unknown> = {
-    email: data.email,
-    name: data.name,
-    role: data.role,
-    active: data.active,
+    email: input.email,
+    name: input.name,
+    role: input.role,
+    active: input.active,
   };
 
-  if (data.password) {
-    updateData.password = await hash(data.password, 10);
+  if (input.password) {
+    updateData.password = await hash(input.password, 12);
   }
 
-  const beforeUser = await prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      active: true,
-      campaigns: { select: { campaignId: true } },
-    },
-  });
-
   const user = await prisma.$transaction(async (tx) => {
+    await lockAndAssertActiveAdmin(tx, session.user);
+
+    const beforeUser = await tx.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        active: true,
+        campaigns: { select: { campaignId: true } },
+      },
+    });
+    if (!beforeUser) throw new Error("Usuario no encontrado");
+
+    if (id === session.user.id && (input.role !== "ADMIN" || !input.active)) {
+      throw new Error("No puedes desactivar ni degradar tu propia cuenta de QA Manager");
+    }
+    await assertNotRemovingLastActiveAdmin(tx, id, beforeUser, input);
+
+    const emailOwner = await tx.user.findUnique({
+      where: { email: input.email },
+      select: { id: true },
+    });
+    if (emailOwner && emailOwner.id !== id) {
+      throw new Error("Ya existe un usuario con ese email");
+    }
+
+    const transactionUpdateData = { ...updateData };
+    const shouldRevokeSessions =
+      Boolean(input.password) ||
+      beforeUser.role !== input.role ||
+      beforeUser.active !== input.active;
+    if (shouldRevokeSessions) {
+      transactionUpdateData.sessionVersion = { increment: 1 };
+    }
+
     const updated = await tx.user.update({
       where: { id },
-      data: updateData,
+      data: transactionUpdateData,
+      select: SAFE_USER_SELECT,
     });
 
-    const nextCampaignIds = [...new Set(data.campaignIds)];
+    const nextCampaignIds = input.campaignIds;
 
     if (nextCampaignIds.length === 0) {
       await tx.userCampaign.deleteMany({ where: { userId: id } });
@@ -180,7 +297,7 @@ export async function updateUser(
     );
 
     if (campaignIdsToCreate.length > 0) {
-      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(data.role);
+      const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(input.role);
       await tx.userCampaign.createMany({
         data: campaignIdsToCreate.map((campaignId) => ({
           userId: id,
@@ -190,33 +307,39 @@ export async function updateUser(
       });
     }
 
-    if (data.role === "SUPERVISOR" && nextCampaignIds.length > 0) {
+    if (
+      (beforeUser.role !== input.role || input.role === "SUPERVISOR") &&
+      nextCampaignIds.length > 0
+    ) {
       await tx.userCampaign.updateMany({
         where: { userId: id, campaignId: { in: nextCampaignIds } },
-        data: getDefaultCampaignAccessForUserRole(data.role),
+        data: getDefaultCampaignAccessForUserRole(input.role),
       });
     }
 
-    return updated;
-  });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        module: "users",
+        action: "updated",
+        entityType: "user",
+        entityId: id,
+        beforeValue: beforeUser,
+        afterValue: {
+          id: updated.id,
+          email: updated.email,
+          name: updated.name,
+          role: updated.role,
+          active: updated.active,
+          campaignIds: input.campaignIds,
+          passwordChanged: Boolean(input.password),
+        },
+        impact: "Usuario y asignaciones de campana actualizados.",
+      },
+      tx,
+    );
 
-  await writeAuditLog({
-    userId: session.user.id,
-    module: "users",
-    action: "updated",
-    entityType: "user",
-    entityId: id,
-    beforeValue: beforeUser,
-    afterValue: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      active: user.active,
-      campaignIds: data.campaignIds,
-      passwordChanged: Boolean(data.password),
-    },
-    impact: "Usuario y asignaciones de campana actualizados.",
+    return updated;
   });
 
   revalidatePath("/admin/users");
@@ -235,67 +358,74 @@ export async function updateCampaignAccess(data: {
     throw new Error("No autorizado");
   }
 
-  const [user, campaign, existingAccess] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: data.userId },
-      select: { id: true, role: true },
-    }),
-    prisma.campaign.findUnique({
-      where: { id: data.campaignId },
-      select: { id: true },
-    }),
-    prisma.userCampaign.findUnique({
+  const access = await prisma.$transaction(async (tx) => {
+    await lockAndAssertActiveAdmin(tx, session.user);
+
+    const [user, campaign, existingAccess] = await Promise.all([
+      tx.user.findUnique({
+        where: { id: data.userId },
+        select: { id: true, role: true },
+      }),
+      tx.campaign.findUnique({
+        where: { id: data.campaignId },
+        select: { id: true },
+      }),
+      tx.userCampaign.findUnique({
+        where: {
+          userId_campaignId: {
+            userId: data.userId,
+            campaignId: data.campaignId,
+          },
+        },
+      }),
+    ]);
+
+    if (!user) throw new Error("Usuario no encontrado");
+    if (!campaign) throw new Error("Campaña no encontrada");
+    if (user.role === "ADMIN") {
+      throw new Error("Los QA Manager tienen acceso global");
+    }
+    if (!existingAccess) {
+      throw new Error("El usuario no está asignado a esta campaña");
+    }
+
+    const rawPermissionPatch = Object.fromEntries(
+      CAMPAIGN_PERMISSION_KEYS.map((key) => [key, Boolean(data.permissions[key])]),
+    ) as Record<CampaignPermissionKey, boolean>;
+    const permissionPatch =
+      user.role === "SUPERVISOR"
+        ? getCampaignAccessPreset("SUPERVISOR")
+        : normalizeCampaignPermissionsForRole(user.role, rawPermissionPatch);
+    const roleInCampaign = user.role === "SUPERVISOR" ? "SUPERVISOR" : data.roleInCampaign;
+
+    const access = await tx.userCampaign.update({
       where: {
         userId_campaignId: {
           userId: data.userId,
           campaignId: data.campaignId,
         },
       },
-    }),
-  ]);
-
-  if (!user) throw new Error("Usuario no encontrado");
-  if (!campaign) throw new Error("Campaña no encontrada");
-  if (user.role === "ADMIN") {
-    throw new Error("Los QA Manager tienen acceso global");
-  }
-  if (!existingAccess) {
-    throw new Error("El usuario no está asignado a esta campaña");
-  }
-
-  const rawPermissionPatch = Object.fromEntries(
-    CAMPAIGN_PERMISSION_KEYS.map((key) => [key, Boolean(data.permissions[key])]),
-  ) as Record<CampaignPermissionKey, boolean>;
-  const permissionPatch =
-    user.role === "SUPERVISOR"
-      ? getCampaignAccessPreset("SUPERVISOR")
-      : normalizeCampaignPermissionsForRole(user.role, rawPermissionPatch);
-  const roleInCampaign = user.role === "SUPERVISOR" ? "SUPERVISOR" : data.roleInCampaign;
-
-  const access = await prisma.userCampaign.update({
-    where: {
-      userId_campaignId: {
-        userId: data.userId,
-        campaignId: data.campaignId,
+      data: {
+        roleInCampaign,
+        ...permissionPatch,
       },
-    },
-    data: {
-      roleInCampaign,
-      ...permissionPatch,
-    },
-    include: { campaign: { select: { id: true, name: true } } },
-  });
-
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: data.campaignId,
-    module: "permissions",
-    action: "campaign_access_updated",
-    entityType: "user_campaign",
-    entityId: `${data.userId}:${data.campaignId}`,
-    beforeValue: existingAccess,
-    afterValue: access,
-    impact: "Permisos efectivos de usuario modificados para la campana.",
+      include: { campaign: { select: { id: true, name: true } } },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: data.campaignId,
+        module: "permissions",
+        action: "campaign_access_updated",
+        entityType: "user_campaign",
+        entityId: `${data.userId}:${data.campaignId}`,
+        beforeValue: existingAccess,
+        afterValue: access,
+        impact: "Permisos efectivos de usuario modificados para la campana.",
+      },
+      tx,
+    );
+    return access;
   });
 
   revalidatePath("/settings");
@@ -311,19 +441,37 @@ export async function deleteUser(id: string) {
     throw new Error("No puedes desactivar tu propia cuenta");
   }
 
-  const user = await prisma.user.update({
-    where: { id },
-    data: { active: false },
-  });
+  await prisma.$transaction(async (tx) => {
+    await lockAndAssertActiveAdmin(tx, session.user);
 
-  await writeAuditLog({
-    userId: session.user.id,
-    module: "users",
-    action: "deactivated",
-    entityType: "user",
-    entityId: id,
-    afterValue: { id: user.id, email: user.email, active: user.active },
-    impact: "Usuario desactivado; se bloquea su acceso futuro.",
+    const beforeUser = await tx.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, role: true, active: true },
+    });
+    if (!beforeUser) throw new Error("Usuario no encontrado");
+    await assertNotRemovingLastActiveAdmin(tx, id, beforeUser, {
+      role: beforeUser.role,
+      active: false,
+    });
+
+    const user = await tx.user.update({
+      where: { id },
+      data: { active: false, sessionVersion: { increment: 1 } },
+      select: SAFE_USER_SELECT,
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        module: "users",
+        action: "deactivated",
+        entityType: "user",
+        entityId: id,
+        beforeValue: beforeUser,
+        afterValue: { id: user.id, email: user.email, active: user.active },
+        impact: "Usuario desactivado; se bloquea su acceso futuro.",
+      },
+      tx,
+    );
   });
 
   revalidatePath("/admin/users");

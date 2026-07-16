@@ -142,7 +142,7 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
 }
 
 function getRoleLabel(role: Role) {
-  if (role === "ADMIN") return "Admin";
+  if (role === "ADMIN") return "QA Manager";
   if (role === "SUPERVISOR") return "Supervisor";
   return "QA";
 }

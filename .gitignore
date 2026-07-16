@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/playwright/.auth/
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -40,6 +43,10 @@ yarn-error.log*
 .env
 .env.local
 .env.production
+.backup-key
+.qore-operations.lock
+.deployed-release
+/backups/
 odoo.local.env
 *.local.env
 !.env.example
@@ -50,7 +57,11 @@ odoo.local.env
 
 # typescript
 *.tsbuildinfo
-# next-env.d.ts committed intentionally (needed for TS in new machine)
+next-env.d.ts
+
+# Python bytecode
+__pycache__/
+*.py[cod]
 
 # deploy temp dirs
 /_local_save/

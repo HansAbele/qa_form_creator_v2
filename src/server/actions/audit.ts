@@ -1,8 +1,9 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { auth } from "@/lib/auth";
+import { getOperationalDateBounds } from "@/lib/operational-time";
+import { prisma } from "@/lib/prisma";
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
@@ -57,51 +58,41 @@ export async function readOperationalAudit(
   const where = buildAuditWhere(filters);
   applyAuditScope(where, filters, allowedCampaignIds);
 
-  try {
-    const [total, rows] = await prisma.$transaction([
-      prisma.auditLog.count({ where }),
-      prisma.auditLog.findMany({
-        where,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orderBy: { createdAt: "desc" },
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          campaign: { select: { id: true, name: true } },
-        },
-      }),
-    ]);
+  const [total, rows] = await prisma.$transaction([
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      orderBy: { createdAt: "desc" },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        campaign: { select: { id: true, name: true } },
+      },
+    }),
+  ]);
 
-    return {
-      events: rows.map((row) => ({
-        id: row.id,
-        createdAt: row.createdAt.toISOString(),
-        module: row.module,
-        action: row.action,
-        entityType: row.entityType,
-        entityId: row.entityId,
-        impact: row.impact,
-        beforeValue: row.beforeValue,
-        afterValue: row.afterValue,
-        userId: row.userId,
-        userName: row.user?.name ?? row.user?.email ?? null,
-        campaignId: row.campaignId,
-        campaignName: row.campaign?.name ?? null,
-      })),
-      total,
-      page,
-      pageSize,
-      pageCount: Math.max(1, Math.ceil(total / pageSize)),
-    };
-  } catch {
-    return {
-      events: [],
-      total: 0,
-      page,
-      pageSize,
-      pageCount: 1,
-    };
-  }
+  return {
+    events: rows.map((row) => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      module: row.module,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      impact: row.impact,
+      beforeValue: row.beforeValue,
+      afterValue: row.afterValue,
+      userId: row.userId,
+      userName: row.user?.name ?? row.user?.email ?? null,
+      campaignId: row.campaignId,
+      campaignName: row.campaign?.name ?? null,
+    })),
+    total,
+    page,
+    pageSize,
+    pageCount: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 async function getAllowedAuditCampaignIds(user: {
@@ -152,12 +143,9 @@ function buildAuditWhere(filters: OperationalAuditFilters): Prisma.AuditLogWhere
   if (isActiveFilter(filters.campaignId)) where.campaignId = filters.campaignId;
   if (isActiveFilter(filters.userId)) where.userId = filters.userId;
 
-  const createdAt: Prisma.DateTimeFilter = {};
-  const dateFrom = parseDate(filters.dateFrom, false);
-  const dateTo = parseDate(filters.dateTo, true);
-  if (dateFrom) createdAt.gte = dateFrom;
-  if (dateTo) createdAt.lte = dateTo;
-  if (createdAt.gte || createdAt.lte) where.createdAt = createdAt;
+  if (filters.dateFrom || filters.dateTo) {
+    where.createdAt = getOperationalDateBounds(filters.dateFrom, filters.dateTo);
+  }
 
   const query = filters.query?.trim();
   if (query) {
@@ -178,15 +166,6 @@ function buildAuditWhere(filters: OperationalAuditFilters): Prisma.AuditLogWhere
 
 function isActiveFilter(value: string | undefined) {
   return Boolean(value && value !== "all");
-}
-
-function parseDate(value: string | undefined, endOfDay: boolean) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  if (endOfDay) date.setHours(23, 59, 59, 999);
-  else date.setHours(0, 0, 0, 0);
-  return date;
 }
 
 function clampInt(value: number | undefined, min: number, max: number, fallback: number) {
