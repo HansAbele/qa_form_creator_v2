@@ -19,6 +19,7 @@ import {
   assertCampaignPermissionForUser,
   getCampaignFilter,
   getCampaignFilterForPermission,
+  hasCampaignPermissionForUser,
 } from "./campaign-filter";
 
 const adminUser = {
@@ -96,6 +97,21 @@ describe("campaign RBAC filters", () => {
     ).rejects.toThrow("No autorizado para esta accion en esta campana");
   });
 
+  it("resolves an effective permission for one assigned campaign", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canManageDispositions: true,
+    });
+
+    await expect(
+      hasCampaignPermissionForUser(qaUser, "campaign-1", "canManageDispositions"),
+    ).resolves.toBe(true);
+    await expect(
+      hasCampaignPermissionForUser(qaUser, "campaign-3", "canManageDispositions"),
+    ).resolves.toBe(false);
+    expect(prismaMock.userCampaign.findUnique).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps Supervisor scoped to assigned campaigns for read permissions", async () => {
     authMock.mockResolvedValue({ user: supervisorUser });
     prismaMock.userCampaign.findMany.mockResolvedValue([
@@ -117,6 +133,9 @@ describe("campaign RBAC filters", () => {
     await expect(
       assertCampaignPermissionForUser(supervisorUser, "campaign-1", "canEvaluate"),
     ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    await expect(
+      hasCampaignPermissionForUser(supervisorUser, "campaign-1", "canManageDispositions"),
+    ).resolves.toBe(false);
     expect(prismaMock.userCampaign.findUnique).not.toHaveBeenCalled();
   });
 });

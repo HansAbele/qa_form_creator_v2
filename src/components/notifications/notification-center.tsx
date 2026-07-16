@@ -21,6 +21,7 @@ import {
   type NotificationItem,
 } from "@/server/actions/notifications";
 import { cn } from "@/lib/utils";
+import { requestAppNavigation } from "@/lib/navigation-guard";
 
 const severityClasses: Record<string, string> = {
   CRITICAL: "border-destructive/30 bg-destructive/10 text-destructive",
@@ -87,6 +88,7 @@ export function NotificationCenter() {
   };
 
   const openNotification = (item: NotificationItem) => {
+    if (item.href && !requestAppNavigation()) return;
     runMutation(() => markNotificationRead(item.id));
     if (item.href) {
       setOpen(false);

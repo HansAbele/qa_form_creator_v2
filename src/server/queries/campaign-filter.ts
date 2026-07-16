@@ -18,6 +18,27 @@ export function assertCampaignAccessForUser(user: SessionUser, campaignId: strin
   }
 }
 
+export async function hasCampaignPermissionForUser(
+  user: SessionUser,
+  campaignId: string,
+  permission: CampaignPermissionKey,
+): Promise<boolean> {
+  if (user.role === "ADMIN") return true;
+  if (isSupervisorRole(user.role) && isSupervisorBlockedPermission(permission)) return false;
+  if (!user.campaignIds.includes(campaignId)) return false;
+
+  const access = await prisma.userCampaign.findUnique({
+    where: {
+      userId_campaignId: {
+        userId: user.id,
+        campaignId,
+      },
+    },
+  });
+
+  return Boolean(access?.[permission]);
+}
+
 export async function assertCampaignAccess(campaignId: string) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");

@@ -9,20 +9,33 @@ import {
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
 
+function attachSafeTeamCounts<
+  T extends { campaignId: string; agents: Array<{ campaignId: string }> },
+>(teams: T[]) {
+  return teams.map(({ agents, ...team }) => ({
+    ...team,
+    _count: {
+      agents: agents.filter((agent) => agent.campaignId === team.campaignId).length,
+    },
+  }));
+}
+
 export async function getTeams(campaignId?: string) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
   const where = campaignId ? { campaignId } : {};
 
-  return prisma.team.findMany({
+  const teams = await prisma.team.findMany({
     where,
     include: {
       campaign: { select: { id: true, name: true } },
-      _count: { select: { agents: true } },
+      agents: { select: { campaignId: true } },
     },
     orderBy: { name: "asc" },
   });
+
+  return attachSafeTeamCounts(teams);
 }
 
 export async function getTeamsForManagement(campaignId?: string) {
@@ -31,14 +44,16 @@ export async function getTeamsForManagement(campaignId?: string) {
 
   const where = await getCampaignFilterForPermission("canManageAgents", campaignId);
 
-  return prisma.team.findMany({
+  const teams = await prisma.team.findMany({
     where,
     include: {
       campaign: { select: { id: true, name: true } },
-      _count: { select: { agents: true } },
+      agents: { select: { campaignId: true } },
     },
     orderBy: { name: "asc" },
   });
+
+  return attachSafeTeamCounts(teams);
 }
 
 export async function createTeam(data: { name: string; campaignId: string }) {
@@ -159,7 +174,10 @@ export async function assignAgentsToTeam(teamId: string, agentIds: string[]) {
     select: { id: true, campaignId: true },
   });
 
-  if (agents.length !== agentIds.length || agents.some((agent) => agent.campaignId !== team.campaignId)) {
+  if (
+    agents.length !== agentIds.length ||
+    agents.some((agent) => agent.campaignId !== team.campaignId)
+  ) {
     throw new Error("Agentes invalidos para este equipo");
   }
 

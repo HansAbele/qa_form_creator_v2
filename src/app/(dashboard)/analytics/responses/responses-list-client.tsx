@@ -1,16 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import {
-  ArrowLeft,
-  Award,
-  ClipboardCheck,
-  Filter,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
+import { ArrowLeft, Award, ClipboardCheck, Filter, TrendingDown, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,11 +26,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getFilteredResponses } from "@/server/queries/analytics";
-import type { AppSettings } from "@/lib/settings";
+
+type ResultStatus = "PASS" | "FAIL";
 
 interface ResponseRow {
   id: string;
   score: number;
+  result: ResultStatus;
+  hasFatalFail: boolean;
+  campaignId: string;
   createdAt: string;
   agent: { id: string; name: string; campaignName: string };
   evaluator: { id: string; name: string };
@@ -52,12 +49,10 @@ interface ResponsesListData {
   limit: number;
 }
 
-type StatusKey = "all" | "pass" | "fail" | "custom";
+type StatusKey = "all" | "pass" | "fail";
 
-function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
-  if (score >= 70) return "default";
-  if (score >= 50) return "secondary";
-  return "destructive";
+function scoreBadgeVariant(result: ResultStatus): "default" | "destructive" {
+  return result === "PASS" ? "default" : "destructive";
 }
 
 function parseNumber(v: string | undefined): number | undefined {
@@ -66,53 +61,43 @@ function parseNumber(v: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function deriveStatus(
-  min: number | undefined,
-  max: number | undefined,
-  threshold: number,
-): StatusKey {
-  if (min === undefined && max === undefined) return "all";
-  if (min === threshold && max === undefined) return "pass";
-  if (min === undefined && max !== undefined && max < threshold) return "fail";
-  return "custom";
+function parseResultStatus(value: string | undefined): ResultStatus | undefined {
+  const normalized = value?.toUpperCase();
+  return normalized === "PASS" || normalized === "FAIL" ? normalized : undefined;
 }
 
 export function ResponsesListClient({
-  settings,
   campaigns,
   initialMinScore,
   initialMaxScore,
   initialCampaignId,
   initialDateFrom,
   initialDateTo,
+  initialResultStatus,
 }: {
-  settings: AppSettings;
   campaigns: { id: string; name: string }[];
   initialMinScore?: string;
   initialMaxScore?: string;
   initialCampaignId?: string;
   initialDateFrom?: string;
   initialDateTo?: string;
+  initialResultStatus?: string;
 }) {
   const router = useRouter();
-  const threshold = settings.passThreshold;
 
-  const [minScore, setMinScore] = useState<number | undefined>(
-    parseNumber(initialMinScore),
-  );
-  const [maxScore, setMaxScore] = useState<number | undefined>(
-    parseNumber(initialMaxScore),
-  );
+  const [minScore, setMinScore] = useState<number | undefined>(parseNumber(initialMinScore));
+  const [maxScore, setMaxScore] = useState<number | undefined>(parseNumber(initialMaxScore));
   const [campaignId, setCampaignId] = useState(initialCampaignId ?? "");
   const [dateFrom, setDateFrom] = useState(initialDateFrom ?? "");
   const [dateTo, setDateTo] = useState(initialDateTo ?? "");
+  const [resultStatus, setResultStatus] = useState<ResultStatus | undefined>(
+    parseResultStatus(initialResultStatus),
+  );
   const [data, setData] = useState<ResponsesListData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const status = useMemo(
-    () => deriveStatus(minScore, maxScore, threshold),
-    [minScore, maxScore, threshold],
-  );
+  const status: StatusKey =
+    resultStatus === "PASS" ? "pass" : resultStatus === "FAIL" ? "fail" : "all";
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -123,6 +108,7 @@ export function ResponsesListClient({
         campaignId: campaignId || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
+        resultStatus,
       });
       setData(result);
     } catch (e) {
@@ -130,7 +116,7 @@ export function ResponsesListClient({
     } finally {
       setLoading(false);
     }
-  }, [minScore, maxScore, campaignId, dateFrom, dateTo]);
+  }, [minScore, maxScore, campaignId, dateFrom, dateTo, resultStatus]);
 
   useEffect(() => {
     loadData();
@@ -144,38 +130,30 @@ export function ResponsesListClient({
     if (campaignId) params.set("campaignId", campaignId);
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
+    if (resultStatus) params.set("status", resultStatus.toLowerCase());
     const qs = params.toString();
     router.replace(qs ? `/analytics/responses?${qs}` : "/analytics/responses", {
       scroll: false,
     });
-  }, [minScore, maxScore, campaignId, dateFrom, dateTo, router]);
+  }, [minScore, maxScore, campaignId, dateFrom, dateTo, resultStatus, router]);
 
   const handleStatusChange = (next: StatusKey) => {
-    if (next === "all") {
-      setMinScore(undefined);
-      setMaxScore(undefined);
-    } else if (next === "pass") {
-      setMinScore(threshold);
-      setMaxScore(undefined);
-    } else if (next === "fail") {
-      setMinScore(undefined);
-      setMaxScore(threshold - 0.01);
-    }
-    // "custom" keeps whatever is there
+    setResultStatus(next === "pass" ? "PASS" : next === "fail" ? "FAIL" : undefined);
   };
 
-  const activeCampaignName = campaignId
-    ? campaigns.find((c) => c.id === campaignId)?.name
-    : null;
+  const activeCampaignName = campaignId ? campaigns.find((c) => c.id === campaignId)?.name : null;
 
   const statusLabel =
     status === "pass"
-      ? `Pass (≥${threshold}%)`
+      ? "Solo PASS efectivo"
       : status === "fail"
-        ? `Fail (<${threshold}%)`
-        : status === "custom"
-          ? `Rango ${minScore ?? 0}–${maxScore ?? 100}%`
-          : "Todas";
+        ? "Solo FAIL efectivo"
+        : "Todos los resultados";
+
+  const scoreRangeLabel =
+    minScore !== undefined || maxScore !== undefined
+      ? `Score ${minScore ?? 0}–${maxScore ?? 100}%`
+      : null;
 
   return (
     <div className="space-y-6">
@@ -217,53 +195,42 @@ export function ResponsesListClient({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">Todas</SelectItem>
-                      <SelectItem value="pass">Solo Pass</SelectItem>
-                      <SelectItem value="fail">Solo Fail</SelectItem>
-                      <SelectItem value="custom">Rango personalizado</SelectItem>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="pass">Solo PASS</SelectItem>
+                      <SelectItem value="fail">Solo FAIL</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {status === "custom" && (
-                  <>
-                    <div>
-                      <Label className="text-xs">Score mín</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={minScore ?? ""}
-                        onChange={(e) =>
-                          setMinScore(parseNumber(e.target.value))
-                        }
-                        className="h-8 w-24"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Score máx</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={maxScore ?? ""}
-                        onChange={(e) =>
-                          setMaxScore(parseNumber(e.target.value))
-                        }
-                        className="h-8 w-24"
-                      />
-                    </div>
-                  </>
-                )}
+                <div>
+                  <Label className="text-xs">Score mín</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={minScore ?? ""}
+                    onChange={(e) => setMinScore(parseNumber(e.target.value))}
+                    className="h-8 w-24"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Score máx</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={maxScore ?? ""}
+                    onChange={(e) => setMaxScore(parseNumber(e.target.value))}
+                    className="h-8 w-24"
+                  />
+                </div>
 
                 {campaigns.length > 1 && (
                   <div>
                     <Label className="text-xs">Campaña</Label>
                     <Select
                       value={campaignId || "all"}
-                      onValueChange={(v) =>
-                        setCampaignId(v === "all" || !v ? "" : v)
-                      }
+                      onValueChange={(v) => setCampaignId(v === "all" || !v ? "" : v)}
                     >
                       <SelectTrigger className="h-8 w-44">
                         <SelectValue />
@@ -327,11 +294,7 @@ export function ResponsesListClient({
             )}
             <Badge
               variant={
-                status === "pass"
-                  ? "default"
-                  : status === "fail"
-                    ? "destructive"
-                    : "secondary"
+                status === "pass" ? "default" : status === "fail" ? "destructive" : "secondary"
               }
               className="gap-1"
             >
@@ -340,9 +303,8 @@ export function ResponsesListClient({
               {status === "all" && <Award className="h-3 w-3" />}
               {statusLabel}
             </Badge>
-            {activeCampaignName && (
-              <Badge variant="secondary">{activeCampaignName}</Badge>
-            )}
+            {scoreRangeLabel && <Badge variant="outline">{scoreRangeLabel}</Badge>}
+            {activeCampaignName && <Badge variant="secondary">{activeCampaignName}</Badge>}
             {(dateFrom || dateTo) && (
               <Badge variant="outline">
                 {dateFrom || "…"} → {dateTo || "hoy"}
@@ -350,8 +312,7 @@ export function ResponsesListClient({
             )}
             {data && data.shownCount < data.totalCount && (
               <span className="ml-auto text-xs text-muted-foreground">
-                Mostrando las {data.limit} más recientes. Refina los filtros para ver
-                menos.
+                Mostrando las {data.limit} más recientes. Refina los filtros para ver menos.
               </span>
             )}
           </div>
@@ -370,7 +331,7 @@ export function ResponsesListClient({
                   <TableHead>Evaluador</TableHead>
                   <TableHead>Formulario</TableHead>
                   <TableHead>Disposición</TableHead>
-                  <TableHead className="text-center">Score</TableHead>
+                  <TableHead className="text-center">Score / estado</TableHead>
                   <TableHead className="text-right">Fecha</TableHead>
                 </TableRow>
               </TableHeader>
@@ -382,23 +343,16 @@ export function ResponsesListClient({
                     onClick={() => router.push(`/analytics/responses/${r.id}`)}
                   >
                     <TableCell className="font-medium">{r.agent.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {r.evaluator.name}
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{r.evaluator.name}</TableCell>
                     <TableCell className="max-w-[220px] truncate text-muted-foreground">
                       {r.form.title}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {r.disposition?.name ?? (
-                        <span className="italic">—</span>
-                      )}
+                      {r.disposition?.name ?? <span className="italic">—</span>}
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge
-                        variant={scoreBadgeVariant(r.score)}
-                        className="tabular-nums"
-                      >
-                        {r.score.toFixed(1)}%
+                      <Badge variant={scoreBadgeVariant(r.result)} className="tabular-nums">
+                        {r.score.toFixed(1)}% · {r.result}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right text-xs text-muted-foreground">

@@ -9,21 +9,60 @@ import {
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
 
+async function attachSafeAgentRelations<
+  T extends {
+    id: string;
+    campaignId: string;
+    team: { id: string; name: string; campaignId: string } | null;
+  },
+>(agents: T[]) {
+  const campaignIds = [...new Set(agents.map((agent) => agent.campaignId))];
+  const counts =
+    agents.length > 0
+      ? await prisma.response.groupBy({
+          by: ["agentId"],
+          where: {
+            agentId: { in: agents.map((agent) => agent.id) },
+            OR: campaignIds.map((visibleCampaignId) => ({
+              AND: [
+                { form: { campaignId: visibleCampaignId } },
+                { agent: { campaignId: visibleCampaignId } },
+                {
+                  OR: [{ dispositionId: null }, { disposition: { campaignId: visibleCampaignId } }],
+                },
+              ],
+            })),
+          },
+          _count: { _all: true },
+        })
+      : [];
+  const responseCounts = new Map(
+    counts.map((count) => [count.agentId, count._count._all] as const),
+  );
+
+  return agents.map(({ team, ...agent }) => ({
+    ...agent,
+    team: team?.campaignId === agent.campaignId ? { id: team.id, name: team.name } : null,
+    _count: { responses: responseCounts.get(agent.id) ?? 0 },
+  }));
+}
+
 export async function getAgents(campaignId?: string) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
   const where = campaignId ? { campaignId } : {};
 
-  return prisma.agent.findMany({
+  const agents = await prisma.agent.findMany({
     where,
     include: {
       campaign: { select: { id: true, name: true } },
-      team: { select: { id: true, name: true } },
-      _count: { select: { responses: true } },
+      team: { select: { id: true, name: true, campaignId: true } },
     },
     orderBy: { name: "asc" },
   });
+
+  return attachSafeAgentRelations(agents);
 }
 
 export async function getAgentsForEvaluation(campaignId: string) {
@@ -48,15 +87,16 @@ export async function getAgentsForManagement(campaignId?: string) {
 
   const where = await getCampaignFilterForPermission("canManageAgents", campaignId);
 
-  return prisma.agent.findMany({
+  const agents = await prisma.agent.findMany({
     where,
     include: {
       campaign: { select: { id: true, name: true } },
-      team: { select: { id: true, name: true } },
-      _count: { select: { responses: true } },
+      team: { select: { id: true, name: true, campaignId: true } },
     },
     orderBy: { name: "asc" },
   });
+
+  return attachSafeAgentRelations(agents);
 }
 
 export async function createAgent(data: {

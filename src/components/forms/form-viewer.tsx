@@ -16,10 +16,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { computeScore, type ScoringAnswer, type ScoringQuestion, type WeightedOption } from "@/lib/scoring";
+import {
+  computeScore,
+  type ScoringAnswer,
+  type ScoringQuestion,
+  type WeightedOption,
+} from "@/lib/scoring";
+import { cn } from "@/lib/utils";
+import {
+  APP_NAVIGATION_REQUEST_EVENT,
+  type AppNavigationRequestEvent,
+  consumeDocumentUnloadPermission,
+  requestAppNavigation,
+} from "@/lib/navigation-guard";
 import type { RatingStyleValue } from "@/types/form-builder";
 import { getAgentsForEvaluation } from "@/server/actions/agents";
-import { saveResponseDraft, submitResponse } from "@/server/actions/responses";
+import { saveResponseDraftAction, submitResponseAction } from "@/server/actions/responses";
 import type { QuestionType } from "@prisma/client";
 import { DispositionCombobox } from "./disposition-combobox";
 import { EvaluationSummary } from "./evaluation-summary";
@@ -61,11 +73,21 @@ interface FormViewerProps {
     campaign: { name: string };
   };
   passThreshold: number;
+  fatalZeroesScore: boolean;
+  canManageDispositions: boolean;
   initialResponse?: {
     id: string;
+    updatedAt: string;
     status: string;
     agentId: string;
     dispositionId: string | null;
+    agent: AgentOption;
+    disposition: {
+      id: string;
+      name: string;
+      code: string | null;
+      category: null;
+    } | null;
     answers: {
       questionId: string;
       value: string;
@@ -114,14 +136,21 @@ function toScoringQuestion(question: ViewerQuestion): ScoringQuestion {
     fatal: question.fatal,
     fatalOptions: getStringOptions(question.fatalOptions),
     requiresCommentOnFail: question.requiresCommentOnFail,
-    categoryId: question.formCategory?.qaCategory?.id ?? question.formCategory?.qaCategoryId ?? null,
+    categoryId:
+      question.formCategory?.qaCategory?.id ?? question.formCategory?.qaCategoryId ?? null,
     ratingFailThreshold: question.ratingFailThreshold ?? null,
     ratingMax: question.ratingMax ?? null,
     weightedOptions: getWeightedOptions(question.options),
   };
 }
 
-export function FormViewer({ form, passThreshold, initialResponse = null }: FormViewerProps) {
+export function FormViewer({
+  form,
+  passThreshold,
+  fatalZeroesScore,
+  canManageDispositions,
+  initialResponse = null,
+}: FormViewerProps) {
   const router = useRouter();
   const initialAnswers = Object.fromEntries(
     (initialResponse?.answers ?? []).map((answer) => [answer.questionId, answer.value]),
@@ -132,7 +161,9 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
   const initialNotApplicable = Object.fromEntries(
     (initialResponse?.answers ?? []).map((answer) => [answer.questionId, answer.notApplicable]),
   );
-  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>(
+    initialResponse?.agent ? [initialResponse.agent] : [],
+  );
   const [agentId, setAgentId] = useState(initialResponse?.agentId ?? "");
   const [dispositionId, setDispositionId] = useState(initialResponse?.dispositionId ?? "");
   const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
@@ -143,13 +174,24 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
     initialResponse?.status === "DRAFT" ? initialResponse.id : "",
   );
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [lastSavedPayload, setLastSavedPayload] = useState("");
+  const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [autosaveRevision, setAutosaveRevision] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const lastAutosavePayloadRef = useRef("");
+  const autosaveInitializedRef = useRef(false);
+  const draftIdRef = useRef(draftId);
+  const responseVersionRef = useRef(initialResponse?.updatedAt ?? null);
+  const clientResponseIdRef = useRef(crypto.randomUUID());
+  const draftSavePromiseRef = useRef<Promise<string | null> | null>(null);
+  const autosaveQueuedRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const isEditingSubmitted = initialResponse?.status === "SUBMITTED";
+  const preservesMissingHistoricalDisposition =
+    isEditingSubmitted && initialResponse?.dispositionId === null && !dispositionId;
 
   const scoringQuestions = useMemo(() => form.questions.map(toScoringQuestion), [form.questions]);
 
@@ -162,8 +204,16 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
         comment: comments[question.id] ?? "",
       });
     }
-    return computeScore(scoringQuestions, map, { passThreshold });
-  }, [scoringQuestions, form.questions, answers, comments, notApplicable, passThreshold]);
+    return computeScore(scoringQuestions, map, { passThreshold, fatalZeroesScore });
+  }, [
+    scoringQuestions,
+    form.questions,
+    answers,
+    comments,
+    notApplicable,
+    passThreshold,
+    fatalZeroesScore,
+  ]);
 
   const failedByQuestion = useMemo(
     () => new Map(scoreResult.questions.map((q) => [q.questionId, q.failed])),
@@ -191,9 +241,14 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
 
   useEffect(() => {
     getAgentsForEvaluation(form.campaignId).then((data) => {
-      setAgents(data);
+      const historicalAgent = initialResponse?.agent;
+      setAgents(
+        historicalAgent && !data.some((agent) => agent.id === historicalAgent.id)
+          ? [historicalAgent, ...data]
+          : data,
+      );
     });
-  }, [form.campaignId]);
+  }, [form.campaignId, initialResponse?.agent]);
 
   const setAnswer = (questionId: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -237,9 +292,13 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
   const buildPayload = useCallback(
     (responseId?: string) => ({
       ...(responseId ? { responseId } : {}),
+      ...(responseId && responseVersionRef.current
+        ? { expectedUpdatedAt: responseVersionRef.current }
+        : {}),
+      ...(!responseId ? { clientResponseId: clientResponseIdRef.current } : {}),
       formId: form.id,
       agentId,
-      dispositionId,
+      dispositionId: dispositionId || null,
       answers: form.questions.map((question) => ({
         questionId: question.id,
         value: notApplicable[question.id] ? "" : (answers[question.id] ?? ""),
@@ -250,59 +309,203 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
     [agentId, answers, comments, dispositionId, form.id, form.questions, notApplicable],
   );
 
-  const hasDraftableContent = useCallback(() => {
-    return (
-      Boolean(agentId && dispositionId) &&
-      form.questions.some(
-        (question) =>
-          Boolean(answers[question.id]?.trim()) ||
-          Boolean(comments[question.id]?.trim()) ||
-          Boolean(notApplicable[question.id]),
-      )
-    );
-  }, [agentId, answers, comments, dispositionId, form.questions, notApplicable]);
+  const hasLocalAnswerContent = form.questions.some(
+    (question) =>
+      Boolean(answers[question.id]?.trim()) ||
+      Boolean(comments[question.id]?.trim()) ||
+      Boolean(notApplicable[question.id]),
+  );
+  const hasLocalDraftContent = Boolean(
+    draftId || agentId || dispositionId || hasLocalAnswerContent,
+  );
+  const canPersistDraft = Boolean(agentId && dispositionId);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (autosaveInitializedRef.current) return;
+    autosaveInitializedRef.current = true;
+    if (initialResponse) {
+      setLastSavedPayload(JSON.stringify(buildPayload(initialResponse.id)));
+    }
+  }, [buildPayload, initialResponse]);
 
   const handleSaveDraft = useCallback(
-    async ({ silent = false }: { silent?: boolean } = {}) => {
-      if (isEditingSubmitted) return;
+    ({ silent = false }: { silent?: boolean } = {}): Promise<string | null> => {
+      if (isEditingSubmitted) return Promise.resolve(null);
       if (!agentId || !dispositionId) {
         if (!silent) toast.error("Selecciona agente y disposicion antes de guardar borrador");
-        return;
+        return Promise.resolve(null);
       }
+      if (draftSavePromiseRef.current) return draftSavePromiseRef.current;
 
       setSavingDraft(true);
-      try {
-        const response = await saveResponseDraft(buildPayload(draftId || undefined));
-        if (!draftId) {
-          setDraftId(response.id);
-          router.replace(`/forms/${form.id}?responseId=${response.id}`, { scroll: false });
+      setDraftSaveError(null);
+      const operation = (async () => {
+        try {
+          const currentDraftId = draftIdRef.current || undefined;
+          const result = await saveResponseDraftAction(buildPayload(currentDraftId));
+          if (!result.ok) throw new Error(result.error.message);
+          const response = result.data;
+          const savedDraftId = response.id;
+          draftIdRef.current = savedDraftId;
+          responseVersionRef.current = response.updatedAt;
+          if (mountedRef.current) {
+            if (response.replayed) {
+              // The create reached the database but its response was lost. Recover its
+              // identity/version, then queue a versioned update for the current payload.
+              autosaveQueuedRef.current = true;
+            } else {
+              setLastSavedPayload(JSON.stringify(buildPayload(savedDraftId)));
+            }
+            if (!currentDraftId) {
+              setDraftId(savedDraftId);
+              window.history.replaceState(null, "", `/forms/${form.id}?responseId=${savedDraftId}`);
+            }
+            if (!response.replayed) {
+              setLastSavedAt(new Date().toLocaleTimeString("es-ES", { timeStyle: "short" }));
+            }
+            if (!silent) {
+              toast.success(
+                response.replayed
+                  ? "Borrador recuperado; confirmando los cambios actuales"
+                  : "Borrador guardado",
+              );
+            }
+          }
+          return savedDraftId;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Error al guardar borrador";
+          if (mountedRef.current) {
+            setDraftSaveError(message);
+            if (!silent) {
+              toast.error(message);
+            }
+          }
+          return null;
         }
-        setLastSavedAt(new Date().toLocaleTimeString("es-ES", { timeStyle: "short" }));
-        if (!silent) toast.success("Borrador guardado");
-      } catch (error) {
-        if (!silent) {
-          toast.error(error instanceof Error ? error.message : "Error al guardar borrador");
+      })();
+
+      draftSavePromiseRef.current = operation;
+      void operation.finally(() => {
+        if (draftSavePromiseRef.current === operation) {
+          draftSavePromiseRef.current = null;
         }
-      } finally {
-        setSavingDraft(false);
-      }
+        if (mountedRef.current) setSavingDraft(false);
+        if (autosaveQueuedRef.current) {
+          autosaveQueuedRef.current = false;
+          if (mountedRef.current) setAutosaveRevision((revision) => revision + 1);
+        }
+      });
+
+      return operation;
     },
-    [agentId, buildPayload, dispositionId, draftId, form.id, isEditingSubmitted, router],
+    [agentId, buildPayload, dispositionId, form.id, isEditingSubmitted],
   );
 
   useEffect(() => {
-    if (isEditingSubmitted || !hasDraftableContent()) return;
+    // A queued edit increments this revision to re-arm autosave after the active request settles.
+    void autosaveRevision;
+    if (isEditingSubmitted || submitting || !canPersistDraft) return;
 
     const payload = JSON.stringify(buildPayload(draftId || undefined));
-    if (payload === lastAutosavePayloadRef.current) return;
+    if (payload === lastSavedPayload) return;
 
     const timeout = window.setTimeout(() => {
-      lastAutosavePayloadRef.current = payload;
+      if (draftSavePromiseRef.current) {
+        autosaveQueuedRef.current = true;
+        return;
+      }
       void handleSaveDraft({ silent: true });
     }, 1200);
 
     return () => window.clearTimeout(timeout);
-  }, [buildPayload, draftId, handleSaveDraft, hasDraftableContent, isEditingSubmitted]);
+  }, [
+    autosaveRevision,
+    buildPayload,
+    canPersistDraft,
+    draftId,
+    handleSaveDraft,
+    isEditingSubmitted,
+    lastSavedPayload,
+    submitting,
+  ]);
+
+  const currentResponseId = draftId || initialResponse?.id || undefined;
+  const currentPayload = JSON.stringify(buildPayload(currentResponseId));
+  const hasUnsavedChanges = hasLocalDraftContent && currentPayload !== lastSavedPayload;
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (consumeDocumentUnloadPermission()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const guardAppNavigation = (event: Event) => {
+      const request = event as AppNavigationRequestEvent;
+      if (
+        request.detail.allowed &&
+        !window.confirm("Hay cambios sin guardar. ¿Deseas salir de todos modos?")
+      ) {
+        request.detail.allowed = false;
+      }
+    };
+
+    window.addEventListener(APP_NAVIGATION_REQUEST_EVENT, guardAppNavigation);
+    return () => window.removeEventListener(APP_NAVIGATION_REQUEST_EVENT, guardAppNavigation);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const guardInternalNavigation = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        !(event.target instanceof Element)
+      ) {
+        return;
+      }
+
+      const anchor = event.target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === "_blank" || anchor.download) {
+        return;
+      }
+
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.href === window.location.href) return;
+      if (
+        !requestAppNavigation({
+          documentUnload: destination.origin !== window.location.origin,
+        })
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    document.addEventListener("click", guardInternalNavigation, true);
+    return () => document.removeEventListener("click", guardInternalNavigation, true);
+  }, [hasUnsavedChanges]);
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -313,7 +516,7 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
       return false;
     }
 
-    if (!dispositionId) {
+    if (!dispositionId && !preservesMissingHistoricalDisposition) {
       toast.error("Selecciona una disposicion");
       return false;
     }
@@ -341,9 +544,33 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
 
     setSubmitting(true);
     try {
-      await submitResponse({
-        ...buildPayload(draftId || initialResponse?.id),
+      let responseId = draftIdRef.current || initialResponse?.id;
+      if (!isEditingSubmitted) {
+        const pendingSave = draftSavePromiseRef.current;
+        if (pendingSave) {
+          const pendingDraftId = await pendingSave;
+          if (!pendingDraftId) {
+            throw new Error("No se pudo confirmar el borrador antes de enviar");
+          }
+          responseId = pendingDraftId;
+        }
+
+        if (hasUnsavedChanges || !responseId) {
+          const flushedDraftId = await handleSaveDraft({ silent: true });
+          if (!flushedDraftId) {
+            throw new Error("No se pudo guardar el borrador antes de enviar");
+          }
+          responseId = flushedDraftId;
+        }
+      }
+
+      const result = await submitResponseAction({
+        ...buildPayload(responseId),
       });
+      if (!result.ok) throw new Error(result.error.message);
+      const response = result.data;
+      responseVersionRef.current = response.updatedAt;
+      setLastSavedPayload(JSON.stringify(buildPayload(response.id)));
       toast.success(isEditingSubmitted ? "Evaluacion actualizada" : "Evaluacion enviada");
       router.push(isEditingSubmitted ? `/analytics/responses/${initialResponse?.id}` : "/forms");
       router.refresh();
@@ -354,54 +581,75 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
     }
   };
 
+  const handleCancel = () => {
+    if (draftSavePromiseRef.current) {
+      toast.info("Espera a que termine el guardado del borrador");
+      return;
+    }
+    if (
+      hasUnsavedChanges &&
+      !window.confirm("Hay cambios sin guardar. ¿Deseas salir de todos modos?")
+    ) {
+      return;
+    }
+    router.push("/forms");
+  };
+
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
       {/* Left — form */}
-      <div className="min-w-0 flex-1 space-y-4">
+      <fieldset
+        disabled={submitting}
+        aria-busy={submitting}
+        className="m-0 min-w-0 flex-1 space-y-4 border-0 p-0"
+      >
         {/* Context bar */}
         <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Agente evaluado</Label>
-              <Select value={agentId} onValueChange={(v) => v && setAgentId(v)}>
-                <SelectTrigger className="h-10 w-full">
-                  <SelectValue placeholder="Seleccionar agente...">
-                    {(value: string | null) => {
-                      if (!value) return "Seleccionar agente...";
-                      const agent = agents.find((a) => a.id === value);
-                      if (!agent) return "Seleccionar agente...";
-                      return agent.agentCode ? `${agent.name} (${agent.agentCode})` : agent.name;
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {agents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
-                      {agent.name}
-                      {agent.agentCode && ` (${agent.agentCode})`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Agente evaluado</Label>
+            <Select value={agentId} onValueChange={(v) => v && setAgentId(v)}>
+              <SelectTrigger className="h-10 w-full">
+                <SelectValue placeholder="Seleccionar agente...">
+                  {(value: string | null) => {
+                    if (!value) return "Seleccionar agente...";
+                    const agent = agents.find((a) => a.id === value);
+                    if (!agent) return "Seleccionar agente...";
+                    return agent.agentCode ? `${agent.name} (${agent.agentCode})` : agent.name;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {agents.map((agent) => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    {agent.name}
+                    {agent.agentCode && ` (${agent.agentCode})`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <DispositionCombobox
+              key={form.campaignId}
+              campaignId={form.campaignId}
+              value={dispositionId}
+              onChange={setDispositionId}
+              canManageDispositions={canManageDispositions}
+              initialDisposition={initialResponse?.disposition ?? null}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Campana</Label>
+            <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm">
+              {form.campaign.name}
             </div>
-            <div className="space-y-1">
-              <DispositionCombobox
-                campaignId={form.campaignId}
-                value={dispositionId}
-                onChange={setDispositionId}
-              />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Fecha</Label>
+            <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm capitalize">
+              {format(new Date(), "d MMM yyyy", { locale: es })}
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Campana</Label>
-              <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm">
-                {form.campaign.name}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Fecha</Label>
-              <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm capitalize">
-                {format(new Date(), "d MMM yyyy", { locale: es })}
-              </div>
-            </div>
+          </div>
         </div>
 
         {/* Fatal banner */}
@@ -473,13 +721,30 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
         })}
 
         <div className="flex items-center justify-between pt-1">
-          <span className="min-h-5 text-xs text-muted-foreground">
-            {!isEditingSubmitted && lastSavedAt && `Borrador guardado ${lastSavedAt}`}
+          <span
+            className={cn(
+              "min-h-5 text-xs",
+              draftSaveError ? "text-destructive" : "text-muted-foreground",
+            )}
+            role={draftSaveError ? "alert" : "status"}
+            aria-live="polite"
+          >
+            {!isEditingSubmitted && draftSaveError
+              ? `Borrador sin guardar: ${draftSaveError}`
+              : savingDraft
+                ? "Guardando borrador..."
+                : hasUnsavedChanges
+                  ? canPersistDraft
+                    ? "Cambios pendientes de guardar"
+                    : "Selecciona agente y disposición para guardar los cambios"
+                  : lastSavedAt
+                    ? `Borrador guardado ${lastSavedAt}`
+                    : null}
           </span>
           {!isEditingSubmitted && (
             <Button
               variant="outline"
-              onClick={() => handleSaveDraft()}
+              onClick={() => void handleSaveDraft()}
               disabled={savingDraft || submitting}
               className="gap-2"
             >
@@ -488,7 +753,7 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
             </Button>
           )}
         </div>
-      </div>
+      </fieldset>
 
       {/* Right — sticky summary */}
       <div className="lg:sticky lg:top-[82px] lg:w-[328px] lg:shrink-0">
@@ -498,9 +763,10 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
           totalQuestions={form.questions.length}
           answeredQuestions={answeredQuestions}
           submitting={submitting}
+          savingDraft={savingDraft}
           isEditing={isEditingSubmitted}
           onSubmit={handleSubmit}
-          onCancel={() => router.push("/forms")}
+          onCancel={handleCancel}
         />
       </div>
     </div>
@@ -518,7 +784,8 @@ interface CategoryGroup {
 function groupByCategory(questions: ViewerQuestion[]): CategoryGroup[] {
   const groups = new Map<string, CategoryGroup>();
   for (const question of questions) {
-    const id = question.formCategory?.qaCategory?.id ?? question.formCategory?.qaCategoryId ?? "none";
+    const id =
+      question.formCategory?.qaCategory?.id ?? question.formCategory?.qaCategoryId ?? "none";
     const existing = groups.get(id);
     if (existing) {
       existing.questions.push(question);

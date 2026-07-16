@@ -30,7 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cancelResponse } from "@/server/actions/responses";
+import { cancelResponseAction } from "@/server/actions/responses";
 import { getResponseDetail } from "@/server/queries/analytics";
 
 interface Answer {
@@ -56,6 +56,7 @@ interface ResponseDetailData {
   hasFatalFail: boolean;
   status: string;
   createdAt: string;
+  updatedAt: string;
   submittedAt: string | null;
   cancelledAt: string | null;
   cancellationReason: string | null;
@@ -78,13 +79,12 @@ function scoreBadgeVariant(score: number): "default" | "secondary" | "destructiv
   return "destructive";
 }
 
-function scoreTone(score: number, status: string): string {
+function scoreTone(result: string | null, status: string): string {
   if (status === "CANCELLED") return "text-muted-foreground";
-  if (score >= 70) return "text-emerald-600 dark:text-emerald-400";
-  if (score >= 50) return "text-amber-600 dark:text-amber-400";
-  return "text-rose-600 dark:text-rose-400";
+  if (result === "PASS") return "text-emerald-600 dark:text-emerald-400";
+  if (result === "FAIL") return "text-rose-600 dark:text-rose-400";
+  return "text-amber-600 dark:text-amber-400";
 }
-
 
 function LoadingSkeleton() {
   return (
@@ -135,7 +135,12 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
 
     setCancelling(true);
     try {
-      await cancelResponse({ id: data.id, reason });
+      const result = await cancelResponseAction({
+        id: data.id,
+        reason,
+        expectedUpdatedAt: data.updatedAt,
+      });
+      if (!result.ok) throw new Error(result.error.message);
       toast.success("Evaluacion anulada");
       await loadData();
     } catch (error) {
@@ -194,7 +199,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                 </span>
                 <div
                   className={`font-heading text-5xl font-bold tabular-nums ${scoreTone(
-                    data.score,
+                    data.result,
                     data.status,
                   )}`}
                 >

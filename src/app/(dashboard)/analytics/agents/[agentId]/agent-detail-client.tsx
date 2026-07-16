@@ -2,26 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from "recharts";
 import { motion } from "motion/react";
-import {
-  ArrowLeft,
-  BarChart3,
-  ClipboardCheck,
-  Hash,
-  TrendingUp,
-  User,
-  Users,
-} from "lucide-react";
+import { ArrowLeft, BarChart3, ClipboardCheck, Hash, TrendingUp, User, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,6 +59,7 @@ interface RecentResponse {
   evaluatorName: string;
   dispositionName: string | null;
   score: number;
+  result: "PASS" | "FAIL";
   createdAt: string;
 }
 
@@ -86,6 +70,7 @@ interface AgentDetailData {
   teamName: string | null;
   totalEvaluations: number;
   avgScore: number;
+  passThreshold: number;
   scoreTrend: ScoreTrendPoint[];
   scoreByQuestion: QuestionScore[];
   dispositionBreakdown: DispositionBreakdown[];
@@ -113,15 +98,13 @@ const evaluatorConfig = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
-  if (score >= 70) return "default";
-  if (score >= 50) return "secondary";
-  return "destructive";
+function resultBadgeVariant(result: "PASS" | "FAIL"): "default" | "destructive" {
+  return result === "PASS" ? "default" : "destructive";
 }
 
-function getQuestionBarColor(score: number): string {
-  if (score >= 70) return "#10b981";
-  if (score >= 50) return "#f59e0b";
+function getQuestionBarColor(score: number, passThreshold: number): string {
+  if (score >= passThreshold) return "#10b981";
+  if (score >= passThreshold * 0.7) return "#f59e0b";
   return "#f43f5e";
 }
 
@@ -172,11 +155,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getAgentDetail(
-        agentId,
-        dateFrom || undefined,
-        dateTo || undefined,
-      );
+      const result = await getAgentDetail(agentId, dateFrom || undefined, dateTo || undefined);
       setData(result);
     } catch (e) {
       console.error(e);
@@ -251,12 +230,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
               <div className="flex flex-wrap items-end gap-2">
                 <div className="flex gap-1">
                   {[7, 30, 90].map((d) => (
-                    <Button
-                      key={d}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setQuickRange(d)}
-                    >
+                    <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
                       {d}d
                     </Button>
                   ))}
@@ -313,7 +287,13 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={data.avgScore >= 70 ? "emerald" : data.avgScore >= 50 ? "amber" : "rose"}
+          tone={
+            data.avgScore >= data.passThreshold
+              ? "emerald"
+              : data.avgScore >= data.passThreshold * 0.7
+                ? "amber"
+                : "rose"
+          }
           index={1}
         />
       </div>
@@ -343,7 +323,11 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                         <stop offset="95%" stopColor="#1a2b45" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
+                    <CartesianGrid
+                      vertical={false}
+                      strokeDasharray="3 3"
+                      className="stroke-border"
+                    />
                     <XAxis
                       dataKey="date"
                       tickLine={false}
@@ -364,10 +348,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                       content={
                         <ChartTooltipContent
                           indicator="line"
-                          formatter={(value) => [
-                            `${Number(value).toFixed(1)}%`,
-                            "Score",
-                          ]}
+                          formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
                         />
                       }
                     />
@@ -404,7 +385,11 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                     layout="vertical"
                     margin={{ left: 20, right: 12 }}
                   >
-                    <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                    <CartesianGrid
+                      horizontal={false}
+                      strokeDasharray="3 3"
+                      className="stroke-border"
+                    />
                     <XAxis
                       type="number"
                       domain={[0, 100]}
@@ -433,7 +418,10 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                     />
                     <Bar dataKey="avgScore" radius={[0, 6, 6, 0]} animationDuration={900}>
                       {data.scoreByQuestion.map((item) => (
-                        <Cell key={item.question} fill={getQuestionBarColor(item.avgScore)} />
+                        <Cell
+                          key={item.question}
+                          fill={getQuestionBarColor(item.avgScore, data.passThreshold)}
+                        />
                       ))}
                     </Bar>
                   </BarChart>
@@ -469,7 +457,11 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                     layout="vertical"
                     margin={{ left: 20, right: 12 }}
                   >
-                    <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                    <CartesianGrid
+                      horizontal={false}
+                      strokeDasharray="3 3"
+                      className="stroke-border"
+                    />
                     <XAxis
                       type="number"
                       allowDecimals={false}
@@ -493,9 +485,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                       content={
                         <ChartTooltipContent
                           formatter={(value, _name, item) => {
-                            const payload = item?.payload as
-                              | { avgScore?: number }
-                              | undefined;
+                            const payload = item?.payload as { avgScore?: number } | undefined;
                             const avg = payload?.avgScore;
                             return [
                               `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
@@ -535,7 +525,11 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                     layout="vertical"
                     margin={{ left: 20, right: 12 }}
                   >
-                    <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                    <CartesianGrid
+                      horizontal={false}
+                      strokeDasharray="3 3"
+                      className="stroke-border"
+                    />
                     <XAxis
                       type="number"
                       allowDecimals={false}
@@ -556,9 +550,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                       content={
                         <ChartTooltipContent
                           formatter={(value, _name, item) => {
-                            const payload = item?.payload as
-                              | { avgScore?: number }
-                              | undefined;
+                            const payload = item?.payload as { avgScore?: number } | undefined;
                             const avg = payload?.avgScore;
                             return [
                               `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
@@ -611,11 +603,8 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                     {data.recentResponses.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell className="text-center">
-                          <Badge
-                            variant={scoreBadgeVariant(r.score)}
-                            className="tabular-nums"
-                          >
-                            {r.score.toFixed(1)}%
+                          <Badge variant={resultBadgeVariant(r.result)} className="tabular-nums">
+                            {r.score.toFixed(1)}% · {r.result}
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate font-medium">

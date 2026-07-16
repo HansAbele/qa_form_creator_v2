@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -52,6 +52,34 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>(
     user?.campaigns.map((c) => c.campaign.id) ?? [],
   );
+  const formIdentity = user?.id ?? "__new__";
+  const previousOpen = useRef(false);
+  const previousFormIdentity = useRef(formIdentity);
+
+  useEffect(() => {
+    const justOpened = open && !previousOpen.current;
+    const entityChanged = open && previousFormIdentity.current !== formIdentity;
+
+    if (justOpened || entityChanged) {
+      setName(user?.name ?? "");
+      setEmail(user?.email ?? "");
+      setPassword("");
+      setRole(user?.role ?? "QA");
+      setActive(user?.active ?? true);
+      setSelectedCampaigns(user?.campaigns.map((c) => c.campaign.id) ?? []);
+    }
+
+    previousOpen.current = open;
+    previousFormIdentity.current = formIdentity;
+  }, [
+    open,
+    formIdentity,
+    user?.name,
+    user?.email,
+    user?.role,
+    user?.active,
+    user?.campaigns,
+  ]);
 
   const toggleCampaign = (campaignId: string) => {
     setSelectedCampaigns((prev) =>

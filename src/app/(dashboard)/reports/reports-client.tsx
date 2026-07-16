@@ -67,6 +67,7 @@ interface ReportResponse {
 interface ReportsClientProps {
   campaigns: { id: string; name: string }[];
   forms: { id: string; title: string; campaignId: string }[];
+  canExport: boolean;
 }
 
 function getRangeDays(dateFrom?: string, dateTo?: string) {
@@ -139,7 +140,7 @@ const CRITICAL_LABEL: Record<string, string> = {
   COMPLIANCE: "Compliance",
 };
 
-export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
+export function ReportsClient({ campaigns, forms, canExport }: ReportsClientProps) {
   const [campaignId, setCampaignId] = useState("");
   const [formId, setFormId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -212,10 +213,12 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
-        <Button variant="outline" onClick={() => router.push("/analytics/export")}>
-          <Download className="mr-1 h-4 w-4" />
-          Exportar
-        </Button>
+        {canExport && (
+          <Button variant="outline" onClick={() => router.push("/analytics/export")}>
+            <Download className="mr-1 h-4 w-4" />
+            Exportar
+          </Button>
+        )}
       </div>
 
       {/* Filters */}

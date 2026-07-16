@@ -6,6 +6,7 @@ import type { Session } from "next-auth";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { resolveResponseScoringPolicy } from "@/lib/response-scoring-policy";
 import type { ResponseStatus } from "@/lib/response-status";
 import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
 import { computeScore, type ScoringQuestion, type WeightedOption } from "@/lib/scoring";
@@ -19,6 +20,47 @@ import {
 
 const MAX_ANSWERS_PER_SUBMISSION = 500;
 const MAX_ANSWER_LENGTH = 10_000;
+const CONCURRENT_RESPONSE_CHANGE_ERROR =
+  "La evaluacion fue modificada por otra sesion. Recarga la pagina e intenta nuevamente";
+
+type ResponseActionErrorCode = "CONFLICT" | "VALIDATION" | "NOT_FOUND" | "INVALID_STATE";
+
+class ExpectedResponseActionError extends Error {
+  constructor(
+    readonly code: ResponseActionErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ExpectedResponseActionError";
+  }
+}
+
+function failResponseAction(code: ResponseActionErrorCode, message: string): never {
+  throw new ExpectedResponseActionError(code, message);
+}
+
+type ResponseActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: ResponseActionErrorCode; message: string } };
+
+async function toResponseActionResult<T>(
+  operation: () => Promise<T>,
+): Promise<ResponseActionResult<T>> {
+  try {
+    return { ok: true, data: await operation() };
+  } catch (error) {
+    if (error instanceof ExpectedResponseActionError) {
+      return { ok: false, error: { code: error.code, message: error.message } };
+    }
+    if (error instanceof z.ZodError) {
+      return {
+        ok: false,
+        error: { code: "VALIDATION", message: "Datos de evaluacion invalidos" },
+      };
+    }
+    throw error;
+  }
+}
 
 const responseAnswerSchema = z
   .object({
@@ -40,16 +82,35 @@ const responseAnswerSchema = z
 const responseMutationSchema = z
   .object({
     responseId: z.string().trim().min(1).optional(),
+    expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+    clientResponseId: z.string().uuid().optional(),
     formId: z.string().trim().min(1),
     agentId: z.string().trim().min(1),
-    dispositionId: z.string().trim().min(1),
+    dispositionId: z.string().trim().min(1).nullable(),
     answers: z.array(responseAnswerSchema).max(MAX_ANSWERS_PER_SUBMISSION),
   })
-  .strict();
+  .strict()
+  .superRefine((input, context) => {
+    if (input.responseId && !input.expectedUpdatedAt) {
+      context.addIssue({
+        code: "custom",
+        path: ["expectedUpdatedAt"],
+        message: "expectedUpdatedAt es requerido al actualizar una evaluacion",
+      });
+    }
+    if (!input.responseId && !input.clientResponseId) {
+      context.addIssue({
+        code: "custom",
+        path: ["clientResponseId"],
+        message: "clientResponseId es requerido al crear una evaluacion",
+      });
+    }
+  });
 
 const cancelResponseSchema = z
   .object({
     id: z.string().trim().min(1),
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
     reason: z.string().trim().min(3, "La razon de anulacion es requerida").max(1000),
   })
   .strict();
@@ -101,7 +162,12 @@ type ExistingResponseForMutation = {
   result: string | null;
   hasFatalFail: boolean;
   status: string;
+  formVersion: string | null;
+  scoringSnapshot: Prisma.JsonValue | null;
+  settingsSnapshot: Prisma.JsonValue | null;
+  formSnapshot: Prisma.JsonValue | null;
   createdAt: Date;
+  updatedAt: Date;
   submittedAt: Date | null;
   cancellationReason: string | null;
   form: { campaignId: string };
@@ -112,8 +178,43 @@ type ExistingResponseForMutation = {
     comment: string | null;
     isFatalFail: boolean;
     notApplicable: boolean;
+    question: { formId: string };
   }[];
 };
+
+function isPrismaErrorCode(error: unknown, code: string) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === code
+  );
+}
+
+function isPrismaRecordConflict(error: unknown) {
+  return isPrismaErrorCode(error, "P2025");
+}
+
+function isPrismaUniqueConflict(error: unknown) {
+  return isPrismaErrorCode(error, "P2002");
+}
+
+type ResponseMutationRecord = {
+  id: string;
+  updatedAt: Date;
+  status: string;
+  score: Prisma.Decimal | number;
+};
+
+function normalizeResponseMutationResult(response: ResponseMutationRecord, replayed: boolean) {
+  return {
+    id: response.id,
+    updatedAt: response.updatedAt.toISOString(),
+    status: response.status,
+    score: Number(response.score),
+    replayed,
+  };
+}
 
 export async function getResponses(formId?: string) {
   const session = await auth();
@@ -131,17 +232,23 @@ export async function getResponses(formId?: string) {
     where,
     include: {
       form: { select: { title: true, campaignId: true } },
-      agent: { select: { name: true } },
+      agent: { select: { name: true, campaignId: true } },
       evaluator: { select: { name: true } },
-      disposition: { select: { id: true, name: true, code: true } },
+      disposition: { select: { id: true, name: true, code: true, campaignId: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return responses.map((r) => ({
-    ...r,
-    score: Number(r.score),
-  }));
+  return responses
+    .filter(
+      (response) =>
+        response.agent.campaignId === response.form.campaignId &&
+        (!response.disposition || response.disposition.campaignId === response.form.campaignId),
+    )
+    .map((response) => ({
+      ...response,
+      score: Number(response.score),
+    }));
 }
 
 export async function getResponseById(id: string) {
@@ -152,7 +259,7 @@ export async function getResponseById(id: string) {
     where: { id },
     include: {
       form: { select: { id: true, title: true, campaignId: true } },
-      agent: { select: { id: true, name: true, campaignId: true } },
+      agent: { select: { id: true, name: true, agentCode: true, campaignId: true } },
       evaluator: { select: { id: true, name: true } },
       disposition: { select: { id: true, name: true, code: true, campaignId: true } },
       answers: {
@@ -160,6 +267,7 @@ export async function getResponseById(id: string) {
           question: {
             select: {
               id: true,
+              formId: true,
               label: true,
               type: true,
               options: true,
@@ -183,21 +291,22 @@ export async function getResponseById(id: string) {
 
   if (!response) throw new Error("Evaluacion no encontrada");
 
+  const permission =
+    response.status === RESPONSE_STATUS.DRAFT && response.evaluatorId === session.user.id
+      ? "canEvaluate"
+      : "canEditEvaluations";
+  await assertCampaignPermissionForUser(session.user, response.form.campaignId, permission);
+
   if (
     response.agent.campaignId !== response.form.campaignId ||
-    (response.disposition && response.disposition.campaignId !== response.form.campaignId)
+    (response.disposition && response.disposition.campaignId !== response.form.campaignId) ||
+    response.answers.some((answer) => answer.question.formId !== response.form.id)
   ) {
     throw new Error("La evaluacion contiene relaciones de otra campana");
   }
   if (response.status === RESPONSE_STATUS.CANCELLED) {
     throw new Error("No se puede editar una evaluacion anulada");
   }
-
-  const permission =
-    response.status === RESPONSE_STATUS.DRAFT && response.evaluatorId === session.user.id
-      ? "canEvaluate"
-      : "canEditEvaluations";
-  await assertCampaignPermissionForUser(session.user, response.form.campaignId, permission);
 
   return {
     ...response,
@@ -212,7 +321,7 @@ export async function getResponseById(id: string) {
 function parseResponseMutationInput(data: unknown): ResponseMutationInput {
   const result = responseMutationSchema.safeParse(data);
   if (!result.success) {
-    throw new Error("Datos de evaluacion invalidos");
+    failResponseAction("VALIDATION", "Datos de evaluacion invalidos");
   }
 
   return result.data;
@@ -276,7 +385,7 @@ function validateAnswerValue(
   const value = answer?.value ?? "";
 
   if (options.requireComplete && question.required && !value) {
-    throw new Error("Hay preguntas requeridas sin responder");
+    failResponseAction("VALIDATION", "Hay preguntas requeridas sin responder");
   }
 
   if (!value) return;
@@ -288,7 +397,7 @@ function validateAnswerValue(
       const max = question.ratingMax && question.ratingMax > 0 ? question.ratingMax : 5;
       const numericValue = Number(value);
       if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > max) {
-        throw new Error("Respuesta de rating fuera de rango");
+        failResponseAction("VALIDATION", "Respuesta de rating fuera de rango");
       }
       return;
     }
@@ -297,7 +406,7 @@ function validateAnswerValue(
     case "BOOLEAN": {
       const questionOptions = getOptionValues(question.options);
       if (questionOptions.length > 0 && !questionOptions.includes(value)) {
-        throw new Error("Respuesta no pertenece a las opciones del formulario");
+        failResponseAction("VALIDATION", "Respuesta no pertenece a las opciones del formulario");
       }
       return;
     }
@@ -316,10 +425,10 @@ function sanitizeAnswers(
   for (const inputAnswer of inputAnswers) {
     const question = questionsById.get(inputAnswer.questionId);
     if (!question) {
-      throw new Error("Respuesta no pertenece al formulario");
+      failResponseAction("VALIDATION", "Respuesta no pertenece al formulario");
     }
     if (answersByQuestionId.has(inputAnswer.questionId)) {
-      throw new Error("Respuesta duplicada para una pregunta");
+      failResponseAction("VALIDATION", "Respuesta duplicada para una pregunta");
     }
 
     const answer = {
@@ -446,8 +555,12 @@ function existingResponseAuditValue(response: ExistingResponseForMutation) {
     result: response.result,
     hasFatalFail: response.hasFatalFail,
     status: response.status,
+    formVersion: response.formVersion,
     submittedAt: response.submittedAt?.toISOString() ?? null,
     cancellationReason: response.cancellationReason,
+    scoringSnapshot: response.scoringSnapshot,
+    settingsSnapshot: response.settingsSnapshot,
+    formSnapshot: response.formSnapshot,
     answers: response.answers.map((answer) => ({
       questionId: answer.questionId,
       value: answer.notApplicable ? "N/A" : answer.value,
@@ -474,6 +587,7 @@ async function loadExistingResponse(responseId?: string) {
           comment: true,
           isFatalFail: true,
           notApplicable: true,
+          question: { select: { formId: true } },
         },
       },
     },
@@ -483,39 +597,44 @@ async function loadExistingResponse(responseId?: string) {
 async function assertMutationPermission(args: {
   user: Session["user"];
   campaignId: string;
-  mode: typeof RESPONSE_STATUS.DRAFT | typeof RESPONSE_STATUS.SUBMITTED;
   existing: ExistingResponseForMutation | null;
 }) {
-  const { user, campaignId, mode, existing } = args;
+  const { user, campaignId, existing } = args;
 
   if (!existing) {
     await assertCampaignPermissionForUser(user, campaignId, "canEvaluate");
     return;
   }
 
-  if (existing.status === RESPONSE_STATUS.CANCELLED) {
-    throw new Error("No se puede modificar una evaluacion anulada");
-  }
-
-  if (existing.form.campaignId !== campaignId) {
-    throw new Error("Evaluacion no pertenece al formulario indicado");
-  }
-
-  if (mode === RESPONSE_STATUS.DRAFT && existing.status !== RESPONSE_STATUS.DRAFT) {
-    throw new Error("Solo se pueden guardar borradores sobre evaluaciones en borrador");
-  }
-
   if (existing.status === RESPONSE_STATUS.SUBMITTED) {
-    await assertCampaignPermissionForUser(user, campaignId, "canEditEvaluations");
+    await assertCampaignPermissionForUser(user, existing.form.campaignId, "canEditEvaluations");
     return;
   }
 
   if (existing.evaluatorId === user.id) {
-    await assertCampaignPermissionForUser(user, campaignId, "canEvaluate");
+    await assertCampaignPermissionForUser(user, existing.form.campaignId, "canEvaluate");
     return;
   }
 
-  await assertCampaignPermissionForUser(user, campaignId, "canEditEvaluations");
+  await assertCampaignPermissionForUser(user, existing.form.campaignId, "canEditEvaluations");
+}
+
+function isSameCreateContext(
+  response: ExistingResponseForMutation,
+  input: ResponseMutationInput,
+  evaluatorId: string,
+  status: typeof RESPONSE_STATUS.DRAFT | typeof RESPONSE_STATUS.SUBMITTED,
+) {
+  const sameStableIdentity =
+    response.evaluatorId === evaluatorId &&
+    response.formId === input.formId &&
+    response.status === status;
+
+  if (!sameStableIdentity || status === RESPONSE_STATUS.DRAFT) {
+    return sameStableIdentity;
+  }
+
+  return response.agentId === input.agentId && response.dispositionId === input.dispositionId;
 }
 
 async function saveEvaluation(
@@ -554,27 +673,60 @@ async function saveEvaluation(
     loadExistingResponse(input.responseId),
   ]);
 
-  if (!form) throw new Error("Formulario no encontrado");
+  if (existing) {
+    await assertMutationPermission({
+      user: session.user,
+      campaignId: existing.form.campaignId,
+      existing,
+    });
+  }
+  if (!form) failResponseAction("NOT_FOUND", "Formulario no encontrado");
+  if (!existing) {
+    await assertMutationPermission({
+      user: session.user,
+      campaignId: form.campaignId,
+      existing,
+    });
+  }
   if (existing && existing.formId !== input.formId) {
-    throw new Error("Evaluacion no pertenece al formulario indicado");
+    failResponseAction("VALIDATION", "Evaluacion no pertenece al formulario indicado");
+  }
+  if (existing?.answers.some((answer) => answer.question.formId !== existing.formId)) {
+    failResponseAction("VALIDATION", "La evaluacion contiene relaciones inconsistentes");
   }
 
-  await assertMutationPermission({
-    user: session.user,
-    campaignId: form.campaignId,
-    mode: status,
-    existing,
-  });
-
-  if (form.status !== "PUBLISHED") {
-    throw new Error("Solo se puede evaluar un formulario publicado");
+  if (existing?.status === RESPONSE_STATUS.CANCELLED) {
+    failResponseAction("INVALID_STATE", "No se puede modificar una evaluacion anulada");
   }
-  if (!form.campaign.active) {
-    throw new Error("No se puede evaluar una campana inactiva");
+  if (existing && status === RESPONSE_STATUS.DRAFT && existing.status !== RESPONSE_STATUS.DRAFT) {
+    failResponseAction(
+      "INVALID_STATE",
+      "Solo se pueden guardar borradores sobre evaluaciones en borrador",
+    );
+  }
+
+  if (input.responseId && !existing) {
+    failResponseAction("NOT_FOUND", "Evaluacion no encontrada");
+  }
+  if (
+    existing &&
+    new Date(input.expectedUpdatedAt as string).getTime() !== existing.updatedAt.getTime()
+  ) {
+    failResponseAction("CONFLICT", CONCURRENT_RESPONSE_CHANGE_ERROR);
+  }
+
+  const isHistoricalCorrection =
+    status === RESPONSE_STATUS.SUBMITTED && existing?.status === RESPONSE_STATUS.SUBMITTED;
+
+  if (form.status !== "PUBLISHED" && !(isHistoricalCorrection && form.status === "ARCHIVED")) {
+    failResponseAction("INVALID_STATE", "Solo se puede evaluar un formulario publicado");
+  }
+  if (!form.campaign.active && !isHistoricalCorrection) {
+    failResponseAction("INVALID_STATE", "No se puede evaluar una campana inactiva");
   }
 
   if (input.answers.length > form.questions.length) {
-    throw new Error("La evaluacion contiene respuestas no validas");
+    failResponseAction("VALIDATION", "La evaluacion contiene respuestas no validas");
   }
 
   const [agent, disposition, scoringSettings] = await Promise.all([
@@ -582,20 +734,33 @@ async function saveEvaluation(
       where: { id: input.agentId },
       select: { campaignId: true, active: true, name: true, agentCode: true },
     }),
-    prisma.disposition.findUnique({
-      where: { id: input.dispositionId },
-      select: { campaignId: true, active: true },
-    }),
+    input.dispositionId
+      ? prisma.disposition.findUnique({
+          where: { id: input.dispositionId },
+          select: { campaignId: true, active: true },
+        })
+      : Promise.resolve(null),
     getCampaignScoringSettings(form.campaignId),
   ]);
 
-  if (!agent?.active || agent.campaignId !== form.campaignId) {
-    throw new Error("Agente invalido para esta campana");
+  const keepsHistoricalAgent = isHistoricalCorrection && input.agentId === existing?.agentId;
+  if (!agent || agent.campaignId !== form.campaignId || (!agent.active && !keepsHistoricalAgent)) {
+    failResponseAction("VALIDATION", "Agente invalido para esta campana");
   }
 
-  if (!disposition?.active || disposition.campaignId !== form.campaignId) {
-    throw new Error("Disposicion invalida para esta campana");
+  const keepsHistoricalDisposition =
+    isHistoricalCorrection && input.dispositionId === existing?.dispositionId;
+  if (
+    (!input.dispositionId && !keepsHistoricalDisposition) ||
+    (input.dispositionId &&
+      (!disposition ||
+        disposition.campaignId !== form.campaignId ||
+        (!disposition.active && !keepsHistoricalDisposition)))
+  ) {
+    failResponseAction("VALIDATION", "Disposicion invalida para esta campana");
   }
+
+  const scoringPolicy = resolveResponseScoringPolicy(existing, scoringSettings);
 
   const requireComplete = status === RESPONSE_STATUS.SUBMITTED;
   const sanitizedAnswers = sanitizeAnswers(form.questions, input.answers, {
@@ -615,13 +780,13 @@ async function saveEvaluation(
       ]),
     ),
     {
-      passThreshold: scoringSettings.passThreshold,
-      fatalZeroesScore: scoringSettings.fatalZeroesScore,
+      passThreshold: scoringPolicy.passThreshold,
+      fatalZeroesScore: scoringPolicy.fatalZeroesScore,
     },
   );
 
   if (requireComplete && scoreResult.blockers > 0) {
-    throw new Error("Hay preguntas que requieren comentario al fallar");
+    failResponseAction("VALIDATION", "Hay preguntas que requieren comentario al fallar");
   }
 
   // Fold per-question scoring (fatal fail + item score) back into the answers.
@@ -637,20 +802,28 @@ async function saveEvaluation(
   const hasFatalFail = scoreResult.hasFatalFail;
   const result = requireComplete ? scoreResult.result : null;
 
-  const formSnapshot = buildFormSnapshot(form);
+  const formSnapshot =
+    isHistoricalCorrection && existing?.formSnapshot
+      ? existing.formSnapshot
+      : buildFormSnapshot(form);
   const scoringSnapshot = buildScoringSnapshot({
     status,
     score,
     result,
     hasFatalFail,
-    passThreshold: scoringSettings.passThreshold,
+    passThreshold: scoringPolicy.passThreshold,
     sanitizedAnswers,
     ratingQuestions,
   });
-  const settingsSnapshot = {
-    ...scoringSettings,
-    capturedAt: new Date().toISOString(),
-  };
+  const settingsSnapshot =
+    isHistoricalCorrection && existing?.settingsSnapshot
+      ? existing.settingsSnapshot
+      : {
+          ...scoringSettings,
+          passThreshold: scoringPolicy.passThreshold,
+          fatalZeroesScore: scoringPolicy.fatalZeroesScore,
+          capturedAt: new Date().toISOString(),
+        };
 
   const isNew = !existing;
   const action =
@@ -664,92 +837,140 @@ async function saveEvaluation(
           ? "submitted"
           : "created";
 
-  const response = await prisma.$transaction(async (tx) => {
-    const responseData = {
-      formId: input.formId,
-      agentId: input.agentId,
-      evaluatorId: existing?.evaluatorId ?? session.user.id,
-      dispositionId: input.dispositionId,
-      score,
-      formVersion: form.version,
-      result,
-      hasFatalFail,
-      status,
-      submittedAt:
-        status === RESPONSE_STATUS.SUBMITTED
-          ? existing?.status === RESPONSE_STATUS.SUBMITTED
-            ? (existing.submittedAt ?? existing.createdAt)
-            : new Date()
-          : null,
-      scoringSnapshot: scoringSnapshot as Prisma.InputJsonValue,
-      settingsSnapshot: settingsSnapshot as Prisma.InputJsonValue,
-      formSnapshot: formSnapshot as Prisma.InputJsonValue,
-    };
-    const answerCreateData = sanitizedAnswers.map((answer) => ({
-      questionId: answer.questionId,
-      value: answer.value,
-      categoryId: answer.categoryId,
-      score: answer.score,
-      comment: answer.comment,
-      isFatalFail: answer.isFatalFail,
-      notApplicable: answer.notApplicable,
-    }));
-
-    const response = existing
-      ? await tx.response.update({
-        where: { id: existing.id },
-        data: {
-          ...responseData,
-          answers: {
-            deleteMany: {},
-            create: answerCreateData,
-          },
-        },
-        })
-      : await tx.response.create({
-          data: {
-            ...responseData,
-            answers: {
-              create: answerCreateData,
-            },
-          },
-        });
-
-    await writeAuditLog(
-      {
-        userId: session.user.id,
-        campaignId: form.campaignId,
-        module: "evaluations",
-        action,
-        entityType: "response",
-        entityId: response.id,
-        beforeValue: existing ? existingResponseAuditValue(existing) : null,
-        afterValue: {
-          id: response.id,
+  const persistence = await (async () => {
+    try {
+      const savedResponse = await prisma.$transaction(async (tx) => {
+        const responseData = {
           formId: input.formId,
           agentId: input.agentId,
+          evaluatorId: existing?.evaluatorId ?? session.user.id,
           dispositionId: input.dispositionId,
           score,
+          formVersion:
+            isHistoricalCorrection && existing?.formVersion ? existing.formVersion : form.version,
           result,
           hasFatalFail,
           status,
-          answerCount: sanitizedAnswers.length,
-          fatalAnswerCount: sanitizedAnswers.filter((answer) => answer.isFatalFail).length,
-          notApplicableCount: sanitizedAnswers.filter((answer) => answer.notApplicable).length,
-          answers: answerAuditValue(sanitizedAnswers),
-        },
-        impact:
-          status === RESPONSE_STATUS.DRAFT
-            ? "Borrador guardado; no impacta Dashboard, KPIs, reportes ni exportaciones."
-            : "Evaluacion incluida o actualizada en Dashboard, KPIs, reportes y exportaciones.",
-      },
-      tx,
-    );
+          submittedAt:
+            status === RESPONSE_STATUS.SUBMITTED
+              ? existing?.status === RESPONSE_STATUS.SUBMITTED
+                ? (existing.submittedAt ?? existing.createdAt)
+                : new Date()
+              : null,
+          scoringSnapshot: scoringSnapshot as Prisma.InputJsonValue,
+          settingsSnapshot: settingsSnapshot as Prisma.InputJsonValue,
+          formSnapshot: formSnapshot as Prisma.InputJsonValue,
+        };
+        const answerCreateData = sanitizedAnswers.map((answer) => ({
+          questionId: answer.questionId,
+          value: answer.value,
+          categoryId: answer.categoryId,
+          score: answer.score,
+          comment: answer.comment,
+          isFatalFail: answer.isFatalFail,
+          notApplicable: answer.notApplicable,
+        }));
 
-    return response;
-  });
+        const savedResponse = existing
+          ? await tx.response.update({
+              where: {
+                id: existing.id,
+                updatedAt: new Date(input.expectedUpdatedAt as string),
+                status: existing.status,
+              },
+              data: {
+                ...responseData,
+                answers: {
+                  deleteMany: {},
+                  create: answerCreateData,
+                },
+              },
+            })
+          : await tx.response.create({
+              data: {
+                id: input.clientResponseId as string,
+                ...responseData,
+                answers: {
+                  create: answerCreateData,
+                },
+              },
+            });
 
-  if (status === RESPONSE_STATUS.SUBMITTED && (hasFatalFail || result === "FAIL")) {
+        await writeAuditLog(
+          {
+            userId: session.user.id,
+            campaignId: form.campaignId,
+            module: "evaluations",
+            action,
+            entityType: "response",
+            entityId: savedResponse.id,
+            beforeValue: existing ? existingResponseAuditValue(existing) : null,
+            afterValue: {
+              id: savedResponse.id,
+              formId: input.formId,
+              agentId: input.agentId,
+              dispositionId: input.dispositionId,
+              score,
+              result,
+              hasFatalFail,
+              status,
+              formVersion:
+                isHistoricalCorrection && existing?.formVersion
+                  ? existing.formVersion
+                  : form.version,
+              answerCount: sanitizedAnswers.length,
+              fatalAnswerCount: sanitizedAnswers.filter((answer) => answer.isFatalFail).length,
+              notApplicableCount: sanitizedAnswers.filter((answer) => answer.notApplicable).length,
+              answers: answerAuditValue(sanitizedAnswers),
+              scoringSnapshot,
+              settingsSnapshot,
+              formSnapshot,
+            },
+            impact:
+              status === RESPONSE_STATUS.DRAFT
+                ? "Borrador guardado; no impacta Dashboard, KPIs, reportes ni exportaciones."
+                : "Evaluacion incluida o actualizada en Dashboard, KPIs, reportes y exportaciones.",
+          },
+          tx,
+        );
+
+        return savedResponse;
+      });
+      return { response: savedResponse, replayed: false };
+    } catch (error) {
+      if (existing && isPrismaRecordConflict(error)) {
+        failResponseAction("CONFLICT", CONCURRENT_RESPONSE_CHANGE_ERROR);
+      }
+      if (!existing && isPrismaUniqueConflict(error)) {
+        const replayedResponse = await loadExistingResponse(input.clientResponseId);
+        if (!replayedResponse) throw error;
+        if (!isSameCreateContext(replayedResponse, input, session.user.id, status)) {
+          failResponseAction(
+            "INVALID_STATE",
+            "El identificador de evaluacion ya fue usado en otro contexto",
+          );
+        }
+        return { response: replayedResponse, replayed: true };
+      }
+      throw error;
+    }
+  })();
+  const { response, replayed } = persistence;
+
+  const previousWasFailed =
+    existing?.status === RESPONSE_STATUS.SUBMITTED &&
+    (existing.hasFatalFail ||
+      existing.result === "FAIL" ||
+      (existing.result !== "PASS" &&
+        existing.result !== "FAIL" &&
+        Number(existing.score) < scoringPolicy.passThreshold));
+  const shouldNotifyFailure =
+    !replayed &&
+    status === RESPONSE_STATUS.SUBMITTED &&
+    (hasFatalFail || result === "FAIL") &&
+    (!previousWasFailed || (hasFatalFail && !existing?.hasFatalFail));
+
+  if (shouldNotifyFailure) {
     const fatalAnswerCount = sanitizedAnswers.filter((answer) => answer.isFatalFail).length;
     await emitNotification({
       type: hasFatalFail ? "fatal_evaluation" : "evaluation_failed",
@@ -771,13 +992,13 @@ async function saveEvaluation(
         result,
         hasFatalFail,
         fatalAnswerCount,
-        passThreshold: scoringSettings.passThreshold,
+        passThreshold: scoringPolicy.passThreshold,
       },
     });
   }
 
   revalidateEvaluationPaths();
-  return { ...response, score: Number(response.score) };
+  return normalizeResponseMutationResult(response, replayed);
 }
 
 export async function saveResponseDraft(data: unknown) {
@@ -788,57 +1009,82 @@ export async function submitResponse(data: unknown) {
   return saveEvaluation(data, RESPONSE_STATUS.SUBMITTED);
 }
 
+export async function saveResponseDraftAction(data: unknown) {
+  return toResponseActionResult(() => saveEvaluation(data, RESPONSE_STATUS.DRAFT));
+}
+
+export async function submitResponseAction(data: unknown) {
+  return toResponseActionResult(() => saveEvaluation(data, RESPONSE_STATUS.SUBMITTED));
+}
+
 export async function cancelResponse(data: unknown) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const input = cancelResponseSchema.parse(data);
+  const parsedInput = cancelResponseSchema.safeParse(data);
+  if (!parsedInput.success) failResponseAction("VALIDATION", "Datos de anulacion invalidos");
+  const input = parsedInput.data;
   const existing = await loadExistingResponse(input.id);
-  if (!existing) throw new Error("Evaluacion no encontrada");
-  if (existing.status === RESPONSE_STATUS.CANCELLED) {
-    throw new Error("La evaluacion ya esta anulada");
-  }
+  if (!existing) failResponseAction("NOT_FOUND", "Evaluacion no encontrada");
 
   await assertCampaignPermissionForUser(
     session.user,
     existing.form.campaignId,
     "canEditEvaluations",
   );
+  if (existing.status === RESPONSE_STATUS.CANCELLED) {
+    failResponseAction("INVALID_STATE", "La evaluacion ya esta anulada");
+  }
+  if (new Date(input.expectedUpdatedAt).getTime() !== existing.updatedAt.getTime()) {
+    failResponseAction("CONFLICT", CONCURRENT_RESPONSE_CHANGE_ERROR);
+  }
 
   const cancelledAt = new Date();
-  const response = await prisma.$transaction(async (tx) => {
-    const response = await tx.response.update({
-      where: { id: existing.id },
-      data: {
-        status: RESPONSE_STATUS.CANCELLED,
-        cancelledAt,
-        cancelledById: session.user.id,
-        cancellationReason: input.reason,
-      },
-    });
-    await writeAuditLog(
-      {
-        userId: session.user.id,
-        campaignId: existing.form.campaignId,
-        module: "evaluations",
-        action: "cancelled",
-        entityType: "response",
-        entityId: existing.id,
-        beforeValue: existingResponseAuditValue(existing),
-        afterValue: {
-          id: existing.id,
-          status: RESPONSE_STATUS.CANCELLED,
-          cancelledAt: cancelledAt.toISOString(),
-          cancelledById: session.user.id,
-          cancellationReason: input.reason,
-        },
-        impact:
-          "Evaluacion anulada y excluida de Dashboard, KPIs, reportes y exportaciones.",
-      },
-      tx,
-    );
-    return response;
-  });
+  const response = await (async () => {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const cancelledResponse = await tx.response.update({
+          where: {
+            id: existing.id,
+            updatedAt: new Date(input.expectedUpdatedAt),
+            status: existing.status,
+          },
+          data: {
+            status: RESPONSE_STATUS.CANCELLED,
+            cancelledAt,
+            cancelledById: session.user.id,
+            cancellationReason: input.reason,
+          },
+        });
+        await writeAuditLog(
+          {
+            userId: session.user.id,
+            campaignId: existing.form.campaignId,
+            module: "evaluations",
+            action: "cancelled",
+            entityType: "response",
+            entityId: existing.id,
+            beforeValue: existingResponseAuditValue(existing),
+            afterValue: {
+              id: existing.id,
+              status: RESPONSE_STATUS.CANCELLED,
+              cancelledAt: cancelledAt.toISOString(),
+              cancelledById: session.user.id,
+              cancellationReason: input.reason,
+            },
+            impact: "Evaluacion anulada y excluida de Dashboard, KPIs, reportes y exportaciones.",
+          },
+          tx,
+        );
+        return cancelledResponse;
+      });
+    } catch (error) {
+      if (isPrismaRecordConflict(error)) {
+        failResponseAction("CONFLICT", CONCURRENT_RESPONSE_CHANGE_ERROR);
+      }
+      throw error;
+    }
+  })();
 
   await emitNotification({
     type: "evaluation_cancelled",
@@ -858,7 +1104,11 @@ export async function cancelResponse(data: unknown) {
   });
 
   revalidateEvaluationPaths();
-  return { ...response, score: Number(response.score) };
+  return normalizeResponseMutationResult(response, false);
+}
+
+export async function cancelResponseAction(data: unknown) {
+  return toResponseActionResult(() => cancelResponse(data));
 }
 
 function revalidateEvaluationPaths() {

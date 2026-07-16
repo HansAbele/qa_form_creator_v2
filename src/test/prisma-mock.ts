@@ -87,6 +87,7 @@ export const prismaMock = {
   response: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
+    groupBy: vi.fn(),
     count: vi.fn(),
     aggregate: vi.fn(),
     create: vi.fn(),

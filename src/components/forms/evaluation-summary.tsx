@@ -17,6 +17,7 @@ interface EvaluationSummaryProps {
   totalQuestions: number;
   answeredQuestions: number;
   submitting: boolean;
+  savingDraft: boolean;
   isEditing: boolean;
   onSubmit: () => void;
   onCancel: () => void;
@@ -31,6 +32,7 @@ export function EvaluationSummary({
   totalQuestions,
   answeredQuestions,
   submitting,
+  savingDraft,
   isEditing,
   onSubmit,
   onCancel,
@@ -41,6 +43,7 @@ export function EvaluationSummary({
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const totalWeight = perCategory.reduce((sum, c) => sum + c.weight, 0);
   const dashOffset = RING_CIRCUMFERENCE * (1 - Math.min(Math.max(score, 0), 100) / 100);
+  const scoreLabel = score.toFixed(2);
 
   const rules: { tone: "rose"; title: string; desc: string }[] = [];
   if (fatalCount > 0) {
@@ -54,7 +57,7 @@ export function EvaluationSummary({
     rules.push({
       tone: "rose",
       title: "Score bajo el umbral",
-      desc: `${score.toFixed(0)}% por debajo del ${passThreshold}%`,
+      desc: `${scoreLabel}% por debajo del ${passThreshold}%`,
     });
   }
 
@@ -71,9 +74,9 @@ export function EvaluationSummary({
             viewBox="0 0 128 128"
             className="-rotate-90"
             role="img"
-            aria-label={`Score ${score.toFixed(0)} por ciento`}
+            aria-label={`Score ${scoreLabel} por ciento`}
           >
-            <title>{`Score ${score.toFixed(0)}%`}</title>
+            <title>{`Score ${scoreLabel}%`}</title>
             <circle
               cx="64"
               cy="64"
@@ -91,12 +94,15 @@ export function EvaluationSummary({
               strokeLinecap="round"
               strokeDasharray={RING_CIRCUMFERENCE}
               strokeDashoffset={dashOffset}
-              className={cn("transition-all duration-500", pass ? "stroke-success" : "stroke-destructive")}
+              className={cn(
+                "transition-all duration-500",
+                pass ? "stroke-success" : "stroke-destructive",
+              )}
             />
           </svg>
           <div className="absolute flex flex-col items-center">
             <span className="font-heading text-3xl font-extrabold tabular-nums tracking-tight">
-              {score.toFixed(0)}
+              {scoreLabel}
               <span className="text-lg">%</span>
             </span>
           </div>
@@ -179,7 +185,9 @@ export function EvaluationSummary({
       {/* Progress */}
       <div className="space-y-2 rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between text-xs">
-          <span className="font-semibold uppercase tracking-wide text-muted-foreground">Progreso</span>
+          <span className="font-semibold uppercase tracking-wide text-muted-foreground">
+            Progreso
+          </span>
           <span className="tabular-nums font-medium text-foreground">
             {answeredQuestions} / {totalQuestions}
           </span>
@@ -202,19 +210,26 @@ export function EvaluationSummary({
       <div className="space-y-2">
         <Button
           onClick={onSubmit}
-          disabled={submitting || blockers > 0}
+          disabled={submitting || savingDraft || blockers > 0}
           className={cn("w-full gap-2", !pass && "bg-destructive hover:bg-destructive/90")}
         >
           <Send className="h-4 w-4" />
-          {submitting
-            ? "Guardando..."
-            : isEditing
-              ? "Guardar cambios"
-              : pass
-                ? "Enviar evaluacion"
-                : "Enviar como FAIL"}
+          {savingDraft
+            ? "Guardando borrador..."
+            : submitting
+              ? "Guardando..."
+              : isEditing
+                ? "Guardar cambios"
+                : pass
+                  ? "Enviar evaluacion"
+                  : "Enviar como FAIL"}
         </Button>
-        <Button variant="outline" onClick={onCancel} className="w-full" disabled={submitting}>
+        <Button
+          variant="outline"
+          onClick={onCancel}
+          className="w-full"
+          disabled={submitting || savingDraft}
+        >
           Cancelar
         </Button>
       </div>

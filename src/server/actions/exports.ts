@@ -74,7 +74,8 @@ async function getExportData(filters: ExportFilters) {
         select: {
           name: true,
           agentCode: true,
-          team: { select: { name: true } },
+          campaignId: true,
+          team: { select: { name: true, campaignId: true } },
         },
       },
       evaluator: { select: { name: true } },
@@ -82,8 +83,9 @@ async function getExportData(filters: ExportFilters) {
         select: {
           name: true,
           code: true,
+          campaignId: true,
           outcomeType: true,
-          category: { select: { name: true } },
+          category: { select: { name: true, campaignId: true } },
         },
       },
       answers: {
@@ -91,6 +93,7 @@ async function getExportData(filters: ExportFilters) {
           question: {
             select: {
               label: true,
+              formId: true,
               type: true,
               order: true,
               weight: true,
@@ -106,7 +109,18 @@ async function getExportData(filters: ExportFilters) {
     orderBy: { createdAt: "desc" },
   });
 
-  const campaignIds = [...new Set(responses.map((response) => response.form.campaignId))];
+  const exportableResponses = responses.filter(
+    (response) =>
+      response.agent.campaignId === response.form.campaignId &&
+      (!response.agent.team || response.agent.team.campaignId === response.form.campaignId) &&
+      (!response.disposition ||
+        (response.disposition.campaignId === response.form.campaignId &&
+          (!response.disposition.category ||
+            response.disposition.category.campaignId === response.form.campaignId))) &&
+      response.answers.every((answer) => answer.question.formId === response.form.id),
+  );
+
+  const campaignIds = [...new Set(exportableResponses.map((response) => response.form.campaignId))];
   const targetEntries = await Promise.all(
     campaignIds.map(async (campaignId) => {
       const settings = await getCampaignScoringSettings(campaignId);
@@ -124,7 +138,7 @@ async function getExportData(filters: ExportFilters) {
   );
 
   return {
-    responses,
+    responses: exportableResponses,
     targetsByCampaign: new Map<string, CampaignTargetSnapshot>(targetEntries),
     userId: session.user.id,
   };
@@ -152,8 +166,8 @@ function getScore(response: ExportResponse) {
 }
 
 function getResult(response: ExportResponse, targets: CampaignTargetSnapshot) {
-  if (response.result === "PASS" || response.result === "FAIL") return response.result;
-  if (response.hasFatalFail) return "FAIL";
+  if (response.hasFatalFail || response.result === "FAIL") return "FAIL";
+  if (response.result === "PASS") return "PASS";
   return getScore(response) >= targets.passThreshold ? "PASS" : "FAIL";
 }
 
@@ -398,26 +412,30 @@ export async function exportToCsv(filters: ExportFilters): Promise<string> {
   const selectedFields = sanitizeExportFields(filters.fields);
   const { responses, targetsByCampaign, userId } = await getExportData(filters);
   const questionColumns = collectQuestionColumns(responses, selectedFields);
+  let content = "";
+
+  if (responses.length > 0) {
+    const headers = getSelectedHeaders(selectedFields, questionColumns);
+    const rows = buildRows(responses, selectedFields, questionColumns, targetsByCampaign);
+    content = [
+      headers.map(escapeCsvValue).join(","),
+      ...rows.map((row) => row.map(escapeCsvValue).join(",")),
+    ].join("\n");
+  }
+
   await auditExport("csv", filters, selectedFields, userId, responses.length);
-
-  if (responses.length === 0) return "";
-
-  const headers = getSelectedHeaders(selectedFields, questionColumns);
-  const rows = buildRows(responses, selectedFields, questionColumns, targetsByCampaign);
-
-  return [
-    headers.map(escapeCsvValue).join(","),
-    ...rows.map((row) => row.map(escapeCsvValue).join(",")),
-  ].join("\n");
+  return content;
 }
 
 function styleHeaderRow(row: {
-  eachCell: (callback: (cell: {
-    font?: unknown;
-    fill?: unknown;
-    alignment?: unknown;
-    border?: unknown;
-  }) => void) => void;
+  eachCell: (
+    callback: (cell: {
+      font?: unknown;
+      fill?: unknown;
+      alignment?: unknown;
+      border?: unknown;
+    }) => void,
+  ) => void;
 }) {
   row.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -451,13 +469,12 @@ function autoWidth(sheet: {
 function addScoreStyle(
   row: { getCell: (index: number) => { value?: unknown; font?: unknown; fill?: unknown } },
   scoreColumn: number,
-  resultColumn: number | null,
+  result: "PASS" | "FAIL",
 ) {
   const scoreCell = row.getCell(scoreColumn);
-  const result = resultColumn ? String(row.getCell(resultColumn).value ?? "") : "";
   const rawScore = Number(scoreCell.value ?? 0);
 
-  if (result === "FAIL" || rawScore < 70) {
+  if (result === "FAIL") {
     scoreCell.font = { color: { argb: "FFDC2626" }, bold: true };
     scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
   } else if (rawScore >= 90) {
@@ -477,9 +494,11 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
   const detailRowCount = includeAnswers
     ? responses.reduce((sum, response) => sum + response.answers.length, 0)
     : 0;
-  await auditExport("xlsx", filters, selectedFields, userId, responses.length, detailRowCount);
 
-  if (responses.length === 0) return "";
+  if (responses.length === 0) {
+    await auditExport("xlsx", filters, selectedFields, userId, 0, detailRowCount);
+    return "";
+  }
 
   const questionColumns = collectQuestionColumns(responses, selectedFields);
   const headers = getSelectedHeaders(selectedFields, questionColumns);
@@ -530,11 +549,11 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
   };
 
   const scoreIndex = headers.indexOf(EXPORT_FIELD_LABELS.score) + 1;
-  const resultIndex = headers.indexOf(EXPORT_FIELD_LABELS.result) + 1;
   if (scoreIndex > 0) {
-    for (let rowNumber = 2; rowNumber <= evaluationSheet.rowCount; rowNumber++) {
-      addScoreStyle(evaluationSheet.getRow(rowNumber), scoreIndex, resultIndex || null);
-    }
+    responses.forEach((response, index) => {
+      const targets = getTargets(targetsByCampaign, response.form.campaignId);
+      addScoreStyle(evaluationSheet.getRow(index + 2), scoreIndex, getResult(response, targets));
+    });
     evaluationSheet.getColumn(scoreIndex).numFmt = "0.00";
   }
   const dateIndex = headers.indexOf(EXPORT_FIELD_LABELS.date) + 1;
@@ -602,13 +621,14 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
   autoWidth(summarySheet);
 
   const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer).toString("base64");
+  const content = Buffer.from(buffer).toString("base64");
+  await auditExport("xlsx", filters, selectedFields, userId, responses.length, detailRowCount);
+  return content;
 }
 
 export async function exportToJson(filters: ExportFilters): Promise<string> {
   const selectedFields = sanitizeExportFields(filters.fields);
   const { responses, targetsByCampaign, userId } = await getExportData(filters);
-  await auditExport("json", filters, selectedFields, userId, responses.length);
 
   const baseFields = getBaseFields(selectedFields);
   const includeAnswers = isExportFieldSelected(selectedFields, "answers");
@@ -637,5 +657,7 @@ export async function exportToJson(filters: ExportFilters): Promise<string> {
     return row;
   });
 
-  return JSON.stringify(data, null, 2);
+  const content = JSON.stringify(data, null, 2);
+  await auditExport("json", filters, selectedFields, userId, responses.length);
+  return content;
 }

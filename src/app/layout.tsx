@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { NavigationGuardRuntime } from "@/components/navigation/navigation-guard-runtime";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -12,6 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" suppressHydrationWarning>
       <body className="min-h-screen bg-background font-sans antialiased">
+        <NavigationGuardRuntime />
         <Providers>{children}</Providers>
       </body>
     </html>

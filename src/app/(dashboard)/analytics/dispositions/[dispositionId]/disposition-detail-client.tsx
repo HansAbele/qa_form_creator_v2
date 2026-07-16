@@ -2,16 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from "recharts";
 import { motion } from "motion/react";
 import {
   ArrowDown,
@@ -82,6 +73,7 @@ interface RecentResponse {
   evaluatorName: string;
   formTitle: string;
   score: number;
+  result: "PASS" | "FAIL";
   createdAt: string;
 }
 
@@ -94,6 +86,7 @@ interface DispositionDetailData {
   active: boolean;
   totalEvaluations: number;
   avgScore: number;
+  passThreshold: number;
   globalAvgScore: number;
   scoreDelta: number;
   passRate: number;
@@ -117,15 +110,22 @@ const questionConfig = {
   avgScore: { label: "Score", color: "#06b6d4" },
 } satisfies ChartConfig;
 
-function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
-  if (score >= 70) return "default";
-  if (score >= 50) return "secondary";
+function scoreBadgeVariant(
+  score: number,
+  passThreshold: number,
+): "default" | "secondary" | "destructive" {
+  if (score >= passThreshold) return "default";
+  if (score >= passThreshold * 0.7) return "secondary";
   return "destructive";
 }
 
-function getQuestionBarColor(score: number): string {
-  if (score >= 70) return "#10b981";
-  if (score >= 50) return "#f59e0b";
+function resultBadgeVariant(result: "PASS" | "FAIL"): "default" | "destructive" {
+  return result === "PASS" ? "default" : "destructive";
+}
+
+function getQuestionBarColor(score: number, passThreshold: number): string {
+  if (score >= passThreshold) return "#10b981";
+  if (score >= passThreshold * 0.7) return "#f59e0b";
   return "#f43f5e";
 }
 
@@ -160,11 +160,7 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
   );
 }
 
-export function DispositionDetailClient({
-  dispositionId,
-}: {
-  dispositionId: string;
-}) {
+export function DispositionDetailClient({ dispositionId }: { dispositionId: string }) {
   const router = useRouter();
   const [data, setData] = useState<DispositionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -202,8 +198,7 @@ export function DispositionDetailClient({
   if (loading && !data) return <LoadingSkeleton />;
   if (!data) return <EmptyState label="Disposición no encontrada" />;
 
-  const deltaIcon =
-    data.scoreDelta > 0.5 ? ArrowUp : data.scoreDelta < -0.5 ? ArrowDown : Minus;
+  const deltaIcon = data.scoreDelta > 0.5 ? ArrowUp : data.scoreDelta < -0.5 ? ArrowDown : Minus;
   const deltaTone: "emerald" | "rose" | "navy" =
     data.scoreDelta > 0.5 ? "emerald" : data.scoreDelta < -0.5 ? "rose" : "navy";
   const deltaLabel =
@@ -247,9 +242,7 @@ export function DispositionDetailClient({
                       </Badge>
                     )}
                     <Badge variant="secondary">{data.campaignName}</Badge>
-                    {data.categoryName && (
-                      <Badge variant="secondary">{data.categoryName}</Badge>
-                    )}
+                    {data.categoryName && <Badge variant="secondary">{data.categoryName}</Badge>}
                     {!data.active && <Badge variant="destructive">Inactiva</Badge>}
                   </div>
                 </div>
@@ -258,12 +251,7 @@ export function DispositionDetailClient({
               <div className="flex flex-wrap items-end gap-2">
                 <div className="flex gap-1">
                   {[7, 30, 90].map((d) => (
-                    <Button
-                      key={d}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setQuickRange(d)}
-                    >
+                    <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
                       {d}d
                     </Button>
                   ))}
@@ -318,7 +306,13 @@ export function DispositionDetailClient({
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={data.avgScore >= 70 ? "emerald" : data.avgScore >= 50 ? "amber" : "rose"}
+          tone={
+            data.avgScore >= data.passThreshold
+              ? "emerald"
+              : data.avgScore >= data.passThreshold * 0.7
+                ? "amber"
+                : "rose"
+          }
           index={1}
         />
         <KpiCard
@@ -358,14 +352,11 @@ export function DispositionDetailClient({
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
-                    tickFormatter={(v) => new Date(v).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                    tickFormatter={(v) =>
+                      new Date(v).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })
+                    }
                   />
-                  <YAxis
-                    domain={[0, 100]}
-                    tickLine={false}
-                    axisLine={false}
-                    className="text-xs"
-                  />
+                  <YAxis domain={[0, 100]} tickLine={false} axisLine={false} className="text-xs" />
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
@@ -406,7 +397,9 @@ export function DispositionDetailClient({
                     tickLine={false}
                     axisLine={false}
                     className="text-xs"
-                    tickFormatter={(v) => new Date(v).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                    tickFormatter={(v) =>
+                      new Date(v).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })
+                    }
                   />
                   <YAxis
                     allowDecimals={false}
@@ -446,7 +439,11 @@ export function DispositionDetailClient({
                   layout="vertical"
                   margin={{ left: 20, right: 12 }}
                 >
-                  <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
+                  <CartesianGrid
+                    horizontal={false}
+                    strokeDasharray="3 3"
+                    className="stroke-border"
+                  />
                   <XAxis
                     type="number"
                     domain={[0, 100]}
@@ -461,9 +458,7 @@ export function DispositionDetailClient({
                     axisLine={false}
                     width={150}
                     className="text-xs"
-                    tickFormatter={(v: string) =>
-                      v.length > 22 ? `${v.slice(0, 20)}…` : v
-                    }
+                    tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 20)}…` : v)}
                   />
                   <ChartTooltip
                     content={
@@ -474,7 +469,10 @@ export function DispositionDetailClient({
                   />
                   <Bar dataKey="avgScore" radius={[0, 6, 6, 0]} animationDuration={900}>
                     {data.scoreByQuestion.slice(0, 8).map((q) => (
-                      <Cell key={q.question} fill={getQuestionBarColor(q.avgScore)} />
+                      <Cell
+                        key={q.question}
+                        fill={getQuestionBarColor(q.avgScore, data.passThreshold)}
+                      />
                     ))}
                   </Bar>
                 </BarChart>
@@ -512,7 +510,10 @@ export function DispositionDetailClient({
                       <TableCell className="font-medium">{e.name}</TableCell>
                       <TableCell className="text-center tabular-nums">{e.count}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={scoreBadgeVariant(e.avgScore)} className="tabular-nums">
+                        <Badge
+                          variant={scoreBadgeVariant(e.avgScore, data.passThreshold)}
+                          className="tabular-nums"
+                        >
                           {e.avgScore.toFixed(1)}%
                         </Badge>
                       </TableCell>
@@ -555,7 +556,10 @@ export function DispositionDetailClient({
                       <TableCell className="font-medium">{a.name}</TableCell>
                       <TableCell className="text-center tabular-nums">{a.count}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={scoreBadgeVariant(a.avgScore)} className="tabular-nums">
+                        <Badge
+                          variant={scoreBadgeVariant(a.avgScore, data.passThreshold)}
+                          className="tabular-nums"
+                        >
                           {a.avgScore.toFixed(1)}%
                         </Badge>
                       </TableCell>
@@ -594,8 +598,8 @@ export function DispositionDetailClient({
                       <TableCell className="font-medium">{r.agentName}</TableCell>
                       <TableCell className="text-muted-foreground">{r.evaluatorName}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={scoreBadgeVariant(r.score)} className="tabular-nums">
-                          {r.score.toFixed(1)}%
+                        <Badge variant={resultBadgeVariant(r.result)} className="tabular-nums">
+                          {r.score.toFixed(1)}% · {r.result}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground">
@@ -643,14 +647,13 @@ export function DispositionDetailClient({
                     onClick={() => router.push(`/analytics/dispositions/${s.id}`)}
                   >
                     <TableCell className="font-medium">{s.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {s.code ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-center tabular-nums">
-                      {s.totalEvaluations}
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{s.code ?? "—"}</TableCell>
+                    <TableCell className="text-center tabular-nums">{s.totalEvaluations}</TableCell>
                     <TableCell className="text-center">
-                      <Badge variant={scoreBadgeVariant(s.avgScore)} className="tabular-nums">
+                      <Badge
+                        variant={scoreBadgeVariant(s.avgScore, data.passThreshold)}
+                        className="tabular-nums"
+                      >
                         {s.avgScore.toFixed(1)}%
                       </Badge>
                     </TableCell>

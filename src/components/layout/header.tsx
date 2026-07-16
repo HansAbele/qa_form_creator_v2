@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useTheme } from "@/components/theme-provider";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { cn } from "@/lib/utils";
+import { permitNextDocumentUnload, requestAppNavigation } from "@/lib/navigation-guard";
 
 export function Header() {
   const { data: session } = useSession();
@@ -72,7 +73,12 @@ export function Header() {
             </div>
             <button
               type="button"
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={async () => {
+                if (!requestAppNavigation()) return;
+                const { url } = await signOut({ redirect: false, redirectTo: "/login" });
+                permitNextDocumentUnload();
+                window.location.assign(url);
+              }}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
               aria-label="Cerrar sesión"
             >

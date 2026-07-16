@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -37,6 +37,33 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
   const [campaignId, setCampaignId] = useState(agent?.campaignId ?? "");
   const [teamId, setTeamId] = useState(agent?.teamId ?? "");
   const [active, setActive] = useState(agent?.active ?? true);
+  const formIdentity = agent?.id ?? "__new__";
+  const previousOpen = useRef(false);
+  const previousFormIdentity = useRef(formIdentity);
+
+  useEffect(() => {
+    const justOpened = open && !previousOpen.current;
+    const entityChanged = open && previousFormIdentity.current !== formIdentity;
+
+    if (justOpened || entityChanged) {
+      setName(agent?.name ?? "");
+      setAgentCode(agent?.agentCode ?? "");
+      setCampaignId(agent?.campaignId ?? "");
+      setTeamId(agent?.teamId ?? "");
+      setActive(agent?.active ?? true);
+    }
+
+    previousOpen.current = open;
+    previousFormIdentity.current = formIdentity;
+  }, [
+    open,
+    formIdentity,
+    agent?.name,
+    agent?.agentCode,
+    agent?.campaignId,
+    agent?.teamId,
+    agent?.active,
+  ]);
 
   const availableTeams = useMemo(
     () => (campaignId ? teams.filter((t) => t.campaignId === campaignId) : []),

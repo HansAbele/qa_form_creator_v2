@@ -121,6 +121,12 @@ export async function getFormForEvaluation(id: string) {
 
 export async function getFormForEvaluationCorrection(id: string) {
   return getFormByIdWithPermission(id, "canEditEvaluations", {
+    allowedStatuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
+  });
+}
+
+export async function getFormForDraftCorrection(id: string) {
+  return getFormByIdWithPermission(id, "canEditEvaluations", {
     requirePublished: true,
     requireActiveCampaign: true,
   });
@@ -129,7 +135,11 @@ export async function getFormForEvaluationCorrection(id: string) {
 async function getFormByIdWithPermission(
   id: string,
   permission: CampaignPermissionKey,
-  options: { requirePublished?: boolean; requireActiveCampaign?: boolean } = {},
+  options: {
+    requirePublished?: boolean;
+    requireActiveCampaign?: boolean;
+    allowedStatuses?: string[];
+  } = {},
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
@@ -138,10 +148,10 @@ async function getFormByIdWithPermission(
     where: { id },
     include: {
       campaign: { select: { id: true, name: true, active: true } },
-      parent: { select: { id: true, version: true, status: true } },
+      parent: { select: { id: true, version: true, status: true, campaignId: true } },
       revisions: {
         where: { status: { not: FORM_STATUS.ARCHIVED } },
-        select: { id: true, version: true, status: true },
+        select: { id: true, version: true, status: true, campaignId: true },
         orderBy: { createdAt: "desc" },
       },
       questions: {
@@ -176,6 +186,9 @@ async function getFormByIdWithPermission(
   await assertCampaignPermissionForUser(session.user, form.campaignId, permission);
   if (options.requirePublished && form.status !== FORM_STATUS.PUBLISHED) {
     throw new Error("Formulario no publicado");
+  }
+  if (options.allowedStatuses && !options.allowedStatuses.includes(form.status)) {
+    throw new Error("Formulario no disponible para correccion");
   }
   if (options.requireActiveCampaign && !form.campaign.active) {
     throw new Error("La campana del formulario esta inactiva");
@@ -214,7 +227,20 @@ async function getFormByIdWithPermission(
     }
   }
 
-  return canManageFormVersions ? form : { ...form, parent: null, revisions: [] };
+  if (!canManageFormVersions) return { ...form, parent: null, revisions: [] };
+
+  const parent =
+    form.parent?.campaignId === form.campaignId
+      ? { id: form.parent.id, version: form.parent.version, status: form.parent.status }
+      : null;
+  const revisions = form.revisions
+    .filter((revision) => revision.campaignId === form.campaignId)
+    .map((revision) => ({
+      id: revision.id,
+      version: revision.version,
+      status: revision.status,
+    }));
+  return { ...form, parent, revisions };
 }
 
 export async function createForm(data: FormMutationInput) {
@@ -286,6 +312,7 @@ export async function updateForm(id: string, data: FormMutationInput) {
       campaignId: true,
       createdById: true,
       parentFormId: true,
+      parent: { select: { campaignId: true } },
       status: true,
       version: true,
       questions: {
@@ -315,6 +342,10 @@ export async function updateForm(id: string, data: FormMutationInput) {
     throw new Error("No se puede editar un formulario archivado");
   }
 
+  if (existing.parent && existing.parent.campaignId !== existing.campaignId) {
+    throw new Error("La revision no pertenece a la misma campana que su formulario base");
+  }
+
   if (
     input.campaignId !== existing.campaignId &&
     (existing.status === FORM_STATUS.PUBLISHED || existing.parentFormId)
@@ -328,12 +359,16 @@ export async function updateForm(id: string, data: FormMutationInput) {
       const rootFormId = existing.parentFormId ?? existing.id;
       await lockFormFamily(tx, rootFormId);
       const familyVersions = await tx.form.findMany({
-        where: { OR: [{ id: rootFormId }, { parentFormId: rootFormId }] },
+        where: {
+          campaignId: existing.campaignId,
+          OR: [{ id: rootFormId }, { parentFormId: rootFormId }],
+        },
         select: { version: true },
       });
-      const latestVersion = [existing.version, ...(familyVersions ?? []).map((item) => item.version)]
-        .sort(compareFormVersions)
-        .at(-1) ?? existing.version;
+      const latestVersion =
+        [existing.version, ...(familyVersions ?? []).map((item) => item.version)]
+          .sort(compareFormVersions)
+          .at(-1) ?? existing.version;
       const draft = await tx.form.create({
         data: {
           title: input.title,
