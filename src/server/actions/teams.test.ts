@@ -20,7 +20,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { assignAgentsToTeam, createTeam } from "./teams";
+import { assignAgentsToTeam, createTeam, getTeams } from "./teams";
 
 const qaUser = {
   id: "qa-1",
@@ -46,6 +46,11 @@ describe("team mutations RBAC", () => {
       createTeam({ name: "Support", campaignId: "campaign-1" }),
     ).rejects.toThrow("No autorizado para esta accion en esta campana");
     expect(prismaMock.team.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the detailed team reader admin-only", async () => {
+    await expect(getTeams()).rejects.toThrow("No autorizado");
+    expect(prismaMock.team.findMany).not.toHaveBeenCalled();
   });
 
   it("rejects assigning agents from a different campaign", async () => {

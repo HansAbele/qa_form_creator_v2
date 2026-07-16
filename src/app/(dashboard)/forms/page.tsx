@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getForms } from "@/server/actions/forms";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getFormCreationCampaigns } from "@/server/actions/campaigns";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { FormsListClient } from "./forms-client";
 
@@ -12,7 +12,7 @@ export default async function FormsPage() {
 
   const [forms, creatableCampaigns] = await Promise.all([
     getForms(),
-    getCampaignsForPermission("canCreateForms"),
+    getFormCreationCampaigns(),
   ]);
   const isAdmin = session.user.role === "ADMIN";
   const isSupervisor = session.user.role === "SUPERVISOR";
@@ -28,9 +28,11 @@ export default async function FormsPage() {
         version: f.version,
         publishedAt: f.publishedAt?.toISOString() ?? null,
         questionCount: f._count.questions,
-        responseCount: f._count.responses,
         createdAt: f.createdAt.toISOString(),
-        canEvaluate: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
+        canEvaluate:
+          f.campaign.active &&
+          !isSupervisor &&
+          (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
         canEdit: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEditForms)),
         canPublish: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canPublishForms)),
       }))}

@@ -20,7 +20,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { createAgent, deleteAgent, updateAgent } from "./agents";
+import { createAgent, deleteAgent, getAgents, getAgentsForEvaluation, updateAgent } from "./agents";
 
 const qaUser = {
   id: "qa-1",
@@ -46,6 +46,27 @@ describe("agent mutations RBAC", () => {
       createAgent({ name: "Ana", campaignId: "campaign-1" }),
     ).rejects.toThrow("No autorizado para esta accion en esta campana");
     expect(prismaMock.agent.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the detailed agent reader admin-only", async () => {
+    await expect(getAgents()).rejects.toThrow("No autorizado");
+    expect(prismaMock.agent.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns a minimal active selector for authorized evaluators", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEvaluate: true,
+    });
+    prismaMock.agent.findMany.mockResolvedValue([]);
+
+    await getAgentsForEvaluation("campaign-1");
+
+    expect(prismaMock.agent.findMany).toHaveBeenCalledWith({
+      where: { campaignId: "campaign-1", active: true, campaign: { active: true } },
+      select: { id: true, name: true, agentCode: true },
+      orderBy: { name: "asc" },
+    });
   });
 
   it("rejects create when the selected team belongs to another campaign", async () => {

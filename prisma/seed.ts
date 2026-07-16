@@ -1,16 +1,93 @@
-import { PrismaClient, QuestionType, Role } from "@prisma/client";
+import { CampaignAccessLevel, PrismaClient, QuestionType, Role } from "@prisma/client";
 import { hash } from "bcryptjs";
+import { getCampaignAccessPreset } from "../src/lib/campaign-permissions";
 
 const prisma = new PrismaClient();
+const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "host.docker.internal"]);
+
+function requireStrongPassword(name: string) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required to seed local login accounts.`);
+  }
+  if (value.length < 14 || value.length > 128) {
+    throw new Error(`${name} must contain between 14 and 128 characters.`);
+  }
+
+  const characterClasses = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((pattern) =>
+    pattern.test(value),
+  ).length;
+  if (characterClasses < 3) {
+    throw new Error(`${name} must include at least three character classes.`);
+  }
+  if (/change[_-]?me|password|contrase[nñ]a/i.test(value)) {
+    throw new Error(`${name} must not contain a placeholder or common password term.`);
+  }
+
+  return value;
+}
+
+function assertSafeSeedTarget() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("The sample-data seed is disabled when NODE_ENV=production.");
+  }
+
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required before running the sample-data seed.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    throw new Error("DATABASE_URL must be a valid PostgreSQL URL.");
+  }
+  if (!new Set(["postgres:", "postgresql:"]).has(parsed.protocol)) {
+    throw new Error("DATABASE_URL must use the postgres or postgresql protocol.");
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!LOCAL_DATABASE_HOSTS.has(hostname)) {
+    throw new Error("The sample-data seed may only target a local PostgreSQL database.");
+  }
+  if (parsed.pathname === "" || parsed.pathname === "/") {
+    throw new Error("DATABASE_URL must include a database name.");
+  }
+}
 
 async function main() {
+  assertSafeSeedTarget();
+
+  const [adminPassword, qaPassword, supervisorPassword] = await Promise.all([
+    hash(requireStrongPassword("QORE_SEED_ADMIN_PASSWORD"), 12),
+    hash(requireStrongPassword("QORE_SEED_QA_PASSWORD"), 12),
+    hash(requireStrongPassword("QORE_SEED_SUPERVISOR_PASSWORD"), 12),
+  ]);
+  const adminAccess = {
+    roleInCampaign: CampaignAccessLevel.CAMPAIGN_ADMIN,
+    ...getCampaignAccessPreset("CAMPAIGN_ADMIN"),
+  };
+  const evaluatorAccess = {
+    roleInCampaign: CampaignAccessLevel.EVALUATOR,
+    ...getCampaignAccessPreset("EVALUATOR"),
+  };
+  const supervisorAccess = {
+    roleInCampaign: CampaignAccessLevel.SUPERVISOR,
+    ...getCampaignAccessPreset("SUPERVISOR"),
+  };
+
   console.log("Seeding database...");
 
   // ─── Admin user ──────────────────────────────────────
-  const adminPassword = await hash("Admin.2026", 12);
   const admin = await prisma.user.upsert({
     where: { email: "admin@qa.local" },
-    update: {},
+    update: {
+      role: Role.ADMIN,
+      password: adminPassword,
+      active: true,
+      sessionVersion: { increment: 1 },
+    },
     create: {
       email: "admin@qa.local",
       name: "QA Manager",
@@ -40,18 +117,23 @@ async function main() {
         campaignId: campaign.id,
       },
     },
-    update: {},
+    update: adminAccess,
     create: {
       userId: admin.id,
       campaignId: campaign.id,
+      ...adminAccess,
     },
   });
 
   // ─── QA user ─────────────────────────────────────────
-  const qaPassword = await hash("Qa.2026", 12);
   const qaUser = await prisma.user.upsert({
     where: { email: "qa@qa.local" },
-    update: {},
+    update: {
+      role: Role.QA,
+      password: qaPassword,
+      active: true,
+      sessionVersion: { increment: 1 },
+    },
     create: {
       email: "qa@qa.local",
       name: "QA Evaluator",
@@ -67,19 +149,23 @@ async function main() {
         campaignId: campaign.id,
       },
     },
-    update: { canViewAudit: true },
+    update: evaluatorAccess,
     create: {
       userId: qaUser.id,
       campaignId: campaign.id,
-      canViewAudit: true,
+      ...evaluatorAccess,
     },
   });
   console.log(`QA user: ${qaUser.email}`);
 
-  const supervisorPassword = await hash("Supervisor.2026", 12);
   const supervisorUser = await prisma.user.upsert({
     where: { email: "supervisor@qa.local" },
-    update: { role: Role.SUPERVISOR },
+    update: {
+      role: Role.SUPERVISOR,
+      password: supervisorPassword,
+      active: true,
+      sessionVersion: { increment: 1 },
+    },
     create: {
       email: "supervisor@qa.local",
       name: "QA Supervisor",
@@ -95,41 +181,11 @@ async function main() {
         campaignId: campaign.id,
       },
     },
-    update: {
-      roleInCampaign: "SUPERVISOR",
-      canViewDashboard: true,
-      canViewKPIs: true,
-      canViewForms: true,
-      canCreateForms: false,
-      canEditForms: false,
-      canPublishForms: false,
-      canEvaluate: false,
-      canEditEvaluations: false,
-      canViewReports: true,
-      canExport: false,
-      canManageAgents: false,
-      canManageDispositions: false,
-      canManageCampaignScoring: false,
-      canViewAudit: true,
-    },
+    update: supervisorAccess,
     create: {
       userId: supervisorUser.id,
       campaignId: campaign.id,
-      roleInCampaign: "SUPERVISOR",
-      canViewDashboard: true,
-      canViewKPIs: true,
-      canViewForms: true,
-      canCreateForms: false,
-      canEditForms: false,
-      canPublishForms: false,
-      canEvaluate: false,
-      canEditEvaluations: false,
-      canViewReports: true,
-      canExport: false,
-      canManageAgents: false,
-      canManageDispositions: false,
-      canManageCampaignScoring: false,
-      canViewAudit: true,
+      ...supervisorAccess,
     },
   });
   console.log(`Supervisor user: ${supervisorUser.email}`);
@@ -325,9 +381,7 @@ async function main() {
 
   console.log("\nSeed completed successfully!");
   console.log("─────────────────────────────");
-  console.log("Admin login:  admin@qa.local / Admin.2026");
-  console.log("QA login:     qa@qa.local / Qa.2026");
-  console.log("Supervisor:   supervisor@qa.local / Supervisor.2026");
+  console.log("Local login accounts were created from the configured seed credentials.");
 }
 
 main()

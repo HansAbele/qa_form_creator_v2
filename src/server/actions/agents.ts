@@ -5,17 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
 import {
-  assertCampaignAccessForUser,
   assertCampaignPermissionForUser,
-  getCampaignFilter,
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
 
 export async function getAgents(campaignId?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
-  const where = await getCampaignFilter(campaignId);
+  const where = campaignId ? { campaignId } : {};
 
   return prisma.agent.findMany({
     where,
@@ -24,6 +22,22 @@ export async function getAgents(campaignId?: string) {
       team: { select: { id: true, name: true } },
       _count: { select: { responses: true } },
     },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function getAgentsForEvaluation(campaignId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+  try {
+    await assertCampaignPermissionForUser(session.user, campaignId, "canEvaluate");
+  } catch {
+    await assertCampaignPermissionForUser(session.user, campaignId, "canEditEvaluations");
+  }
+
+  return prisma.agent.findMany({
+    where: { campaignId, active: true, campaign: { active: true } },
+    select: { id: true, name: true, agentCode: true },
     orderBy: { name: "asc" },
   });
 }
@@ -43,23 +57,6 @@ export async function getAgentsForManagement(campaignId?: string) {
     },
     orderBy: { name: "asc" },
   });
-}
-
-export async function getAgentById(id: string) {
-  const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
-
-  const agent = await prisma.agent.findUnique({
-    where: { id },
-    include: {
-      campaign: { select: { id: true, name: true } },
-      team: { select: { id: true, name: true } },
-    },
-  });
-
-  if (!agent) throw new Error("Agente no encontrado");
-  assertCampaignAccessForUser(session.user, agent.campaignId);
-  return agent;
 }
 
 export async function createAgent(data: {
@@ -83,24 +80,29 @@ export async function createAgent(data: {
     }
   }
 
-  const agent = await prisma.agent.create({
-    data: {
-      name: data.name.trim(),
-      agentCode: data.agentCode?.trim() || null,
-      campaignId: data.campaignId,
-      teamId: data.teamId || null,
-    },
-  });
-
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: data.campaignId,
-    module: "agents",
-    action: "created",
-    entityType: "agent",
-    entityId: agent.id,
-    afterValue: agent,
-    impact: "Agente disponible para evaluaciones y reportes de la campana.",
+  const agent = await prisma.$transaction(async (tx) => {
+    const agent = await tx.agent.create({
+      data: {
+        name: data.name.trim(),
+        agentCode: data.agentCode?.trim() || null,
+        campaignId: data.campaignId,
+        teamId: data.teamId || null,
+      },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: data.campaignId,
+        module: "agents",
+        action: "created",
+        entityType: "agent",
+        entityId: agent.id,
+        afterValue: agent,
+        impact: "Agente disponible para evaluaciones y reportes de la campana.",
+      },
+      tx,
+    );
+    return agent;
   });
 
   revalidatePath("/admin/agents");
@@ -139,26 +141,31 @@ export async function updateAgent(
     }
   }
 
-  const agent = await prisma.agent.update({
-    where: { id },
-    data: {
-      name: data.name.trim(),
-      agentCode: data.agentCode?.trim() || null,
-      teamId: data.teamId || null,
-      active: data.active,
-    },
-  });
-
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: existing.campaignId,
-    module: "agents",
-    action: "updated",
-    entityType: "agent",
-    entityId: id,
-    beforeValue: existing,
-    afterValue: agent,
-    impact: "Cambio operativo en datos del agente.",
+  const agent = await prisma.$transaction(async (tx) => {
+    const agent = await tx.agent.update({
+      where: { id },
+      data: {
+        name: data.name.trim(),
+        agentCode: data.agentCode?.trim() || null,
+        teamId: data.teamId || null,
+        active: data.active,
+      },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: existing.campaignId,
+        module: "agents",
+        action: "updated",
+        entityType: "agent",
+        entityId: id,
+        beforeValue: existing,
+        afterValue: agent,
+        impact: "Cambio operativo en datos del agente.",
+      },
+      tx,
+    );
+    return agent;
   });
 
   revalidatePath("/admin/agents");
@@ -177,21 +184,25 @@ export async function deleteAgent(id: string) {
   if (!agent) throw new Error("Agente no encontrado");
   await assertCampaignPermissionForUser(session.user, agent.campaignId, "canManageAgents");
 
-  const updated = await prisma.agent.update({
-    where: { id },
-    data: { active: false },
-  });
-
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: agent.campaignId,
-    module: "agents",
-    action: "deactivated",
-    entityType: "agent",
-    entityId: id,
-    beforeValue: agent,
-    afterValue: updated,
-    impact: "Agente desactivado para futuras evaluaciones.",
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.agent.update({
+      where: { id },
+      data: { active: false },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: agent.campaignId,
+        module: "agents",
+        action: "deactivated",
+        entityType: "agent",
+        entityId: id,
+        beforeValue: agent,
+        afterValue: updated,
+        impact: "Agente desactivado para futuras evaluaciones.",
+      },
+      tx,
+    );
   });
 
   revalidatePath("/admin/agents");

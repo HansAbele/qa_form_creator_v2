@@ -101,6 +101,46 @@ describe("exports RBAC", () => {
     );
   });
 
+  it("neutralizes spreadsheet formulas in CSV text without changing safe leading spaces", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canExport: true,
+    });
+    const dangerous = buildResponseFixture();
+    dangerous.agent.name = "=HYPERLINK(\"https://example.invalid\")";
+    dangerous.form.title = "+cmd";
+    dangerous.evaluator.name = "-2+3";
+    dangerous.disposition.name = "\tformula";
+    dangerous.answers[0].question.label = "  @SUM(A1:A2)";
+    dangerous.answers[0].value = "  =1+1";
+    prismaMock.response.findMany.mockResolvedValue([dangerous]);
+
+    const csv = await exportToCsv({
+      campaignId: "campaign-1",
+      fields: ["agent", "form", "evaluator", "disposition", "answers"],
+    });
+
+    expect(csv).toContain("'  @SUM(A1:A2)");
+    expect(csv).toContain("'=HYPERLINK(");
+    expect(csv).toContain("'+cmd");
+    expect(csv).toContain("'-2+3");
+    expect(csv).toContain("'\tformula");
+    expect(csv).toContain("'  =1+1");
+
+    const safe = buildResponseFixture();
+    safe.agent.name = "  Ana Perez";
+    safe.answers[0].value = "  texto seguro";
+    prismaMock.response.findMany.mockResolvedValue([safe]);
+    const safeCsv = await exportToCsv({
+      campaignId: "campaign-1",
+      fields: ["agent", "answers"],
+    });
+    expect(safeCsv).toContain("  Ana Perez");
+    expect(safeCsv).toContain("  texto seguro");
+    expect(safeCsv).not.toContain("'  Ana Perez");
+    expect(safeCsv).not.toContain("'  texto seguro");
+  });
+
   it(
     "creates enriched Excel with summary, evaluation and answer detail sheets",
     async () => {

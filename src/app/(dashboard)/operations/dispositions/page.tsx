@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getDispositionManagementCampaigns } from "@/server/actions/campaigns";
 import {
   getDispositionCategories,
   getDispositions,
@@ -13,7 +13,7 @@ export default async function OperationsDispositionsPage() {
   );
   if (!canManageDispositions) redirect("/settings");
 
-  const rawCampaigns = await getCampaignsForPermission("canManageDispositions");
+  const rawCampaigns = await getDispositionManagementCampaigns();
   const campaigns = rawCampaigns.map((campaign) => ({
     id: campaign.id,
     name: campaign.name,

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   Plus,
   Pencil,
+  PowerOff,
   Trash2,
   Users,
   Tag,
@@ -45,7 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CampaignForm } from "@/components/admin/campaign-form";
 import { TeamForm } from "@/components/admin/team-form";
 import { DispositionForm } from "@/components/admin/disposition-form";
-import { deleteCampaign } from "@/server/actions/campaigns";
+import { deactivateCampaign } from "@/server/actions/campaigns";
 import {
   getTeams,
   deleteTeam,
@@ -129,14 +130,14 @@ export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
     setFormOpen(true);
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`¿Eliminar la campaña "${name}"?`)) return;
+  const handleDeactivate = async (id: string, name: string) => {
+    if (!confirm(`¿Desactivar la campaña "${name}"? El historial se conservará.`)) return;
     try {
-      await deleteCampaign(id);
-      toast.success("Campaña eliminada");
+      await deactivateCampaign(id);
+      toast.success("Campaña desactivada");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al eliminar");
+      toast.error(error instanceof Error ? error.message : "Error al desactivar");
     }
   };
 
@@ -193,9 +194,16 @@ export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
                         <Button variant="ghost" size="icon-xs" onClick={() => handleEdit(c)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon-xs" onClick={() => handleDelete(c.id, c.name)}>
-                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                        </Button>
+                        {c.active && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Desactivar ${c.name}`}
+                            onClick={() => handleDeactivate(c.id, c.name)}
+                          >
+                            <PowerOff className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -348,9 +356,7 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
           <Select value={selectedCampaign} onValueChange={(v) => v && handleCampaignChange(v)}>
             <SelectTrigger className="w-52">
               <SelectValue>
-                {(value: string | null) =>
-                  campaigns.find((c) => c.id === value)?.name ?? ""
-                }
+                {(value: string | null) => campaigns.find((c) => c.id === value)?.name ?? ""}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -398,7 +404,11 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
                       <Button variant="ghost" size="icon-xs" onClick={() => handleEditTeam(t)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon-xs" onClick={() => handleDeleteTeam(t.id, t.name)}>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => handleDeleteTeam(t.id, t.name)}
+                      >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>
@@ -628,7 +638,10 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
         await updateDispositionCategory(editCategoryId, { name: categoryName.trim() });
         toast.success("Categoría actualizada");
       } else {
-        await createDispositionCategory({ name: categoryName.trim(), campaignId: selectedCampaign });
+        await createDispositionCategory({
+          name: categoryName.trim(),
+          campaignId: selectedCampaign,
+        });
         toast.success("Categoría creada");
       }
       setCategoryDialogOpen(false);
@@ -641,7 +654,12 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
   };
 
   const handleDeleteCategory = async (id: string, name: string) => {
-    if (!confirm(`¿Eliminar la categoría "${name}"? Las disposiciones se desvinculan pero no se borran.`)) return;
+    if (
+      !confirm(
+        `¿Eliminar la categoría "${name}"? Las disposiciones se desvinculan pero no se borran.`,
+      )
+    )
+      return;
     try {
       await deleteDispositionCategory(id);
       toast.success("Categoría eliminada");
@@ -701,9 +719,7 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
             <Select value={selectedCampaign} onValueChange={(v) => v && handleCampaignChange(v)}>
               <SelectTrigger className="w-52">
                 <SelectValue>
-                  {(value: string | null) =>
-                    campaigns.find((c) => c.id === value)?.name ?? ""
-                  }
+                  {(value: string | null) => campaigns.find((c) => c.id === value)?.name ?? ""}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -775,7 +791,11 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
                   <Button variant="ghost" size="icon-xs" onClick={() => openCategoryDialog(cat)}>
                     <Pencil className="h-3 w-3" />
                   </Button>
-                  <Button variant="ghost" size="icon-xs" onClick={() => handleDeleteCategory(cat.id, cat.name)}>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                  >
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </Button>
                 </div>
@@ -811,9 +831,7 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
                     {d.name}
                   </div>
                 </TableCell>
-                <TableCell className="font-mono text-muted-foreground">
-                  {d.code || "—"}
-                </TableCell>
+                <TableCell className="font-mono text-muted-foreground">{d.code || "—"}</TableCell>
                 <TableCell>
                   {d.category ? (
                     <Badge variant="outline">{d.category.name}</Badge>
@@ -832,7 +850,11 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
                     <Button variant="ghost" size="icon-xs" onClick={() => handleEditDisposition(d)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon-xs" onClick={() => handleDeleteDisposition(d.id, d.name)}>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => handleDeleteDisposition(d.id, d.name)}
+                    >
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                     </Button>
                   </div>
@@ -880,9 +902,7 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
       <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>
-              {editCategoryId ? "Editar categoría" : "Nueva categoría"}
-            </DialogTitle>
+            <DialogTitle>{editCategoryId ? "Editar categoría" : "Nueva categoría"}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSaveCategory} className="space-y-4">
             <div className="space-y-2">
@@ -919,7 +939,9 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
                 rows={10}
                 value={bulkText}
                 onChange={(e) => setBulkText(e.target.value)}
-                placeholder={"Venta Cerrada\nCliente No Interesado\nEscalación\nProblema Resuelto\n..."}
+                placeholder={
+                  "Venta Cerrada\nCliente No Interesado\nEscalación\nProblema Resuelto\n..."
+                }
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">

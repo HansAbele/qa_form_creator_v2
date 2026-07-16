@@ -19,7 +19,6 @@ interface FormItem {
   version: string;
   publishedAt: string | null;
   questionCount: number;
-  responseCount: number;
   createdAt: string;
   canEvaluate: boolean;
   canEdit: boolean;
@@ -123,9 +122,8 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
                 )}
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <div className="flex items-center text-sm text-muted-foreground">
                   <span>{form.questionCount} preguntas</span>
-                  <span>{form.responseCount} evaluaciones</span>
                 </div>
                 <div className="mt-4 flex gap-2">
                   {form.canEvaluate && form.status === "PUBLISHED" && (

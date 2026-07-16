@@ -1,174 +1,320 @@
-# Production Security Runbook - Qore / QA Form Creator
+# Production Security Runbook — Qore / QA Form Creator
 
-Last updated: 2026-05-13
+Last updated: 2026-07-15
 
-This runbook is the source of truth for production deploy and security checks for Qore. It replaces older one-off deploy notes when there is a conflict.
+This is the production source of truth. Historical one-off deploy, password-reset,
+and data-fix scripts are not approved production paths.
 
-## Current Security Posture
+## P1 release gates
 
-Repo-side controls completed:
+A production release is allowed only when all of these are true:
 
-- Production Docker binding is local-only: `127.0.0.1:3000:3000`.
-- Apache reverse proxy terminates HTTPS and forwards to `127.0.0.1:3000`.
-- Auth cookies are secure in production via `useSecureCookies: process.env.NODE_ENV === "production"`.
-- Production deploy uses `prisma migrate deploy`; no `db push --accept-data-loss` path is allowed.
-- `.env`, `.env.production`, `odoo.local.env`, and `*.local.env` are ignored by Git.
-- `.env` and `odoo.local.env` were removed from Git tracking on 2026-05-13. The local files remain on the machine.
-- Docker build context excludes env files, local worktrees, scripts, markdown, tests, and build artifacts.
-- `pnpm db:push` is guarded and refuses non-local or production database URLs unless `ALLOW_PRISMA_DB_PUSH=true` is set explicitly.
+- `scripts/verify-repository-secrets.sh` passes on a full clone with every remote
+  branch and tag fetched.
+- Every exposed credential has been rotated and the old value is rejected by its
+  external system. Repository edits alone do not satisfy this gate.
+- `.env.production` contains `SECRET_ROTATION_CONFIRMED=true` and
+  `SECRET_HISTORY_REMEDIATED=true`, backed by evidence in the change ticket.
+- The encrypted off-site backup destination and encryption key pass preflight.
+- The candidate app and migrator images successfully restore the newest backup in
+  an isolated Docker network and the evidence JSON is attached to the ticket.
+- Database integrity, migration status, runtime-role privileges, append-only audit,
+  application health, and HTTPS health all pass.
+- CI is required on the protected default branch.
 
-Operator-side controls still required outside Git:
+`scripts/deploy.sh` enforces these gates and fails closed.
 
-- Rotate any secret that was ever committed or copied through chat/docs/scripts.
-- Store production credentials only in the team password manager.
-- Prefer SSH keys over password-based SSH for deploy scripts.
-- Keep `/opt/qa-form-creator/.env.production` mode `600`.
+## Security model
 
-## Required Production Secrets
+- Apache terminates trusted HTTPS and proxies only to `127.0.0.1:3000`.
+- The web process uses `qa_app`; migrations use the database owner.
+- `qa_app` has no superuser, database/schema creation, temporary-table, role
+  management, ownership, inherited-role, or migration-history privileges.
+- Runtime table access is a reviewed allowlist. New tables receive no runtime grant
+  until `scripts/provision-db-roles.sh` is updated.
+- `AuditLog` is append-only. The runtime can read it and insert approved columns,
+  but cannot backdate, update, delete, truncate, or disable its triggers.
+- Audit actor/campaign foreign keys use `RESTRICT`, preventing cascade rewrites of
+  historical evidence.
+- Sensitive mutations and their audit events commit in the same transaction.
+- Production deploy uses `prisma migrate deploy`; `prisma db push` is prohibited.
+- Backups are AES-256 encrypted, checksummed, structurally validated, replicated
+  off-site, downloaded again for hash verification, and restore-tested.
+- Deploy, backup, and restore share an exclusive operations lock.
+- Node and PostgreSQL base images are pinned by immutable multi-architecture digest.
 
-The production `.env.production` file must live only on the server:
+## Required production configuration
 
-```bash
+Keep these files only on the server, owned by the deploy user, mode `600`, and not
+symbolic links:
+
+```text
 /opt/qa-form-creator/.env.production
+/opt/qa-form-creator/.backup-key
 ```
 
-Required keys:
+Required `.env.production` values:
 
 ```bash
-DB_PASSWORD=<strong database password>
-AUTH_SECRET=<openssl rand -base64 32>
-AUTH_URL=https://<real production host>
+DB_OWNER_USER=qa_owner
+DB_OWNER_PASSWORD=<openssl-rand-hex-32>
+DB_APP_USER=qa_app
+DB_APP_PASSWORD=<different-openssl-rand-hex-32>
+AUTH_SECRET=<different-openssl-rand-hex-32>
+RATE_LIMIT_HASH_SECRET=<different-openssl-rand-hex-32>
+AUTH_URL=https://<real-production-host>
 LOG_LEVEL=info
+BACKUP_ENCRYPTION_KEY_FILE=/opt/qa-form-creator/.backup-key
+BACKUP_REMOTE=<rclone-remote>:qore-production
+REQUIRE_OFFSITE_BACKUP=true
+RETENTION_DAYS=30
+MIN_FREE_DISK_MB=2048
+SECRET_ROTATION_CONFIRMED=false
+SECRET_HISTORY_REMEDIATED=false
+INITIAL_DEPLOY=false
 ```
 
-Generate new values:
+Generate values without printing them into tickets or chat:
 
 ```bash
-openssl rand -base64 32
-openssl rand -base64 48
+# Run this four times and assign a distinct value to each hex secret above.
+openssl rand -hex 32
+# Write one unwrapped Base64 line directly; `openssl enc -pass file:` reads one line.
+openssl rand -base64 64 | tr -d '\n' > /opt/qa-form-creator/.backup-key
+chmod 600 /opt/qa-form-creator/.backup-key
 ```
 
-Never commit `.env.production`, `.env`, `odoo.local.env`, SSH passwords, Odoo credentials, reset passwords, or API keys.
-
-## Pre-Deploy Validation
-
-Run locally before deploying:
+Older deployments may have a two-line key created by `openssl rand -base64 64`.
+Do not join those lines: historical backups used only the first line as their
+OpenSSL passphrase. Normalize it without changing that passphrase:
 
 ```bash
+bash scripts/migrate-legacy-backup-key.sh /opt/qa-form-creator/.backup-key
+```
+
+The resulting 48-byte legacy passphrase remains cryptographically strong and
+keeps old backups readable. Rotate to a new 64-byte key only after the backups
+encrypted with the legacy passphrase have expired or been re-encrypted.
+
+`INITIAL_DEPLOY=true` is a one-time authorization. The deploy script accepts it only
+when PostgreSQL proves that `public` has zero tables. It must remain `false` for
+upgrades.
+
+## Secret incident closure
+
+At the 2026-07-15 audit, local remote-tracking state showed `origin/main` at commit
+`b71bc5a`, whose tip tracked `.env` and `odoo.local.env`; commit `f5adf0e` removed
+them only on another branch. Treat the incident as open until the hosting provider
+confirms the actual remote state is remediated.
+
+Required order:
+
+1. Inventory every system that accepted the exposed database credential,
+   `AUTH_SECRET`, or Odoo database password.
+2. Generate replacements in the password manager and deploy them.
+3. Verify the former values are rejected. Rotating `AUTH_SECRET` revokes existing
+   sessions.
+4. Rewrite every affected remote branch and tag with the provider-approved
+   `git filter-repo` process during a maintenance window.
+5. Require collaborators and runners to delete old clones/caches and clone again.
+6. Fetch all refs into a clean verification clone and run:
+
+   ```bash
+   bash scripts/verify-repository-secrets.sh
+   ```
+
+7. Attach revocation evidence, remote ref inventory, rewritten commit IDs, CI secret
+   scan, and clean-clone output to the ticket.
+8. Only then set both `SECRET_*_CONFIRMED` values to `true` on the server.
+
+Never commit `.env`, `.env.production`, `odoo.local.env`, `*.local.env`, backup keys,
+SSH passwords, reset passwords, Odoo credentials, or API keys.
+
+## Pre-deploy verification
+
+On a clean candidate checkout:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm db:generate
+pnpm db:validate
 pnpm lint
-pnpm test
+pnpm typecheck
+pnpm test:ci
 pnpm build
-pnpm exec prisma validate
+bash -n scripts/*.sh
+bash scripts/verify-repository-secrets.sh
 git diff --check
 ```
 
-Check for dangerous deploy paths:
+On the server, validate Compose without rendering expanded secrets to disk:
 
 ```bash
-rg -n "db push|accept-data-loss|0\.0\.0\.0:3000|PASS\s*=|password=" scripts docs docker-compose.prod.yml src -S
+cd /opt/qa-form-creator
+chmod 600 .env.production .backup-key
+docker compose -f docker-compose.prod.yml --env-file .env.production config --quiet
+bash scripts/production-preflight.sh --offline
 ```
 
-Expected:
+Do not use `docker compose config > /tmp/...`; rendered output contains database and
+authentication secrets.
 
-- No production deploy script uses `prisma db push`.
-- No real password, token, SSH credential, Odoo credential, or API key appears in tracked files.
-- Any `password=` result should read from environment variables or be generic documentation only.
-
-Check tracked env files:
+Before the first release that changes QA Manager permissions, preserve the current
+campaign-manager inventory in the protected ticket:
 
 ```bash
-git ls-files .env .env.production .env.local odoo.local.env "*.local.env"
+set -a
+source .env.production
+set +a
+DB_NAME=${DB_NAME:-qa_form_creator}
+docker exec qa_form_creator_db psql -U "$DB_OWNER_USER" -d "$DB_NAME" -c \
+  'COPY (SELECT u.email, uc."campaignId", uc."roleInCampaign" FROM "UserCampaign" uc JOIN "User" u ON u.id = uc."userId" WHERE u.role = '\''QA'\'' AND uc."roleInCampaign" = '\''CAMPAIGN_ADMIN'\'') TO STDOUT WITH CSV HEADER' \
+  > campaign-manager-inventory.csv
+chmod 600 campaign-manager-inventory.csv
 ```
 
-Expected output:
+The migration records a `legacy_campaign_admin_snapshot` audit event. A QA Manager
+must restore only grants confirmed as intentional.
 
-```text
-```
-
-## Server Deploy Procedure
-
-Run on the production server:
+## Production deploy
 
 ```bash
 ssh root@<server>
 cd /opt/qa-form-creator
 git pull --ff-only
-chmod 600 .env.production
-```
-
-Confirm required keys without printing secret values:
-
-```bash
-awk -F= '/^(DB_PASSWORD|AUTH_SECRET|AUTH_URL|LOG_LEVEL)=/ { print $1"=<set>" }' .env.production
-```
-
-Validate compose config:
-
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production config >/tmp/qore-compose.validated.yml
-```
-
-Deploy:
-
-```bash
 bash scripts/deploy.sh
 ```
 
-Do not use old one-off deploy scripts for normal production releases. Files such as `scripts/deploy-settings.py`, `scripts/deploy-schema-v2.py`, `scripts/deploy-logo.py`, and similar historical scripts were created for narrow past changes and can bypass the current full deploy path.
+The script performs, in order:
 
-Health checks:
+1. exclusive operation lock and offline preflight;
+2. immutable app/migrator image build;
+3. pre-migration integrity verification;
+4. encrypted, off-site, download-verified backup;
+5. isolated restore/migrate/provision/integrity/app-health drill;
+6. owner-only production migration;
+7. closed runtime-role provisioning and online preflight;
+8. app replacement and health check;
+9. Apache configuration install, `apache2ctl configtest`, and reload;
+10. managed backup cron and `.deployed-release` image manifest.
+
+Verify without bypassing TLS validation:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production ps
 docker logs qa_form_creator_app --tail 80
-curl -k https://<real production host>/api/health
+curl --fail --show-error --silent https://<real-production-host>/api/health
 ```
 
-## Manual Migration Check
-
-If you need to run only migrations:
+If the private CA is not in the host trust store, use its reviewed CA bundle:
 
 ```bash
-docker exec qa_form_creator_app npx --yes prisma@6.19.3 migrate deploy --schema /app/prisma/schema.prisma
+curl --cacert /etc/ssl/certs/<company-ca>.pem --fail --show-error --silent \
+  https://<real-production-host>/api/health
 ```
 
-Never run this in production:
+Never use `curl -k` as deployment evidence.
+
+## Backup policy and restore drill
+
+Operational targets:
+
+- maximum RPO: 24 hours (daily 02:00 encrypted backup);
+- target RTO: 4 hours;
+- automated restore drill: every production deploy with an existing database;
+- independently recorded drill: at least quarterly.
+
+Create a backup and run the same isolated drill manually:
+
+```bash
+cd /opt/qa-form-creator
+set -a
+source .env.production
+source .deployed-release
+set +a
+result=$(mktemp)
+BACKUP_RESULT_FILE="$result" bash scripts/backup.sh
+backup_file=$(<"$result")
+rm -f "$result"
+IMAGE_TAG="$IMAGE_TAG" bash scripts/dr-drill.sh "$backup_file"
+```
+
+The drill uses an internal network, isolated volume, random container names, no host
+ports, the pinned candidate images, and automatic cleanup. Evidence is written under
+`backups/dr-evidence/` with backup hash, image IDs, duration, row counts, and app
+health. Attach that JSON and the measured RPO/RTO to the change ticket.
+
+Do not store `.backup-key` with replicated backups. Keep the protected recovery copy
+in the team password manager.
+
+## Production restore
+
+The restore is interactive, validates the checksum, verifies exact image IDs from
+`.deployed-release`, backs up the current database, proves the requested backup in an
+isolated drill, and only then stops the application:
+
+```bash
+bash scripts/restore.sh /opt/qa-form-creator/backups/<backup>.dump.enc
+```
+
+After restore, record HTTPS health, row-count evidence, duration, operator, approver,
+and ticket ID.
+
+## Audit maintenance
+
+Normal application and operator activity must never update or delete `AuditLog`.
+Exceptional retention/legal remediation requires two-person approval, a scoped SQL
+review, a fresh backup/drill, and a ticket. The database owner must use a local marker
+inside one transaction:
+
+```sql
+BEGIN;
+SET LOCAL qore.audit_maintenance = 'enabled';
+-- Execute only the exact UPDATE/DELETE/TRUNCATE approved in the ticket.
+COMMIT;
+```
+
+Never set the marker at role/database level. Record before/after counts and backup
+hash outside the table being maintained.
+
+## Password and access recovery
+
+Use the audited QA Manager user-management flow. It applies password policy,
+increments `sessionVersion`, revokes prior sessions, and writes audit evidence in the
+same transaction.
+
+The removed `reset-password.py`, `reset-pw.py`, `reset-pw-prisma.py`, and
+`fix-qa-assignments.py` scripts are prohibited: they bypassed audit and authorization,
+embedded production targets, trusted unknown SSH host keys, and could expose secrets.
+
+If no QA Manager can authenticate, open a two-person break-glass incident. Recovery
+must be implemented as a reviewed, single-use migration/utility that identifies the
+actor and ticket, increments `sessionVersion`, writes a non-secret audit event in the
+same transaction, is tested on a restored backup, and is removed immediately after
+use. Never place a plaintext password or hash in shell arguments, logs, or tickets.
+
+## Manual migration and rollback
+
+Manual migration, when explicitly approved:
+
+```bash
+set -a
+source .env.production
+source .deployed-release
+set +a
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  --profile tools run --rm migrator
+bash scripts/provision-db-roles.sh
+bash scripts/production-preflight.sh --online
+```
+
+Never run:
 
 ```bash
 prisma db push --accept-data-loss
 ```
 
-## Secret Rotation Procedure
-
-Use this when a secret may have been committed, pasted in chat, exposed in logs, or shared outside the password manager.
-
-1. Generate replacement secrets.
-2. Update the password manager first.
-3. Update `/opt/qa-form-creator/.env.production` on the server.
-4. Run `chmod 600 .env.production`.
-5. Restart with `bash scripts/deploy.sh`.
-6. Confirm health checks.
-7. Revoke the old secret where applicable.
-
-Rotate at minimum:
-
-- `DB_PASSWORD` if any database connection string or env file was tracked.
-- `AUTH_SECRET` if `.env` or `.env.production` was tracked.
-- Odoo credentials if `odoo.local.env` was tracked.
-- SSH password used by `QORE_SSH_PASSWORD`; preferably replace password auth with SSH keys.
-- Any reset/import passwords such as `QORE_RESET_PASSWORD` or `QORE_INITIAL_PASSWORD`.
-
-## Rollback
-
-If deploy fails after containers start:
-
-```bash
-cd /opt/qa-form-creator
-git log --oneline -5
-git checkout <known-good-commit>
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
-docker exec qa_form_creator_app npx --yes prisma@6.19.3 migrate deploy --schema /app/prisma/schema.prisma
-curl -k https://<real production host>/api/health
-```
-
-Only roll back database state from a verified backup. Do not use destructive Prisma commands.
+Application-only rollback uses a known compatible image. Database rollback requires
+the production restore procedure and a verified backup; never use destructive Prisma
+commands. A rollback is not complete until internal and trusted-HTTPS health checks
+pass and the incident ticket records database compatibility.

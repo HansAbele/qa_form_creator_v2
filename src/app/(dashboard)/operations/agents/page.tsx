@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAgentsForManagement } from "@/server/actions/agents";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getAgentManagementCampaigns } from "@/server/actions/campaigns";
 import { getTeamsForManagement } from "@/server/actions/teams";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { AgentsClient } from "../../admin/agents/agents-client";
@@ -11,7 +11,7 @@ export default async function OperationsAgentsPage() {
 
   const [agents, campaigns, teams] = await Promise.all([
     getAgentsForManagement(),
-    getCampaignsForPermission("canManageAgents"),
+    getAgentManagementCampaigns(),
     getTeamsForManagement(),
   ]);
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Check, ChevronsUpDown, Plus, Star, FolderOpen, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, FolderOpen, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -9,7 +9,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,7 +21,6 @@ interface DispositionItem {
   name: string;
   code: string | null;
   category: { id: string; name: string } | null;
-  _count: { responses: number };
 }
 
 interface CategoryGroup {
@@ -40,7 +38,6 @@ interface Props {
 export function DispositionCombobox({ campaignId, value, onChange, error }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [frequent, setFrequent] = useState<DispositionItem[]>([]);
   const [categories, setCategories] = useState<CategoryGroup[]>([]);
   const [uncategorized, setUncategorized] = useState<DispositionItem[]>([]);
   const [all, setAll] = useState<DispositionItem[]>([]);
@@ -51,7 +48,6 @@ export function DispositionCombobox({ campaignId, value, onChange, error }: Prop
   const loadDispositions = useCallback(() => {
     if (!campaignId) return;
     getDispositionsForSelector(campaignId).then((data) => {
-      setFrequent(data.frequent);
       setCategories(data.categories);
       setUncategorized(data.uncategorized);
       setAll(data.all);
@@ -130,11 +126,6 @@ export function DispositionCombobox({ campaignId, value, onChange, error }: Prop
         {d.code && <span className="mr-1.5 font-mono text-xs text-muted-foreground">{d.code}</span>}
         {d.name}
       </span>
-      {d._count.responses > 0 && (
-        <Badge variant="secondary" className="ml-auto text-[10px] px-1 py-0">
-          {d._count.responses}
-        </Badge>
-      )}
     </button>
   );
 
@@ -240,17 +231,6 @@ export function DispositionCombobox({ campaignId, value, onChange, error }: Prop
             ) : (
               // Default grouped view
               <>
-                {/* Frecuentes */}
-                {frequent.length > 0 && (
-                  <div className="mb-1">
-                    <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <Star className="h-3 w-3" />
-                      Frecuentes
-                    </div>
-                    {frequent.map(renderItem)}
-                  </div>
-                )}
-
                 {/* Categories */}
                 {categories.map((cat) => (
                   <div key={cat.categoryName} className="mb-1">
@@ -265,7 +245,7 @@ export function DispositionCombobox({ campaignId, value, onChange, error }: Prop
                 {/* Uncategorized */}
                 {uncategorized.length > 0 && (
                   <div className="mb-1">
-                    {(frequent.length > 0 || categories.length > 0) && (
+                    {categories.length > 0 && (
                       <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                         Sin categoría
                       </div>

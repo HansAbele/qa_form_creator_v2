@@ -1,13 +1,13 @@
 # ─── Stage 1: Dependencies ────────────────────────────
-FROM node:20-alpine AS deps
-RUN corepack enable && corepack prepare pnpm@latest --activate
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS deps
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 WORKDIR /app
-COPY package.json pnpm-lock.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile --prod=false
 
 # ─── Stage 2: Build ──────────────────────────────────
-FROM node:20-alpine AS builder
-RUN corepack enable && corepack prepare pnpm@latest --activate
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -18,8 +18,15 @@ RUN pnpm prisma generate && \
     cp -rL $(find node_modules/.pnpm -path '*/.prisma/client' -type d 2>/dev/null | head -1)/.. node_modules/.prisma/ 2>/dev/null || true
 RUN pnpm build
 
+# Dedicated migration image. It contains the pinned Prisma CLI and migration
+# history, but is never used to serve application traffic.
+FROM deps AS migrator
+WORKDIR /app
+COPY prisma ./prisma
+CMD ["pnpm", "exec", "prisma", "migrate", "deploy", "--schema", "/app/prisma/schema.prisma"]
+
 # ─── Stage 3: Runtime ────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -80,4 +80,11 @@ describe("operational audit RBAC", () => {
     await expect(readOperationalAudit()).rejects.toThrow("No autorizado");
     expect(prismaMock.auditLog.count).not.toHaveBeenCalled();
   });
+
+  it("surfaces audit storage failures instead of displaying a false empty history", async () => {
+    authMock.mockResolvedValue({ user: adminUser });
+    prismaMock.auditLog.count.mockRejectedValue(new Error("audit storage unavailable"));
+
+    await expect(readOperationalAudit()).rejects.toThrow("audit storage unavailable");
+  });
 });

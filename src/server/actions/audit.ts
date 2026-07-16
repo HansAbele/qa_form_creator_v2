@@ -1,8 +1,8 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
@@ -57,51 +57,41 @@ export async function readOperationalAudit(
   const where = buildAuditWhere(filters);
   applyAuditScope(where, filters, allowedCampaignIds);
 
-  try {
-    const [total, rows] = await prisma.$transaction([
-      prisma.auditLog.count({ where }),
-      prisma.auditLog.findMany({
-        where,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orderBy: { createdAt: "desc" },
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          campaign: { select: { id: true, name: true } },
-        },
-      }),
-    ]);
+  const [total, rows] = await prisma.$transaction([
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      orderBy: { createdAt: "desc" },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        campaign: { select: { id: true, name: true } },
+      },
+    }),
+  ]);
 
-    return {
-      events: rows.map((row) => ({
-        id: row.id,
-        createdAt: row.createdAt.toISOString(),
-        module: row.module,
-        action: row.action,
-        entityType: row.entityType,
-        entityId: row.entityId,
-        impact: row.impact,
-        beforeValue: row.beforeValue,
-        afterValue: row.afterValue,
-        userId: row.userId,
-        userName: row.user?.name ?? row.user?.email ?? null,
-        campaignId: row.campaignId,
-        campaignName: row.campaign?.name ?? null,
-      })),
-      total,
-      page,
-      pageSize,
-      pageCount: Math.max(1, Math.ceil(total / pageSize)),
-    };
-  } catch {
-    return {
-      events: [],
-      total: 0,
-      page,
-      pageSize,
-      pageCount: 1,
-    };
-  }
+  return {
+    events: rows.map((row) => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      module: row.module,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      impact: row.impact,
+      beforeValue: row.beforeValue,
+      afterValue: row.afterValue,
+      userId: row.userId,
+      userName: row.user?.name ?? row.user?.email ?? null,
+      campaignId: row.campaignId,
+      campaignName: row.campaign?.name ?? null,
+    })),
+    total,
+    page,
+    pageSize,
+    pageCount: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 async function getAllowedAuditCampaignIds(user: {

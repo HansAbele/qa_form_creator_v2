@@ -10,6 +10,7 @@ import {
 } from "@/lib/export-fields";
 import { submittedResponseWhere } from "@/lib/response-status";
 import { getCampaignScoringSettings } from "@/lib/settings";
+import { OUTCOME_LABELS } from "@/lib/disposition-outcome";
 import { questionTypeLabel } from "@/types/form-builder";
 import { writeAuditLog } from "@/server/audit-log";
 import { emitNotificationToUser } from "@/server/notifications";
@@ -81,6 +82,7 @@ async function getExportData(filters: ExportFilters) {
         select: {
           name: true,
           code: true,
+          outcomeType: true,
           category: { select: { name: true } },
         },
       },
@@ -187,6 +189,10 @@ function getFieldValue(
       return response.disposition?.name ?? "";
     case "dispositionCategory":
       return response.disposition?.category?.name ?? "";
+    case "outcome":
+      return response.disposition?.outcomeType
+        ? (OUTCOME_LABELS[response.disposition.outcomeType] ?? response.disposition.outcomeType)
+        : "";
     case "score":
       return score;
     case "result":
@@ -242,8 +248,10 @@ function cellToText(value: ExportCellValue) {
 }
 
 function escapeCsvValue(value: ExportCellValue) {
-  const text = cellToText(value);
-  if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+  const rawText = cellToText(value);
+  const text =
+    typeof value === "string" && /^[ ]*[=+\-@\t\r]/.test(rawText) ? `'${rawText}` : rawText;
+  if (text.includes(",") || text.includes('"') || text.includes("\n") || text.includes("\r")) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;

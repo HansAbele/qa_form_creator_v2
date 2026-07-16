@@ -26,9 +26,14 @@ vi.mock("@/lib/prisma", async () => {
 
 import {
   getCampaignKpis,
+  getCriticalErrorAccuracy,
+  getCriticalErrorAccuracyDetail,
   getDashboardCoachingInsights,
+  getMyDashboard,
   getQACategoryMetrics,
   getReportData,
+  getResponseDetail,
+  getResponseTrends,
 } from "./analytics";
 
 const qaUser = {
@@ -277,9 +282,9 @@ describe("QA category analytics", () => {
     ]);
   });
 
-  it("returns actionable coaching insights for agents, categories and campaigns under target", async () => {
+  it("returns actionable insights and excludes campaigns with no evaluations", async () => {
     prismaMock.userCampaign.findMany.mockResolvedValue([
-      { campaignId: "campaign-1", canViewDashboard: true },
+      { campaignId: "campaign-1", canViewDashboard: true, canViewKPIs: true },
     ]);
     prismaMock.campaign.findMany.mockResolvedValue([
       {
@@ -288,6 +293,14 @@ describe("QA category analytics", () => {
         forms: [{ id: "form-1" }],
         agents: [{ id: "agent-1" }],
         _count: { users: 2 },
+      },
+      {
+        // No forms → 0 evaluations → must NOT be flagged in "Necesita atención".
+        id: "campaign-2",
+        name: "Sin datos",
+        forms: [],
+        agents: [],
+        _count: { users: 0 },
       },
     ]);
     prismaMock.response.count
@@ -364,5 +377,166 @@ describe("QA category analytics", () => {
         missedTargets: expect.arrayContaining(["score", "pass rate", "volumen diario"]),
       }),
     ]);
+    // The empty campaign must not appear as a risk.
+    expect(insights.campaignRisks.map((c) => c.id)).not.toContain("campaign-2");
+  });
+
+  it("does not expose program dashboard trends with only personal dashboard access", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewDashboard: true, canViewKPIs: false },
+    ]);
+    prismaMock.response.findMany.mockResolvedValue([]);
+
+    await expect(getResponseTrends()).resolves.toEqual([]);
+
+    expect(prismaMock.response.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          form: { campaignId: { in: [] } },
+        }),
+      }),
+    );
+  });
+
+  it("does not expose a draft response through report-only access", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canViewReports: true,
+      canEditEvaluations: false,
+    });
+    prismaMock.response.findUnique.mockResolvedValue({
+      id: "response-draft",
+      evaluatorId: "qa-2",
+      status: "DRAFT",
+      form: {
+        id: "form-1",
+        title: "QA Form",
+        campaignId: "campaign-1",
+        status: "PUBLISHED",
+        campaign: { active: true },
+      },
+      agent: { id: "agent-1", campaignId: "campaign-1" },
+      disposition: null,
+    });
+
+    await expect(getResponseDetail("response-draft")).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
+  });
+});
+
+describe("Critical Error Accuracy (CEA)", () => {
+  beforeEach(() => {
+    resetPrismaMock();
+    authMock.mockReset();
+    getSettingsMock.mockReset();
+    authMock.mockResolvedValue({ user: qaUser });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewKPIs: true, canViewDashboard: true },
+    ]);
+    getSettingsMock.mockResolvedValue({
+      passThreshold: 70,
+      targetPassRate: 85,
+      targetAvgScore: 80,
+      targetDailyRate: 20,
+    });
+  });
+
+  it("computes transaction-level accuracy per family and degrades to 'no configurado'", async () => {
+    prismaMock.answer.findMany.mockResolvedValue([
+      { responseId: "r1", isFatalFail: true, question: { criticalType: "CUSTOMER" } },
+      { responseId: "r2", isFatalFail: false, question: { criticalType: "CUSTOMER" } },
+      { responseId: "r3", isFatalFail: false, question: { criticalType: "BUSINESS" } },
+    ]);
+
+    const result = await getCriticalErrorAccuracy();
+
+    const customer = result.find((r) => r.family === "CUSTOMER");
+    expect(customer).toMatchObject({ applicable: 2, failedCount: 1, accuracy: 50, target: 95, status: "bajo benchmark" });
+
+    const business = result.find((r) => r.family === "BUSINESS");
+    expect(business).toMatchObject({ applicable: 1, accuracy: 100, target: 90, status: "en objetivo" });
+
+    const compliance = result.find((r) => r.family === "COMPLIANCE");
+    expect(compliance).toMatchObject({ configured: false, accuracy: null, status: "no configurado" });
+  });
+
+  it("breaks CEA down by campaign, agent and trend", async () => {
+    const mkAnswer = (responseId: string, isFatalFail: boolean) => ({
+      responseId,
+      isFatalFail,
+      question: { criticalType: "CUSTOMER" },
+      response: {
+        agentId: "a1",
+        createdAt: new Date("2026-06-30T00:00:00Z"),
+        agent: { name: "Agent 1", agentCode: "A1" },
+        form: { campaignId: "campaign-1", campaign: { name: "Campaign 1" } },
+      },
+    });
+    prismaMock.answer.findMany.mockResolvedValue([mkAnswer("r1", true), mkAnswer("r2", false)]);
+
+    const detail = await getCriticalErrorAccuracyDetail();
+
+    expect(detail.configured).toBe(true);
+    expect(detail.overall.find((o) => o.family === "CUSTOMER")?.accuracy).toBe(50);
+    expect(detail.byCampaign[0]).toMatchObject({ name: "Campaign 1", CUSTOMER: 50, BUSINESS: null });
+    expect(detail.byAgent[0]).toMatchObject({ name: "Agent 1", CUSTOMER: 50, worst: 50 });
+  });
+});
+
+describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
+  beforeEach(() => {
+    resetPrismaMock();
+    authMock.mockReset();
+    getSettingsMock.mockReset();
+    authMock.mockResolvedValue({ user: qaUser });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewDashboard: true },
+    ]);
+    getSettingsMock.mockResolvedValue({
+      passThreshold: 70,
+      targetPassRate: 85,
+      targetAvgScore: 80,
+      targetDailyRate: 20,
+    });
+  });
+
+  it("derives every personal dashboard metric from the current evaluator only", async () => {
+    prismaMock.response.findMany.mockResolvedValue([
+      {
+        id: "m1",
+        score: 80,
+        result: "PASS",
+        hasFatalFail: false,
+        createdAt: new Date("2026-06-30T10:00:00Z"),
+        agent: { id: "a1", name: "Agent 1", agentCode: "A1" },
+        form: { title: "Form A", campaign: { name: "Campaign 1" } },
+      },
+      {
+        id: "m2",
+        score: 60,
+        result: "FAIL",
+        hasFatalFail: true,
+        createdAt: new Date("2026-06-29T10:00:00Z"),
+        agent: { id: "a1", name: "Agent 1", agentCode: "A1" },
+        form: { title: "Form A", campaign: { name: "Campaign 1" } },
+      },
+    ]);
+
+    const data = await getMyDashboard();
+
+    expect(data.evaluations).toBe(2);
+    expect(data.avgScore).toBe(70);
+    expect(data.fatalCount).toBe(1);
+    expect(data.recentActivity[0]).toMatchObject({ id: "m1", result: "PASS" });
+    expect(data.agentsBelowTarget).toHaveLength(1);
+    expect(data.agentsBelowTarget[0]).toMatchObject({ id: "a1", avgScore: 70 });
+    expect(prismaMock.response.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ evaluatorId: "qa-1" }),
+      }),
+    );
+    expect(prismaMock.response.aggregate).not.toHaveBeenCalled();
+    expect(prismaMock.agent.findMany).not.toHaveBeenCalled();
   });
 });

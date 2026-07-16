@@ -231,8 +231,9 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
-  --font-heading: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  /* System stacks keep production builds deterministic and avoid remote font fetches. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Segoe UI Variable Display", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {

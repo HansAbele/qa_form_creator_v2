@@ -32,12 +32,21 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Pencil,
+  Plus,
+  PowerOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -49,6 +58,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -59,25 +69,22 @@ import {
 } from "@/components/ui/table";
 import { updateMyName, changeMyPassword, type ProfileInfo } from "@/server/actions/profile";
 import { updateCampaignAccess } from "@/server/actions/users";
-import {
-  updateSettings,
-  resetSettings,
-  updateOperationalSettings,
-} from "@/server/actions/settings";
+import { updateSettings, resetSettings } from "@/server/actions/settings";
 import { updateCampaignScoringSettings } from "@/server/actions/campaign-scoring";
 import {
   readOperationalAudit,
   type OperationalAuditEvent,
   type OperationalAuditPage,
 } from "@/server/actions/audit";
-import type { QACategorySummary } from "@/server/actions/qa-categories";
-import type {
-  AppSettings,
-  CampaignScoringSettings,
-  OperationalSettings,
-  OperationalSettingsPatch,
-} from "@/lib/settings";
-import { DEFAULT_OPERATIONAL_SETTINGS } from "@/lib/settings";
+import {
+  createQACategory,
+  deactivateQACategory,
+  updateQACategory,
+  type QACategoryMutationInput,
+  type QACategorySummary,
+} from "@/server/actions/qa-categories";
+import type { AppSettings, CampaignScoringSettings } from "@/lib/settings";
+import { getPasswordPolicyError, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 import {
   CAMPAIGN_ACCESS_LABELS,
   CAMPAIGN_PERMISSION_KEYS,
@@ -92,7 +99,6 @@ import { cn } from "@/lib/utils";
 interface SettingsClientProps {
   profile: ProfileInfo;
   settings: AppSettings;
-  operationalSettings: OperationalSettings | null;
   isAdmin: boolean;
   canViewAudit: boolean;
   accessUsers: AccessUser[];
@@ -241,7 +247,6 @@ const PERMISSION_GROUPS: {
 export function SettingsClient({
   profile,
   settings,
-  operationalSettings,
   isAdmin,
   canViewAudit,
   accessUsers,
@@ -335,16 +340,16 @@ export function SettingsClient({
             <QACategoriesTab categories={qaCategories} />
           )}
           {isAdmin && currentSection.id === "evaluations" && (
-            <EvaluationRulesTab settings={operationalSettings} />
+            <EvaluationRulesTab />
           )}
           {isAdmin && currentSection.id === "forms-config" && (
-            <FormsConfigTab settings={operationalSettings} />
+            <FormsConfigTab />
           )}
           {isAdmin && currentSection.id === "dashboard-kpis" && (
-            <DashboardKpisTab settings={operationalSettings} />
+            <DashboardKpisTab />
           )}
           {isAdmin && currentSection.id === "reports-export" && (
-            <ReportsExportTab settings={operationalSettings} />
+            <ReportsExportTab />
           )}
           {(isAdmin || canViewAudit) && currentSection.id === "audit" && (
             <OperationalAuditTab
@@ -354,7 +359,7 @@ export function SettingsClient({
             />
           )}
           {isAdmin && currentSection.id === "notifications" && (
-            <NotificationsTab settings={operationalSettings} />
+            <NotificationsTab />
           )}
         </section>
       </motion.div>
@@ -1001,8 +1006,9 @@ function AccountTab({ profile }: { profile: ProfileInfo }) {
       toast.error("Ingresa tu contraseña actual");
       return;
     }
-    if (newPassword.length < 8) {
-      toast.error("La nueva contraseña debe tener al menos 8 caracteres");
+    const passwordPolicyError = getPasswordPolicyError(newPassword);
+    if (passwordPolicyError) {
+      toast.error(passwordPolicyError);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -1151,7 +1157,8 @@ function AccountTab({ profile }: { profile: ProfileInfo }) {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Mínimo 8 caracteres. No compartas tu contraseña con nadie.
+                {MIN_PASSWORD_LENGTH}+ caracteres y al menos tres tipos entre mayúsculas,
+                minúsculas, números y símbolos.
               </p>
               <div className="flex justify-end">
                 <Button
@@ -1159,7 +1166,7 @@ function AccountTab({ profile }: { profile: ProfileInfo }) {
                   disabled={
                     savingPassword ||
                     !currentPassword ||
-                    newPassword.length < 8 ||
+                    Boolean(getPasswordPolicyError(newPassword)) ||
                     newPassword !== confirmPassword
                   }
                   size="sm"
@@ -1425,6 +1432,9 @@ function CampaignScoringTab({
           targetDailyRate: draft.targetDailyRate,
           fatalFailuresAllowed: draft.fatalFailuresAllowed,
           fatalZeroesScore: draft.fatalZeroesScore,
+          customerCeaTarget: draft.customerCeaTarget,
+          businessCeaTarget: draft.businessCeaTarget,
+          complianceCeaTarget: draft.complianceCeaTarget,
         });
         setDrafts((current) => ({ ...current, [selectedCampaignId]: saved }));
         toast.success("Scoring de campaña actualizado");
@@ -1592,6 +1602,75 @@ function CampaignScoringTab({
             </div>
           </div>
 
+          <div className="space-y-3 rounded-lg border p-4">
+            <div className="space-y-0.5">
+              <Label>Precisión de Error Crítico (CEA) — benchmarks por familia</Label>
+              <p className="text-xs text-muted-foreground">
+                Objetivos (%) para Customer, Business y Compliance. Alimentan los medidores CEA del
+                dashboard.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="cea-customer">Customer CEA</Label>
+                <Input
+                  id="cea-customer"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={draft.customerCeaTarget}
+                  disabled={usesGlobalDefaults}
+                  onChange={(event) =>
+                    setDraftValue(
+                      "customerCeaTarget",
+                      Math.max(0, Math.min(100, Number(event.target.value) || 0)),
+                    )
+                  }
+                  className="w-full text-right tabular-nums"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cea-business">Business CEA</Label>
+                <Input
+                  id="cea-business"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={draft.businessCeaTarget}
+                  disabled={usesGlobalDefaults}
+                  onChange={(event) =>
+                    setDraftValue(
+                      "businessCeaTarget",
+                      Math.max(0, Math.min(100, Number(event.target.value) || 0)),
+                    )
+                  }
+                  className="w-full text-right tabular-nums"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cea-compliance">Compliance CEA</Label>
+                <Input
+                  id="cea-compliance"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={draft.complianceCeaTarget}
+                  disabled={usesGlobalDefaults}
+                  onChange={(event) =>
+                    setDraftValue(
+                      "complianceCeaTarget",
+                      Math.max(0, Math.min(100, Number(event.target.value) || 0)),
+                    )
+                  }
+                  className="w-full text-right tabular-nums"
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <Button onClick={handleSave} disabled={!dirty || saving}>
               {saving ? (
@@ -1609,92 +1688,253 @@ function CampaignScoringTab({
 }
 
 function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<QACategorySummary | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState<QACategoryMutationInput>({
+    name: "",
+    description: "",
+    canBeFatal: false,
+    requiresCommentOnFail: false,
+    visibleInDashboard: true,
+    visibleInKPIs: true,
+  });
+
+  const showCreate = () => {
+    setEditing(null);
+    setDraft({
+      name: "",
+      description: "",
+      canBeFatal: false,
+      requiresCommentOnFail: false,
+      visibleInDashboard: true,
+      visibleInKPIs: true,
+    });
+    setOpen(true);
+  };
+
+  const showEdit = (category: QACategorySummary) => {
+    setEditing(category);
+    setDraft({
+      name: category.name,
+      description: category.description ?? "",
+      canBeFatal: category.canBeFatal,
+      requiresCommentOnFail: category.requiresCommentOnFail,
+      visibleInDashboard: category.visibleInDashboard,
+      visibleInKPIs: category.visibleInKPIs,
+    });
+    setOpen(true);
+  };
+
+  const saveCategory = async () => {
+    setSaving(true);
+    try {
+      if (editing) {
+        await updateQACategory(editing.id, draft);
+        toast.success("Categoría QA actualizada");
+      } else {
+        await createQACategory(draft);
+        toast.success("Categoría QA creada");
+      }
+      setOpen(false);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar la categoría");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deactivateCategory = async (category: QACategorySummary) => {
+    if (!confirm(`¿Desactivar la categoría "${category.name}"?`)) return;
+    try {
+      await deactivateQACategory(category.id);
+      toast.success("Categoría QA desactivada");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo desactivar la categoría");
+    }
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ListChecks className="h-4 w-4 text-orange-500" />
-          Categorías QA
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Categorías globales para estructurar formularios, pesos, fallas fatales y KPIs críticos.
-          El color e icono quedan controlados por sistema.
-        </p>
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Categoría</TableHead>
-                <TableHead>Uso</TableHead>
-                <TableHead>Reglas</TableHead>
-                <TableHead>Visibilidad</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {categories.map((category) => (
-                <TableRow key={category.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: category.systemColor ?? "#f97316" }}
-                      />
-                      <div>
-                        <div className="font-medium">{category.name}</div>
-                        <div className="max-w-[360px] text-xs text-muted-foreground">
-                          {category.description}
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ListChecks className="h-4 w-4 text-orange-500" />
+              Categorías QA
+            </CardTitle>
+            <Button size="sm" onClick={showCreate}>
+              <Plus className="h-3.5 w-3.5" />
+              Nueva categoría
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Categorías globales para estructurar formularios, pesos, fallas fatales y KPIs críticos.
+            El color e icono quedan controlados por sistema.
+          </p>
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Categoría</TableHead>
+                  <TableHead>Uso</TableHead>
+                  <TableHead>Reglas</TableHead>
+                  <TableHead>Visibilidad</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="w-24">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {categories.map((category) => (
+                  <TableRow key={category.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: category.systemColor ?? "#f97316" }}
+                        />
+                        <div>
+                          <div className="font-medium">{category.name}</div>
+                          <div className="max-w-[360px] text-xs text-muted-foreground">
+                            {category.description}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>{category.usageCount} formularios</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {category.canBeFatal && <Badge variant="destructive">Fatal</Badge>}
-                      {category.requiresCommentOnFail && (
-                        <Badge variant="secondary">Comentario requerido</Badge>
-                      )}
-                      {!category.canBeFatal && !category.requiresCommentOnFail && (
-                        <span className="text-xs text-muted-foreground">Operativa</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {category.visibleInDashboard && <Badge variant="outline">Dashboard</Badge>}
-                      {category.visibleInKPIs && <Badge variant="outline">KPIs</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={category.isActive ? "default" : "secondary"}>
-                      {category.isActive ? "Activa" : "Inactiva"}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {categories.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
-                    Aplica la migración de categorías QA para ver el catálogo base.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
+                    </TableCell>
+                    <TableCell>{category.usageCount} formularios</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {category.canBeFatal && <Badge variant="destructive">Fatal</Badge>}
+                        {category.requiresCommentOnFail && (
+                          <Badge variant="secondary">Comentario requerido</Badge>
+                        )}
+                        {!category.canBeFatal && !category.requiresCommentOnFail && (
+                          <span className="text-xs text-muted-foreground">Operativa</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {category.visibleInDashboard && <Badge variant="outline">Dashboard</Badge>}
+                        {category.visibleInKPIs && <Badge variant="outline">KPIs</Badge>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={category.isActive ? "default" : "secondary"}>
+                        {category.isActive ? "Activa" : "Inactiva"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`Editar ${category.name}`}
+                          onClick={() => showEdit(category)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {category.isActive && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            disabled={category.usageCount > 0}
+                            aria-label={`Desactivar ${category.name}`}
+                            title={
+                              category.usageCount > 0
+                                ? "No se puede desactivar mientras esté en uso"
+                                : "Desactivar categoría"
+                            }
+                            onClick={() => deactivateCategory(category)}
+                          >
+                            <PowerOff className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {categories.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="py-8 text-center text-sm text-muted-foreground"
+                    >
+                      No hay categorías QA registradas.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar categoría QA" : "Nueva categoría QA"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="qa-category-name">Nombre</Label>
+              <Input
+                id="qa-category-name"
+                value={draft.name}
+                maxLength={80}
+                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qa-category-description">Descripción</Label>
+              <Textarea
+                id="qa-category-description"
+                value={draft.description ?? ""}
+                maxLength={500}
+                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+              />
+            </div>
+            {[
+              ["canBeFatal", "Permite falla fatal"],
+              ["requiresCommentOnFail", "Exige comentario al fallar"],
+              ["visibleInDashboard", "Visible en Dashboard"],
+              ["visibleInKPIs", "Visible en KPIs"],
+            ].map(([key, label]) => (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-4 rounded-lg border p-3"
+              >
+                <Label>{label}</Label>
+                <Switch
+                  checked={Boolean(draft[key as keyof QACategoryMutationInput])}
+                  onCheckedChange={(checked) => setDraft({ ...draft, [key]: Boolean(checked) })}
+                />
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button onClick={saveCategory} disabled={saving || draft.name.trim().length < 2}>
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Guardar categoría
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-function EvaluationRulesTab({ settings }: { settings: OperationalSettings | null }) {
+function EvaluationRulesTab() {
   return (
     <OperationalConfigSection
-      sectionKey="evaluations"
-      settings={settings}
       icon={<ClipboardCheck className="h-4 w-4 text-orange-500" />}
       title="Evaluaciones"
       description="Reglas server-side y controles operativos que gobiernan el envío de evaluaciones."
@@ -1720,23 +1960,14 @@ function EvaluationRulesTab({ settings }: { settings: OperationalSettings | null
           badge: "Modelo listo",
           locked: true,
         },
-        {
-          key: "advancedEvaluationFlow",
-          label: "Flujo avanzado de evaluación",
-          detail:
-            "Habilita la preparación operativa para borradores, resumen por categoría y comentarios por falla.",
-          badge: "Configurable",
-        },
       ]}
     />
   );
 }
 
-function FormsConfigTab({ settings }: { settings: OperationalSettings | null }) {
+function FormsConfigTab() {
   return (
     <OperationalConfigSection
-      sectionKey="forms"
-      settings={settings}
       icon={<ClipboardCheck className="h-4 w-4 text-orange-500" />}
       title="Formularios"
       description="Defaults y reglas de publicación para el builder de formularios."
@@ -1760,25 +1991,23 @@ function FormsConfigTab({ settings }: { settings: OperationalSettings | null }) 
           key: "publishedRevision",
           label: "Edición de publicados",
           detail: "Los formularios publicados conservan historial creando una nueva versión.",
-          badge: "Configurable",
+          badge: "Enforced",
         },
         {
           key: "weightValidation",
           label: "Validación de pesos",
           detail:
             "La publicación valida pesos completos y vista previa antes de activar el formulario.",
-          badge: "Configurable",
+          badge: "Enforced",
         },
       ]}
     />
   );
 }
 
-function DashboardKpisTab({ settings }: { settings: OperationalSettings | null }) {
+function DashboardKpisTab() {
   return (
     <OperationalConfigSection
-      sectionKey="dashboardKpis"
-      settings={settings}
       icon={<BarChart3 className="h-4 w-4 text-orange-500" />}
       title="Dashboard & KPIs"
       description="Visibilidad operativa por rol y widgets que deben mantenerse bajo control de backend."
@@ -1804,22 +2033,14 @@ function DashboardKpisTab({ settings }: { settings: OperationalSettings | null }
           badge: "Enforced",
           locked: true,
         },
-        {
-          key: "widgetPreferences",
-          label: "Preferencias por widget",
-          detail: "Persistencia de preferencias por rol y campaña cuando se habilite la matriz.",
-          badge: "Configurable",
-        },
       ]}
     />
   );
 }
 
-function ReportsExportTab({ settings }: { settings: OperationalSettings | null }) {
+function ReportsExportTab() {
   return (
     <OperationalConfigSection
-      sectionKey="reportsExport"
-      settings={settings}
       icon={<FileSpreadsheet className="h-4 w-4 text-orange-500" />}
       title="Reportes & Exportación"
       description="Reglas de privacidad y trazabilidad para reportes operativos."
@@ -2150,11 +2371,9 @@ function OperationalAuditTab({
   );
 }
 
-function NotificationsTab({ settings }: { settings: OperationalSettings | null }) {
+function NotificationsTab() {
   return (
     <OperationalConfigSection
-      sectionKey="notifications"
-      settings={settings}
       icon={<MessageSquareWarning className="h-4 w-4 text-orange-500" />}
       title="Notificaciones"
       description="Alertas operativas para riesgos de calidad por campaña."
@@ -2162,26 +2381,8 @@ function NotificationsTab({ settings }: { settings: OperationalSettings | null }
         {
           key: "criticalEvaluation",
           label: "Criticidad de evaluación",
-          detail: "Customer Critical o Compliance Critical fallido.",
+          detail: "Falla fatal o evaluación enviada por debajo del umbral configurado.",
           badge: "In-app",
-        },
-        {
-          key: "agentRisk",
-          label: "Riesgo por agente",
-          detail: "Agente debajo del threshold o categoría crítica bajo target.",
-          badge: "In-app",
-        },
-        {
-          key: "campaignRisk",
-          label: "Riesgo por campaña",
-          detail: "Campaña debajo de target pass rate o QA bajo meta diaria.",
-          badge: "In-app",
-        },
-        {
-          key: "recipientMatrix",
-          label: "Destinatarios",
-          detail: "Matriz de QA Manager, QA de campaña y Supervisor con scope por campaña.",
-          badge: "Gobernado",
         },
       ]}
     />
@@ -2197,55 +2398,16 @@ interface OperationalConfigItem {
 }
 
 function OperationalConfigSection({
-  sectionKey,
-  settings,
   icon,
   title,
   description,
   items,
 }: {
-  sectionKey: keyof OperationalSettings;
-  settings: OperationalSettings | null;
   icon: React.ReactNode;
   title: string;
   description: string;
   items: OperationalConfigItem[];
 }) {
-  const router = useRouter();
-  const effectiveSettings = settings ?? DEFAULT_OPERATIONAL_SETTINGS;
-  const initialSection = effectiveSettings[sectionKey] as unknown as Record<string, boolean>;
-  const [baseline, setBaseline] = useState<Record<string, boolean>>(initialSection);
-  const [draft, setDraft] = useState<Record<string, boolean>>(initialSection);
-  const [saving, startSaving] = useTransition();
-  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
-
-  const updateDraft = (key: string, value: boolean) => {
-    setDraft((current) => ({ ...current, [key]: value }));
-  };
-
-  const saveSection = (nextDraft = draft) => {
-    startSaving(async () => {
-      try {
-        const saved = await updateOperationalSettings({
-          [sectionKey]: nextDraft,
-        } as OperationalSettingsPatch);
-        const savedSection = saved[sectionKey] as unknown as Record<string, boolean>;
-        setBaseline(savedSection);
-        setDraft(savedSection);
-        toast.success("Controles operativos guardados");
-        router.refresh();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Error al guardar");
-      }
-    });
-  };
-
-  const resetSection = () => {
-    const defaults = DEFAULT_OPERATIONAL_SETTINGS[sectionKey] as unknown as Record<string, boolean>;
-    setDraft(defaults);
-    saveSection(defaults);
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -2256,43 +2418,23 @@ function OperationalConfigSection({
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{description}</p>
-        <div className="grid gap-3 md:grid-cols-2">
-          {items.map((item) => {
-            const enabled = Boolean(draft[item.key]);
-
-            return (
-              <div key={item.key} className="rounded-lg border p-3">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <Switch
-                    size="sm"
-                    checked={enabled}
-                    disabled={item.locked}
-                    aria-label={item.label}
-                    onCheckedChange={(checked) => updateDraft(item.key, Boolean(checked))}
-                  />
-                  <Badge variant={enabled ? "default" : "secondary"}>
-                    {item.locked ? item.badge : enabled ? "Activo" : item.badge}
-                  </Badge>
-                </div>
-                <div className="text-sm font-medium">{item.label}</div>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
-              </div>
-            );
-          })}
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            Inventario de controles activos. Su estado proviene del comportamiento verificado del
+            servidor y de la base de datos; no son preferencias decorativas.
+          </p>
         </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={resetSection} disabled={saving}>
-            <RotateCcw className="h-3.5 w-3.5" />
-            Restaurar sección
-          </Button>
-          <Button type="button" onClick={() => saveSection()} disabled={!dirty || saving}>
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="h-3.5 w-3.5" />
-            )}
-            Guardar controles
-          </Button>
+        <div className="grid gap-3 md:grid-cols-2">
+          {items.map((item) => (
+            <div key={item.key} className="rounded-lg border p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-sm font-medium">{item.label}</div>
+                <Badge variant="secondary">{item.badge}</Badge>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>

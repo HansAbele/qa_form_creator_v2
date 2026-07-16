@@ -25,7 +25,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { cancelResponse, saveResponseDraft, submitResponse } from "./responses";
+import { cancelResponse, getResponseById, saveResponseDraft, submitResponse } from "./responses";
 
 const qaUser = {
   id: "qa-1",
@@ -36,8 +36,12 @@ const qaUser = {
 function validForm() {
   return {
     id: "form-1",
+    title: "QA Form",
+    description: null,
     campaignId: "campaign-1",
     version: "1.0.0",
+    status: "PUBLISHED",
+    campaign: { name: "Campaign 1", active: true },
     questions: [
       {
         id: "q-rating",
@@ -144,6 +148,124 @@ describe("submitResponse validation and RBAC", () => {
         }),
       }),
     );
+  });
+
+  it("rejects submitting an evaluation against a draft form", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({ ...validForm(), status: "DRAFT" });
+
+    await expect(
+      submitResponse({
+        formId: "form-1",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        answers: [],
+      }),
+    ).rejects.toThrow("Solo se puede evaluar un formulario publicado");
+
+    expect(prismaMock.response.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects saving a draft evaluation against an archived form", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({ ...validForm(), status: "ARCHIVED" });
+
+    await expect(
+      saveResponseDraft({
+        formId: "form-1",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        answers: [],
+      }),
+    ).rejects.toThrow("Solo se puede evaluar un formulario publicado");
+
+    expect(prismaMock.response.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects evaluations when the campaign is inactive", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      ...validForm(),
+      campaign: { name: "Campaign 1", active: false },
+    });
+
+    await expect(
+      saveResponseDraft({
+        formId: "form-1",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        answers: [],
+      }),
+    ).rejects.toThrow("No se puede evaluar una campana inactiva");
+
+    expect(prismaMock.response.create).not.toHaveBeenCalled();
+  });
+
+  it("does not let a QA read another evaluator's response without report access", async () => {
+    prismaMock.response.findUnique.mockResolvedValue({
+      id: "response-2",
+      formId: "form-1",
+      evaluatorId: "qa-2",
+      status: "SUBMITTED",
+      score: 80,
+      form: { id: "form-1", title: "QA Form", campaignId: "campaign-1" },
+      agent: { id: "agent-1", name: "Agent", campaignId: "campaign-1" },
+      evaluator: { id: "qa-2", name: "Other QA" },
+      disposition: {
+        id: "disp-1",
+        name: "Resolved",
+        code: "RES",
+        campaignId: "campaign-1",
+      },
+      answers: [],
+    });
+
+    await expect(getResponseById("response-2")).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
+  });
+
+  it("lets a QA resume only their own draft with evaluate access", async () => {
+    prismaMock.response.findUnique.mockResolvedValue({
+      id: "response-1",
+      formId: "form-1",
+      evaluatorId: "qa-1",
+      status: "DRAFT",
+      score: 80,
+      form: { id: "form-1", title: "QA Form", campaignId: "campaign-1" },
+      agent: { id: "agent-1", name: "Agent", campaignId: "campaign-1" },
+      evaluator: { id: "qa-1", name: "QA User" },
+      disposition: {
+        id: "disp-1",
+        name: "Resolved",
+        code: "RES",
+        campaignId: "campaign-1",
+      },
+      answers: [],
+    });
+
+    await expect(getResponseById("response-1")).resolves.toMatchObject({
+      id: "response-1",
+      score: 80,
+    });
+  });
+
+  it("requires edit permission to load a submitted response for correction", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEditEvaluations: true,
+    });
+    prismaMock.response.findUnique.mockResolvedValue({
+      id: "response-2",
+      formId: "form-1",
+      evaluatorId: "qa-2",
+      status: "SUBMITTED",
+      score: 80,
+      form: { id: "form-1", title: "QA Form", campaignId: "campaign-1" },
+      agent: { id: "agent-1", name: "Agent", campaignId: "campaign-1" },
+      evaluator: { id: "qa-2", name: "Other QA" },
+      disposition: null,
+      answers: [],
+    });
+
+    await expect(getResponseById("response-2")).resolves.toMatchObject({ id: "response-2" });
   });
 
   it("rejects an agent from another campaign", async () => {

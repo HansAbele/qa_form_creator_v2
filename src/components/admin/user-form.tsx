@@ -22,6 +22,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { getPasswordPolicyError, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 import { createUser, updateUser } from "@/server/actions/users";
 import type { Role } from "@prisma/client";
 
@@ -64,8 +65,9 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
       toast.error("Nombre y email son obligatorios");
       return;
     }
-    if (!isEdit && !password) {
-      toast.error("La contraseña es obligatoria");
+    const passwordPolicyError = !isEdit || password ? getPasswordPolicyError(password) : null;
+    if (passwordPolicyError) {
+      toast.error(passwordPolicyError);
       return;
     }
 
@@ -129,7 +131,14 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              minLength={isEdit ? undefined : MIN_PASSWORD_LENGTH}
+              maxLength={128}
+              autoComplete="new-password"
             />
+            <p className="text-xs text-muted-foreground">
+              {MIN_PASSWORD_LENGTH}+ caracteres y al menos tres tipos entre mayúsculas, minúsculas,
+              números y símbolos.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Rol</Label>
@@ -137,7 +146,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {(value: string | null) => {
-                    if (value === "ADMIN") return "Administrador";
+                    if (value === "ADMIN") return "QA Manager";
                     if (value === "QA") return "QA";
                     if (value === "SUPERVISOR") return "Supervisor";
                     return "Seleccionar rol";
@@ -145,7 +154,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ADMIN">Administrador</SelectItem>
+                <SelectItem value="ADMIN">QA Manager</SelectItem>
                 <SelectItem value="QA">QA</SelectItem>
                 <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
               </SelectContent>

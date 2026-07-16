@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { readSettings } from "@/server/actions/settings";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getReportCampaigns } from "@/server/actions/campaigns";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { ResponsesListClient } from "./responses-list-client";
 
@@ -22,7 +22,7 @@ export default async function ResponsesListPage({
 
   const [settings, campaigns, sp] = await Promise.all([
     readSettings(),
-    getCampaignsForPermission("canViewReports"),
+    getReportCampaigns(),
     searchParams,
   ]);
 

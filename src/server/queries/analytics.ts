@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { submittedResponseWhere } from "@/lib/response-status";
+import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
 import {
   getCampaignScoringSettings,
   getPassThresholdForCampaign,
@@ -12,7 +12,10 @@ import { buildQACategoryMetrics } from "@/lib/qa-category-metrics";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
 import { assertCampaignPermissionForUser, getCampaignFilterForPermission } from "./campaign-filter";
 
-const DASHBOARD_READ_PERMISSION = "canViewDashboard" satisfies CampaignPermissionKey;
+// Program analytics expose peer and agent performance, so they require the
+// scoped KPI permission. Basic dashboard access is only for "Mi trabajo".
+const DASHBOARD_READ_PERMISSION = "canViewKPIs" satisfies CampaignPermissionKey;
+const SELF_DASHBOARD_READ_PERMISSION = "canViewDashboard" satisfies CampaignPermissionKey;
 const KPI_READ_PERMISSION = "canViewKPIs" satisfies CampaignPermissionKey;
 const REPORT_READ_PERMISSION = "canViewReports" satisfies CampaignPermissionKey;
 
@@ -562,6 +565,7 @@ export async function getReportData(filters: {
       },
       agent: { select: { name: true, agentCode: true } },
       evaluator: { select: { name: true } },
+      disposition: { select: { name: true, outcomeType: true } },
       answers: {
         include: {
           question: {
@@ -570,6 +574,7 @@ export async function getReportData(filters: {
               type: true,
               weight: true,
               fatal: true,
+              criticalType: true,
               requiresCommentOnFail: true,
             },
           },
@@ -603,6 +608,9 @@ export async function getReportData(filters: {
       agentName: r.agent.name,
       agentCode: r.agent.agentCode,
       evaluatorName: r.evaluator.name,
+      formVersion: r.formVersion,
+      dispositionName: r.disposition?.name ?? null,
+      dispositionOutcome: r.disposition?.outcomeType ?? null,
       score,
       result: r.result,
       hasFatalFail: r.hasFatalFail,
@@ -617,6 +625,7 @@ export async function getReportData(filters: {
       answers: r.answers.map((a) => ({
         question: a.question.label,
         questionType: a.question.type,
+        criticalType: a.question.criticalType,
         value: a.notApplicable ? "N/A" : a.value,
         category: a.category
           ? {
@@ -1314,6 +1323,9 @@ export async function getDashboardCoachingInsights(
 
   const campaignRisks = campaignKpis
     .map((campaign) => {
+      // Campaigns with no evaluations are "sin datos", not a risk — don't flag them
+      // (otherwise their zeroed metrics crowd "Necesita atención" with useless chips).
+      if (campaign.totalEvaluations === 0) return null;
       const missedTargets = [
         campaign.avgScore < campaign.targetAvgScore ? "score" : null,
         campaign.passRate < campaign.targetPassRate ? "pass rate" : null,
@@ -1356,6 +1368,364 @@ export async function getDashboardCoachingInsights(
     agentRisks,
     categoryOpportunities,
     campaignRisks,
+  };
+}
+
+// ─── Critical Error Accuracy — CEA (COPC 2.7.1.d) ──
+
+const DEFAULT_CEA_TARGETS = { CUSTOMER: 95, BUSINESS: 90, COMPLIANCE: 99.5 } as const;
+type CriticalFamily = keyof typeof DEFAULT_CEA_TARGETS;
+const CRITICAL_FAMILIES: CriticalFamily[] = ["CUSTOMER", "BUSINESS", "COMPLIANCE"];
+
+async function getCeaTargetsForCampaign(
+  campaignId?: string,
+): Promise<Record<CriticalFamily, number>> {
+  if (!campaignId) return { ...DEFAULT_CEA_TARGETS };
+  // Scoring configuration is authoritative. Storage/schema failures surface instead of
+  // silently changing evaluation semantics during a rolling deployment.
+  const settings = await getCampaignScoringSettings(campaignId);
+  return {
+    CUSTOMER: settings.customerCeaTarget,
+    BUSINESS: settings.businessCeaTarget,
+    COMPLIANCE: settings.complianceCeaTarget,
+  };
+}
+
+/**
+ * Transaction-level Critical Error Accuracy per family (Customer/Business/Compliance).
+ * A response "fails" a family when it has any fatal-fail answer whose question carries that
+ * criticalType. accuracy = (responses with a family question − responses that failed it) / …
+ * Degrades to `configured=false` ("no configurado") when a scope has no such questions.
+ */
+export async function getCriticalErrorAccuracy(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+
+  const [answers, targets] = await Promise.all([
+    prisma.answer.findMany({
+      where: {
+        notApplicable: false,
+        question: { fatal: true, criticalType: { not: null } },
+        response: { form: campaignFilter, ...dw, ...submittedResponseWhere() },
+      },
+      select: {
+        responseId: true,
+        isFatalFail: true,
+        question: { select: { criticalType: true } },
+      },
+    }),
+    getCeaTargetsForCampaign(campaignId),
+  ]);
+
+  const perFamily = new Map<CriticalFamily, { responses: Set<string>; failed: Set<string> }>();
+  for (const family of CRITICAL_FAMILIES) {
+    perFamily.set(family, { responses: new Set(), failed: new Set() });
+  }
+  for (const answer of answers) {
+    const family = answer.question.criticalType as CriticalFamily | null;
+    if (!family) continue;
+    const entry = perFamily.get(family);
+    if (!entry) continue;
+    entry.responses.add(answer.responseId);
+    if (answer.isFatalFail) entry.failed.add(answer.responseId);
+  }
+
+  return CRITICAL_FAMILIES.map((family) => {
+    const entry = perFamily.get(family) ?? { responses: new Set(), failed: new Set() };
+    const applicable = entry.responses.size;
+    const failedCount = entry.failed.size;
+    const configured = applicable > 0;
+    const accuracy = configured ? round2(((applicable - failedCount) / applicable) * 100) : null;
+    const target = targets[family];
+    const status: "en objetivo" | "en riesgo" | "bajo benchmark" | "no configurado" = !configured
+      ? "no configurado"
+      : (accuracy as number) >= target
+        ? "en objetivo"
+        : (accuracy as number) >= target - 2
+          ? "en riesgo"
+          : "bajo benchmark";
+    return { family, applicable, failedCount, accuracy, target, status, configured };
+  });
+}
+
+// ─── "Mi trabajo" — evaluator self-scoped dashboard ─
+
+/**
+ * Self-scoped stats for the logged-in evaluator (evaluatorId = session user).
+ * Never exposes peers: every metric and agent score is derived only from
+ * evaluations created by the current user.
+ */
+export async function getMyDashboard(dateFrom?: string, dateTo?: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+  const userId = session.user.id;
+
+  const campaignFilter = await getCampaignFilterForPermission(SELF_DASHBOARD_READ_PERMISSION);
+  const dw = dateWhere(dateFrom, dateTo);
+  const rangeDays = getRangeDays(dateFrom, dateTo);
+  const globalSettings = await getSettings();
+  const passThreshold = globalSettings.passThreshold;
+  const targetAvgScore = globalSettings.targetAvgScore;
+
+  const myWhere = {
+    evaluatorId: userId,
+    form: campaignFilter,
+    ...dw,
+    ...submittedResponseWhere(),
+  };
+
+  const responses = await prisma.response.findMany({
+    where: myWhere,
+    select: {
+      id: true,
+      score: true,
+      result: true,
+      hasFatalFail: true,
+      createdAt: true,
+      agent: { select: { id: true, name: true, agentCode: true } },
+      form: {
+        select: {
+          title: true,
+          campaign: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const scores = responses.map((r) => Number(r.score));
+  const evaluations = scores.length;
+  const avgScore = evaluations > 0 ? round2(scores.reduce((a, b) => a + b, 0) / evaluations) : 0;
+  const fatalCount = responses.filter((r) => r.hasFatalFail).length;
+  const variance =
+    evaluations > 1 ? scores.reduce((sum, s) => sum + (s - avgScore) ** 2, 0) / evaluations : 0;
+  const stdDev = round2(Math.sqrt(variance));
+  const dayMap = new Map<string, number>();
+  for (const r of responses) {
+    const day = r.createdAt.toISOString().slice(0, 10);
+    dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
+  }
+  const trend = Array.from(dayMap.entries())
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const midLow = Math.floor(passThreshold / 2);
+  const midHigh = Math.floor(passThreshold + (100 - passThreshold) / 2);
+  const buckets = [
+    { range: `0-${midLow - 1}`, min: 0, max: midLow - 1, count: 0 },
+    { range: `${midLow}-${passThreshold - 1}`, min: midLow, max: passThreshold - 1, count: 0 },
+    { range: `${passThreshold}-${midHigh - 1}`, min: passThreshold, max: midHigh - 1, count: 0 },
+    { range: `${midHigh}-100`, min: midHigh, max: 100, count: 0 },
+  ];
+  for (const s of scores) {
+    const b = buckets.find((x) => s >= x.min && s <= x.max);
+    if (b) b.count++;
+  }
+
+  const recentActivity = responses.slice(0, 8).map((r) => ({
+    id: r.id,
+    agentName: r.agent.name,
+    formTitle: r.form.title,
+    score: Number(r.score),
+    result: isPassingResponse(Number(r.score), r.result, r.hasFatalFail, passThreshold)
+      ? "PASS"
+      : "FAIL",
+    createdAt: r.createdAt.toISOString(),
+  }));
+
+  const myAgentScores = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      agentCode: string | null;
+      campaignName: string;
+      scores: number[];
+    }
+  >();
+  for (const response of responses) {
+    const entry = myAgentScores.get(response.agent.id) ?? {
+      id: response.agent.id,
+      name: response.agent.name,
+      agentCode: response.agent.agentCode,
+      campaignName: response.form.campaign.name,
+      scores: [],
+    };
+    entry.scores.push(Number(response.score));
+    myAgentScores.set(entry.id, entry);
+  }
+
+  const agentsBelowTarget = Array.from(myAgentScores.values())
+    .map((agent) => {
+      return {
+        id: agent.id,
+        name: agent.name,
+        agentCode: agent.agentCode,
+        campaignName: agent.campaignName,
+        avgScore: round2(
+          agent.scores.reduce((sum, score) => sum + score, 0) / agent.scores.length,
+        ),
+      };
+    })
+    .filter((a) => a.avgScore < targetAvgScore)
+    .sort((a, b) => a.avgScore - b.avgScore)
+    .slice(0, 5);
+
+  return {
+    evaluations,
+    avgScore,
+    fatalCount,
+    dailyRate: round2(evaluations / rangeDays),
+    passThreshold,
+    targetAvgScore,
+    stdDev,
+    calibrationTolerance: 8,
+    trend,
+    distribution: buckets.map((b) => ({ range: b.range, count: b.count })),
+    recentActivity,
+    agentsBelowTarget,
+  };
+}
+
+/**
+ * Deep CEA breakdown for the KPIs surface: overall + per campaign + per agent (worst first)
+ * + trend over time, all transaction-level per critical family. Single answer scan, grouped
+ * in memory. Degrades to configured=false when no criticalType questions exist in scope.
+ */
+export async function getCriticalErrorAccuracyDetail(
+  campaignId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+
+  const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
+  const dw = dateWhere(dateFrom, dateTo);
+  const targets = await getCeaTargetsForCampaign(campaignId);
+
+  const answers = await prisma.answer.findMany({
+    where: {
+      notApplicable: false,
+      question: { fatal: true, criticalType: { not: null } },
+      response: { form: campaignFilter, ...dw, ...submittedResponseWhere() },
+    },
+    select: {
+      responseId: true,
+      isFatalFail: true,
+      question: { select: { criticalType: true } },
+      response: {
+        select: {
+          agentId: true,
+          createdAt: true,
+          agent: { select: { name: true, agentCode: true } },
+          form: { select: { campaignId: true, campaign: { select: { name: true } } } },
+        },
+      },
+    },
+  });
+
+  type FamSets = Record<CriticalFamily, { resp: Set<string>; failed: Set<string> }>;
+  const newFam = (): FamSets => ({
+    CUSTOMER: { resp: new Set(), failed: new Set() },
+    BUSINESS: { resp: new Set(), failed: new Set() },
+    COMPLIANCE: { resp: new Set(), failed: new Set() },
+  });
+  const acc = (s: { resp: Set<string>; failed: Set<string> }): number | null =>
+    s.resp.size === 0 ? null : round2(((s.resp.size - s.failed.size) / s.resp.size) * 100);
+  const famAccuracies = (f: FamSets) => ({
+    CUSTOMER: acc(f.CUSTOMER),
+    BUSINESS: acc(f.BUSINESS),
+    COMPLIANCE: acc(f.COMPLIANCE),
+  });
+
+  const overall = newFam();
+  const byCampaignMap = new Map<string, { name: string; fam: FamSets }>();
+  const byAgentMap = new Map<string, { name: string; agentCode: string | null; fam: FamSets }>();
+  const byDayMap = new Map<string, FamSets>();
+
+  for (const a of answers) {
+    const family = a.question.criticalType as CriticalFamily | null;
+    if (!family) continue;
+    const rid = a.responseId;
+    const cid = a.response.form.campaignId;
+    const aid = a.response.agentId;
+    const day = a.response.createdAt.toISOString().slice(0, 10);
+    const add = (f: FamSets) => {
+      f[family].resp.add(rid);
+      if (a.isFatalFail) f[family].failed.add(rid);
+    };
+    add(overall);
+    const camp = byCampaignMap.get(cid) ?? { name: a.response.form.campaign.name, fam: newFam() };
+    add(camp.fam);
+    byCampaignMap.set(cid, camp);
+    const ag =
+      byAgentMap.get(aid) ??
+      { name: a.response.agent.name, agentCode: a.response.agent.agentCode, fam: newFam() };
+    add(ag.fam);
+    byAgentMap.set(aid, ag);
+    const dd = byDayMap.get(day) ?? newFam();
+    add(dd);
+    byDayMap.set(day, dd);
+  }
+
+  const overallList = CRITICAL_FAMILIES.map((family) => {
+    const s = overall[family];
+    const applicable = s.resp.size;
+    const configured = applicable > 0;
+    const accuracy = acc(s);
+    const target = targets[family];
+    const status: "en objetivo" | "en riesgo" | "bajo benchmark" | "no configurado" = !configured
+      ? "no configurado"
+      : (accuracy as number) >= target
+        ? "en objetivo"
+        : (accuracy as number) >= target - 2
+          ? "en riesgo"
+          : "bajo benchmark";
+    return { family, applicable, failedCount: s.failed.size, accuracy, target, status, configured };
+  });
+
+  const byCampaign = Array.from(byCampaignMap.entries()).map(([id, v]) => ({
+    id,
+    name: v.name,
+    ...famAccuracies(v.fam),
+  }));
+
+  const byAgent = Array.from(byAgentMap.entries())
+    .map(([id, v]) => {
+      const fa = famAccuracies(v.fam);
+      const configured = [fa.CUSTOMER, fa.BUSINESS, fa.COMPLIANCE].filter(
+        (x): x is number => x !== null,
+      );
+      const worst = configured.length ? Math.min(...configured) : null;
+      return { id, name: v.name, agentCode: v.agentCode, ...fa, worst };
+    })
+    .filter((a): a is typeof a & { worst: number } => a.worst !== null)
+    .sort((a, b) => a.worst - b.worst)
+    .slice(0, 10);
+
+  const trend = Array.from(byDayMap.entries())
+    .map(([date, f]) => ({ date, ...famAccuracies(f) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    configured: overallList.some((o) => o.configured),
+    targets: {
+      CUSTOMER: targets.CUSTOMER,
+      BUSINESS: targets.BUSINESS,
+      COMPLIANCE: targets.COMPLIANCE,
+    },
+    overall: overallList,
+    byCampaign,
+    byAgent,
+    trend,
   };
 }
 
@@ -1881,7 +2251,15 @@ export async function getResponseDetail(responseId: string) {
   const response = await prisma.response.findUnique({
     where: { id: responseId },
     include: {
-      form: { select: { id: true, title: true, campaignId: true } },
+      form: {
+        select: {
+          id: true,
+          title: true,
+          campaignId: true,
+          status: true,
+          campaign: { select: { active: true } },
+        },
+      },
       agent: {
         select: {
           id: true,
@@ -1892,7 +2270,7 @@ export async function getResponseDetail(responseId: string) {
         },
       },
       evaluator: { select: { id: true, name: true, email: true } },
-      disposition: { select: { id: true, name: true, code: true } },
+      disposition: { select: { id: true, name: true, code: true, campaignId: true } },
       answers: {
         include: {
           question: {
@@ -1916,19 +2294,34 @@ export async function getResponseDetail(responseId: string) {
 
   if (!response) throw new Error("Evaluación no encontrada");
 
+  if (
+    response.agent.campaignId !== response.form.campaignId ||
+    (response.disposition && response.disposition.campaignId !== response.form.campaignId)
+  ) {
+    throw new Error("La evaluación contiene relaciones de otra campaña");
+  }
+
+  const readPermission =
+    response.status === RESPONSE_STATUS.DRAFT ? "canEditEvaluations" : REPORT_READ_PERMISSION;
   await assertCampaignPermissionForUser(
     session.user,
     response.form.campaignId,
-    REPORT_READ_PERMISSION,
+    readPermission,
   );
 
-  const canEdit = await assertCampaignPermissionForUser(
-    session.user,
-    response.form.campaignId,
-    "canEditEvaluations",
-  )
-    .then(() => true)
-    .catch(() => false);
+  const canEditContext =
+    response.status !== RESPONSE_STATUS.CANCELLED &&
+    response.form.status === "PUBLISHED" &&
+    response.form.campaign.active;
+  const canEdit = canEditContext
+    ? await assertCampaignPermissionForUser(
+        session.user,
+        response.form.campaignId,
+        "canEditEvaluations",
+      )
+        .then(() => true)
+        .catch(() => false)
+    : false;
 
   return {
     id: response.id,

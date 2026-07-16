@@ -1,11 +1,11 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getMyProfile } from "@/server/actions/profile";
-import { readOperationalSettings, readSettings } from "@/server/actions/settings";
+import { readSettings } from "@/server/actions/settings";
 import { readCampaignScoringSettings } from "@/server/actions/campaign-scoring";
 import { readOperationalAudit } from "@/server/actions/audit";
 import { readQACategories } from "@/server/actions/qa-categories";
-import { getCampaigns, getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getAuditCampaigns, getCampaigns } from "@/server/actions/campaigns";
 import { getUsers } from "@/server/actions/users";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { SettingsClient } from "./settings-client";
@@ -31,14 +31,13 @@ export default async function SettingsPage() {
   const profile = await getProfileOrLogin();
   const isAdmin = profile.role === "ADMIN";
   const canViewAudit = isAdmin || (await hasAnyCampaignPermission("canViewAudit"));
-  const [settings, operationalSettings, users, campaigns] = await Promise.all([
+  const [settings, users, campaigns] = await Promise.all([
     readSettings(),
-    isAdmin ? readOperationalSettings() : Promise.resolve(null),
     isAdmin ? getUsers() : Promise.resolve([]),
     isAdmin
       ? getCampaigns()
       : canViewAudit
-        ? getCampaignsForPermission("canViewAudit")
+        ? getAuditCampaigns()
         : Promise.resolve([]),
   ]);
   const [campaignScoring, auditEvents, qaCategories] = isAdmin
@@ -59,7 +58,6 @@ export default async function SettingsPage() {
     <SettingsClient
       profile={profile}
       settings={settings}
-      operationalSettings={operationalSettings}
       isAdmin={isAdmin}
       canViewAudit={canViewAudit}
       accessUsers={users.map((u) => ({

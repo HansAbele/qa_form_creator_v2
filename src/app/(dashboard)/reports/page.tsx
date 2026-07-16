@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
-import { getFormsForPermission } from "@/server/actions/forms";
+import { getReportCampaigns } from "@/server/actions/campaigns";
+import { getFormsForReports } from "@/server/actions/forms";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { ReportsClient } from "./reports-client";
 
@@ -11,8 +11,8 @@ export default async function ReportsPage() {
   if (!(await hasAnyCampaignPermission("canViewReports"))) redirect("/settings");
 
   const [campaigns, forms] = await Promise.all([
-    getCampaignsForPermission("canViewReports"),
-    getFormsForPermission("canViewReports"),
+    getReportCampaigns(),
+    getFormsForReports(),
   ]);
 
   return (

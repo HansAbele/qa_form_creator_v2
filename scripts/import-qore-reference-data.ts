@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { CampaignAccessLevel, PrismaClient, Role } from "@prisma/client";
-import { hash } from "bcryptjs";
+import nextEnv from "@next/env";
+import { getCampaignAccessPreset } from "../src/lib/campaign-permissions";
+
+const { loadEnvConfig } = nextEnv;
+loadEnvConfig(process.cwd(), process.env.NODE_ENV !== "production");
 
 const prisma = new PrismaClient();
 
@@ -65,7 +69,36 @@ type Counters = {
 };
 
 const DEFAULT_DATA_PATH = path.join(process.cwd(), ".logs", "qore-reference-data.json");
-const DEFAULT_IMPORTED_PASSWORD = "Qore.Local.2026";
+const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "host.docker.internal"]);
+
+function assertIntentionalImportTarget() {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required before importing reference data.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    throw new Error("DATABASE_URL must be a valid PostgreSQL URL.");
+  }
+  if (!new Set(["postgres:", "postgresql:"]).has(parsed.protocol)) {
+    throw new Error("DATABASE_URL must use the postgres or postgresql protocol.");
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const isLocal = LOCAL_DATABASE_HOSTS.has(hostname);
+  if (!isLocal && process.env.QORE_ALLOW_REMOTE_IMPORT !== "true") {
+    throw new Error("Remote imports require QORE_ALLOW_REMOTE_IMPORT=true.");
+  }
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.QORE_ALLOW_PRODUCTION_IMPORT !== "true"
+  ) {
+    throw new Error("Production imports require QORE_ALLOW_PRODUCTION_IMPORT=true.");
+  }
+}
 
 function parseDate(value: string | undefined) {
   if (!value) return undefined;
@@ -74,9 +107,16 @@ function parseDate(value: string | undefined) {
 }
 
 function normalizeRole(role: string): Role {
-  if (role === Role.ADMIN) return Role.ADMIN;
-  if (role === Role.SUPERVISOR) return Role.SUPERVISOR;
-  return Role.QA;
+  const normalized = role.trim().toUpperCase();
+  if (normalized === Role.ADMIN) {
+    if (process.env.QORE_ALLOW_ADMIN_IMPORT !== "true") {
+      throw new Error("Importing or promoting ADMIN users requires QORE_ALLOW_ADMIN_IMPORT=true.");
+    }
+    return Role.ADMIN;
+  }
+  if (normalized === Role.SUPERVISOR) return Role.SUPERVISOR;
+  if (normalized === Role.QA) return Role.QA;
+  throw new Error(`Unsupported imported role: ${role}`);
 }
 
 function accessLevelForRole(role: Role): CampaignAccessLevel {
@@ -86,25 +126,11 @@ function accessLevelForRole(role: Role): CampaignAccessLevel {
 }
 
 function permissionsForRole(role: Role) {
-  const isAdmin = role === Role.ADMIN;
-  const isSupervisor = role === Role.SUPERVISOR;
+  const roleInCampaign = accessLevelForRole(role);
 
   return {
-    roleInCampaign: accessLevelForRole(role),
-    canViewDashboard: true,
-    canViewKPIs: true,
-    canViewForms: true,
-    canCreateForms: isAdmin,
-    canEditForms: isAdmin,
-    canPublishForms: isAdmin,
-    canEvaluate: !isSupervisor,
-    canEditEvaluations: isAdmin,
-    canViewReports: true,
-    canExport: isAdmin,
-    canManageAgents: isAdmin,
-    canManageDispositions: isAdmin,
-    canManageCampaignScoring: isAdmin,
-    canViewAudit: isAdmin,
+    roleInCampaign,
+    ...getCampaignAccessPreset(roleInCampaign),
   };
 }
 
@@ -121,7 +147,7 @@ async function readReferenceData(filePath: string): Promise<ReferenceData> {
   return data as ReferenceData;
 }
 
-async function importReferenceData(data: ReferenceData, importedPassword: string) {
+async function importReferenceData(data: ReferenceData) {
   const counters: Counters = {
     campaigns: 0,
     users: 0,
@@ -129,7 +155,6 @@ async function importReferenceData(data: ReferenceData, importedPassword: string
     teams: 0,
     agents: 0,
   };
-  const password = await hash(importedPassword, 12);
   const userIdByRemoteId = new Map<string, string>();
   const teamIdByRemoteId = new Map<string, string>();
 
@@ -157,15 +182,18 @@ async function importReferenceData(data: ReferenceData, importedPassword: string
     const role = normalizeRole(user.role);
     const existing = await prisma.user.findUnique({
       where: { email: user.email },
-      select: { id: true },
+      select: { id: true, role: true, active: true },
     });
+    const shouldDeactivate = existing?.active === true && user.active === false;
+    const shouldRevokeSessions = existing !== null && (existing.role !== role || shouldDeactivate);
     const imported = existing
       ? await prisma.user.update({
           where: { email: user.email },
           data: {
             name: user.name,
             role,
-            active: user.active ?? true,
+            ...(user.active === false ? { active: false } : {}),
+            ...(shouldRevokeSessions ? { sessionVersion: { increment: 1 } } : {}),
           },
           select: { id: true },
         })
@@ -174,7 +202,9 @@ async function importReferenceData(data: ReferenceData, importedPassword: string
             id: user.id,
             email: user.email,
             name: user.name,
-            password,
+            // Imported accounts cannot authenticate until an administrator
+            // assigns an individual credential through the audited user flow.
+            password: null,
             role,
             active: user.active ?? true,
             createdAt: parseDate(user.createdAt),
@@ -284,7 +314,9 @@ async function importReferenceData(data: ReferenceData, importedPassword: string
           campaignId: assignment.campaignId,
         },
       },
-      update: permissions,
+      // Imports may add missing assignments, but must never overwrite grants that
+      // a QA Manager intentionally changed after the first import.
+      update: {},
       create: {
         userId,
         campaignId: assignment.campaignId,
@@ -299,14 +331,14 @@ async function importReferenceData(data: ReferenceData, importedPassword: string
 }
 
 async function main() {
-  const filePath = process.argv[2] ?? DEFAULT_DATA_PATH;
-  const importedPassword = process.env.QORE_IMPORT_PASSWORD ?? DEFAULT_IMPORTED_PASSWORD;
-  const data = await readReferenceData(filePath);
-  const counters = await importReferenceData(data, importedPassword);
+  assertIntentionalImportTarget();
 
-  console.log("Qore reference data imported locally.");
+  const filePath = process.argv[2] ?? DEFAULT_DATA_PATH;
+  const data = await readReferenceData(filePath);
+  const counters = await importReferenceData(data);
+
+  console.log("Qore reference data imported successfully.");
   console.log(`Source: ${filePath}`);
-  console.log(`Imported password for new users: ${importedPassword}`);
   console.log(JSON.stringify(counters, null, 2));
 }
 

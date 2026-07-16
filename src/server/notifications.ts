@@ -22,6 +22,7 @@ type NotificationCreateInput = {
   href: string | null;
   entityType: string | null;
   entityId: string | null;
+  requiredPermission: CampaignPermissionKey | null;
   metadata?: unknown;
 };
 
@@ -82,9 +83,7 @@ export async function emitNotification(input: {
           },
         },
       });
-      const campaignRecipients = Array.isArray(campaignRecipientsRaw)
-        ? campaignRecipientsRaw
-        : [];
+      const campaignRecipients = Array.isArray(campaignRecipientsRaw) ? campaignRecipientsRaw : [];
 
       for (const recipient of campaignRecipients) {
         const preference = recipient.user?.notificationPreferences?.[0];
@@ -126,6 +125,7 @@ export async function emitNotification(input: {
         href: input.href ?? null,
         entityType: input.entityType ?? null,
         entityId: input.entityId ?? null,
+        requiredPermission: input.permission ?? null,
         metadata: normalizeMetadata(input.metadata),
       })),
     });

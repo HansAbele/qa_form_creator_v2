@@ -23,7 +23,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Eye } from "lucide-react";
+import { Search, Eye, Download } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { OUTCOME_LABELS } from "@/lib/disposition-outcome";
 
 interface ReportResponse {
   id: string;
@@ -33,6 +35,9 @@ interface ReportResponse {
   agentName: string;
   agentCode: string | null;
   evaluatorName: string;
+  formVersion: string | null;
+  dispositionName: string | null;
+  dispositionOutcome: string | null;
   score: number;
   result: string | null;
   hasFatalFail: boolean;
@@ -47,6 +52,7 @@ interface ReportResponse {
   answers: {
     question: string;
     questionType: string;
+    criticalType: string | null;
     value: string;
     category: { id: string; name: string; color: string | null; icon: string | null } | null;
     score: number | null;
@@ -127,6 +133,12 @@ function aggregateTargets(responses: ReportResponse[]) {
   };
 }
 
+const CRITICAL_LABEL: Record<string, string> = {
+  CUSTOMER: "Customer",
+  BUSINESS: "Business",
+  COMPLIANCE: "Compliance",
+};
+
 export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
   const [campaignId, setCampaignId] = useState("");
   const [formId, setFormId] = useState("");
@@ -135,6 +147,10 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
   const [responses, setResponses] = useState<ReportResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedResponse, setSelectedResponse] = useState<ReportResponse | null>(null);
+  const [resultFilter, setResultFilter] = useState<"all" | "pass" | "fail">("all");
+  const [fatalOnly, setFatalOnly] = useState(false);
+  const [dispositionFilter, setDispositionFilter] = useState("all");
+  const router = useRouter();
 
   const filteredForms = campaignId ? forms.filter((f) => f.campaignId === campaignId) : forms;
 
@@ -171,18 +187,36 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
     void loadReports();
   }, []);
 
-  const totalResponses = responses.length;
+  const dispositionOptions = Array.from(
+    new Set(responses.map((r) => r.dispositionName).filter((n): n is string => Boolean(n))),
+  ).sort();
+
+  const visible = responses.filter((r) => {
+    if (resultFilter === "pass" && !r.passesThreshold) return false;
+    if (resultFilter === "fail" && r.passesThreshold) return false;
+    if (fatalOnly && !r.hasFatalFail) return false;
+    if (dispositionFilter !== "all" && (r.dispositionName ?? "") !== dispositionFilter) return false;
+    return true;
+  });
+
+  const totalResponses = visible.length;
   const avgScore =
-    totalResponses > 0 ? responses.reduce((sum, r) => sum + r.score, 0) / totalResponses : 0;
-  const passCount = responses.filter((r) => r.passesThreshold).length;
+    totalResponses > 0 ? visible.reduce((sum, r) => sum + r.score, 0) / totalResponses : 0;
+  const passCount = visible.filter((r) => r.passesThreshold).length;
   const passRate = totalResponses > 0 ? Math.round((passCount / totalResponses) * 100) : 0;
-  const fatalFailCount = responses.filter((r) => r.hasFatalFail).length;
+  const fatalFailCount = visible.filter((r) => r.hasFatalFail).length;
   const dailyRate = Math.round((totalResponses / getRangeDays(dateFrom, dateTo)) * 100) / 100;
-  const targets = aggregateTargets(responses);
+  const targets = aggregateTargets(visible);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
+        <Button variant="outline" onClick={() => router.push("/analytics/export")}>
+          <Download className="mr-1 h-4 w-4" />
+          Exportar
+        </Button>
+      </div>
 
       {/* Filters */}
       <Card>
@@ -263,6 +297,50 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
               {loading ? "Buscando..." : "Buscar"}
             </Button>
           </div>
+          {/* Client-side refinements (apply instantly over the loaded rows) */}
+          <div className="mt-3 flex flex-wrap items-end gap-4 border-t pt-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Resultado</Label>
+              <Select
+                value={resultFilter}
+                onValueChange={(v) => v && setResultFilter(v as "all" | "pass" | "fail")}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="pass">Solo Pass</SelectItem>
+                  <SelectItem value="fail">Solo Fail</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Disposición</Label>
+              <Select value={dispositionFilter} onValueChange={(v) => v && setDispositionFilter(v)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {dispositionOptions.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 pb-2 text-sm">
+              <input
+                type="checkbox"
+                checked={fatalOnly}
+                onChange={(e) => setFatalOnly(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              Solo fatales
+            </label>
+          </div>
         </CardContent>
       </Card>
 
@@ -304,65 +382,97 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
         </Card>
       </div>
 
+      {responses.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Mostrando <span className="font-medium text-foreground">{visible.length}</span> de{" "}
+          {responses.length} evaluaciones
+        </p>
+      )}
+
       {/* Results Table */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Fecha</TableHead>
-            <TableHead>Formulario</TableHead>
-            <TableHead>Agente</TableHead>
-            <TableHead>Evaluador</TableHead>
-            <TableHead>Score</TableHead>
-            <TableHead className="w-16">Detalle</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {responses.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell className="text-muted-foreground">
-                {new Date(r.createdAt).toLocaleDateString("es-ES")}
-              </TableCell>
-              <TableCell>{r.formTitle}</TableCell>
-              <TableCell>
-                {r.agentName}
-                {r.agentCode && (
-                  <span className="ml-1 text-xs text-muted-foreground">({r.agentCode})</span>
-                )}
-              </TableCell>
-              <TableCell>{r.evaluatorName}</TableCell>
-              <TableCell>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant={r.passesThreshold ? "default" : "destructive"}>
-                    {r.score.toFixed(1)}%
-                  </Badge>
-                  <Badge
-                    variant={r.score >= r.targetAvgScore ? "outline" : "secondary"}
-                    className="tabular-nums"
-                  >
-                    Target {r.scoreTargetDelta >= 0 ? "+" : ""}
-                    {r.scoreTargetDelta.toFixed(1)}
-                  </Badge>
-                  {!r.passesThreshold && (
-                    <Badge variant="destructive">{r.hasFatalFail ? "Fatal" : "Fail"}</Badge>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <Button variant="ghost" size="icon-xs" onClick={() => setSelectedResponse(r)}>
-                  <Eye className="h-3.5 w-3.5" />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {responses.length === 0 && (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground">
-                {loading ? "Cargando..." : "Sin resultados"}
-              </TableCell>
+              <TableHead>Fecha</TableHead>
+              <TableHead>Campaña</TableHead>
+              <TableHead>Formulario</TableHead>
+              <TableHead>Agente</TableHead>
+              <TableHead>Evaluador</TableHead>
+              <TableHead>Disposición</TableHead>
+              <TableHead>Score</TableHead>
+              <TableHead className="w-16">Detalle</TableHead>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {visible.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {new Date(r.createdAt).toLocaleDateString("es-ES")}
+                </TableCell>
+                <TableCell className="max-w-[150px] truncate">{r.campaignName}</TableCell>
+                <TableCell>
+                  {r.formTitle}
+                  {r.formVersion && (
+                    <span className="ml-1 text-xs text-muted-foreground">v{r.formVersion}</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {r.agentName}
+                  {r.agentCode && (
+                    <span className="ml-1 text-xs text-muted-foreground">({r.agentCode})</span>
+                  )}
+                </TableCell>
+                <TableCell>{r.evaluatorName}</TableCell>
+                <TableCell>
+                  {r.dispositionName ? (
+                    <div className="flex flex-col">
+                      <span className="max-w-[150px] truncate">{r.dispositionName}</span>
+                      {r.dispositionOutcome && (
+                        <span className="text-xs text-muted-foreground">
+                          {OUTCOME_LABELS[r.dispositionOutcome as keyof typeof OUTCOME_LABELS] ??
+                            r.dispositionOutcome}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant={r.passesThreshold ? "default" : "destructive"}>
+                      {r.score.toFixed(1)}%
+                    </Badge>
+                    <Badge
+                      variant={r.score >= r.targetAvgScore ? "outline" : "secondary"}
+                      className="tabular-nums"
+                    >
+                      {r.scoreTargetDelta >= 0 ? "+" : ""}
+                      {r.scoreTargetDelta.toFixed(1)}
+                    </Badge>
+                    {!r.passesThreshold && (
+                      <Badge variant="destructive">{r.hasFatalFail ? "Fatal" : "Fail"}</Badge>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon-xs" onClick={() => setSelectedResponse(r)}>
+                    <Eye className="h-3.5 w-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {visible.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  {loading ? "Cargando..." : "Sin resultados"}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       {/* Detail Dialog */}
       <Dialog open={!!selectedResponse} onOpenChange={() => setSelectedResponse(null)}>
@@ -409,6 +519,23 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
                   <span className="text-muted-foreground">Evaluador: </span>
                   {selectedResponse.evaluatorName}
                 </div>
+                <div>
+                  <span className="text-muted-foreground">Versión formulario: </span>
+                  {selectedResponse.formVersion ? `v${selectedResponse.formVersion}` : "—"}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Disposición: </span>
+                  {selectedResponse.dispositionName ?? "—"}
+                  {selectedResponse.dispositionOutcome && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      ·{" "}
+                      {OUTCOME_LABELS[
+                        selectedResponse.dispositionOutcome as keyof typeof OUTCOME_LABELS
+                      ] ?? selectedResponse.dispositionOutcome}
+                    </span>
+                  )}
+                </div>
                 <div className="col-span-2">
                   <span className="text-muted-foreground">Fecha: </span>
                   {new Date(selectedResponse.createdAt).toLocaleString("es-ES")}
@@ -437,6 +564,11 @@ export function ReportsClient({ campaigns, forms }: ReportsClientProps) {
                         {a.fatal && (
                           <Badge variant="destructive" className="text-xs">
                             Fatal
+                          </Badge>
+                        )}
+                        {a.criticalType && (
+                          <Badge variant="outline" className="text-xs">
+                            {CRITICAL_LABEL[a.criticalType] ?? a.criticalType}
                           </Badge>
                         )}
                       </div>

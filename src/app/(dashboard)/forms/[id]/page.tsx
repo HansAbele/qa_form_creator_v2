@@ -1,7 +1,10 @@
 import { auth } from "@/lib/auth";
 import { getPassThresholdForCampaign } from "@/lib/settings";
 import { redirect } from "next/navigation";
-import { getFormByIdForPermission } from "@/server/actions/forms";
+import {
+  getFormForEvaluation,
+  getFormForEvaluationCorrection,
+} from "@/server/actions/forms";
 import { getResponseById } from "@/server/actions/responses";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { FormViewer } from "@/components/forms/form-viewer";
@@ -22,14 +25,21 @@ export default async function FormEvaluatePage({
   if (!canEvaluate && !(sp.responseId && canEditEvaluations)) redirect("/forms");
 
   const { id } = await params;
-  const form = await getFormByIdForPermission(id, canEvaluate ? "canEvaluate" : "canViewForms");
-  const passThreshold = await getPassThresholdForCampaign(form.campaignId);
   const initialResponse = sp.responseId ? await getResponseById(sp.responseId) : null;
 
   if (initialResponse && initialResponse.formId !== id) redirect(`/forms/${id}`);
   if (initialResponse?.status === "CANCELLED") {
     redirect(`/analytics/responses/${initialResponse.id}`);
   }
+
+  const requiresCorrection = Boolean(
+    initialResponse &&
+      (initialResponse.status === "SUBMITTED" || initialResponse.evaluatorId !== session.user.id),
+  );
+  const form = requiresCorrection
+    ? await getFormForEvaluationCorrection(id)
+    : await getFormForEvaluation(id);
+  const passThreshold = await getPassThresholdForCampaign(form.campaignId);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

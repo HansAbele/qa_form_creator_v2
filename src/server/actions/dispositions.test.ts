@@ -20,7 +20,12 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathMock,
 }));
 
-import { createDisposition } from "./dispositions";
+import {
+  createDisposition,
+  getDispositionCategories,
+  getDispositions,
+  getDispositionsForSelector,
+} from "./dispositions";
 
 const qaUser = {
   id: "qa-1",
@@ -46,6 +51,44 @@ describe("disposition mutations RBAC", () => {
       createDisposition({ name: "Completed", campaignId: "campaign-1" }),
     ).rejects.toThrow("No autorizado para esta accion en esta campana");
     expect(prismaMock.disposition.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects detailed disposition readers without management permission", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canManageDispositions: false,
+    });
+
+    await expect(getDispositionCategories("campaign-1")).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
+    await expect(getDispositions("campaign-1")).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
+  });
+
+  it("returns selector data without global usage counts", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEvaluate: true,
+    });
+    prismaMock.disposition.findMany.mockResolvedValue([]);
+
+    await expect(getDispositionsForSelector("campaign-1")).resolves.toEqual({
+      categories: [],
+      uncategorized: [],
+      all: [],
+    });
+    expect(prismaMock.disposition.findMany).toHaveBeenCalledWith({
+      where: { campaignId: "campaign-1", active: true, campaign: { active: true } },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        category: { select: { id: true, name: true } },
+      },
+      orderBy: { name: "asc" },
+    });
   });
 
   it("rejects a disposition category from another campaign", async () => {

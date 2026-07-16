@@ -64,14 +64,14 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermis
   },
   EVALUATOR: {
     canViewDashboard: true,
-    canViewKPIs: true,
+    canViewKPIs: false,
     canViewForms: true,
-    canCreateForms: true,
-    canEditForms: true,
+    canCreateForms: false,
+    canEditForms: false,
     canPublishForms: false,
     canEvaluate: true,
     canEditEvaluations: false,
-    canViewReports: true,
+    canViewReports: false,
     canExport: false,
     canManageAgents: false,
     canManageDispositions: false,
@@ -139,7 +139,9 @@ export function normalizeCampaignPermissionsForRole(
 export function getDefaultCampaignAccessForUserRole(role: string | null | undefined) {
   const roleInCampaign: CampaignAccessLevel = isSupervisorRole(role)
     ? "SUPERVISOR"
-    : "CAMPAIGN_ADMIN";
+    : role === "ADMIN"
+      ? "CAMPAIGN_ADMIN"
+      : "EVALUATOR";
 
   return {
     roleInCampaign,

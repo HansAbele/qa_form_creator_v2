@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -13,10 +14,13 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
   getCampaignKpis,
+  getCriticalErrorAccuracyDetail,
   getScoreByQuestion,
   getEvaluatorActivity,
   getQACategoryMetrics,
 } from "@/server/queries/analytics";
+import { CeaDetail } from "@/components/dashboard/cea-detail";
+import { EvaluatorCalibrationTable } from "@/components/dashboard/evaluator-calibration-table";
 import type { AppSettings } from "@/lib/settings";
 import {
   Table,
@@ -80,28 +84,57 @@ function targetVariant(isMet: boolean): "default" | "destructive" {
   return isMet ? "default" : "destructive";
 }
 
+function RecapItem({
+  label,
+  value,
+  target,
+  met,
+}: {
+  label: string;
+  value: string;
+  target: string;
+  met: boolean;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={`font-semibold tabular-nums ${met ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+      >
+        {value}
+      </span>
+      <span className="text-xs text-muted-foreground">/ {target}</span>
+    </span>
+  );
+}
+
 export function KpisClient({ settings }: { settings: AppSettings }) {
+  const router = useRouter();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [kpis, setKpis] = useState<CampaignKpi[]>([]);
   const [questionScores, setQuestionScores] = useState<QuestionScore[]>([]);
   const [evaluators, setEvaluators] = useState<EvaluatorData[]>([]);
   const [qaCategoryMetrics, setQACategoryMetrics] = useState<QACategoryMetric[]>([]);
+  const [ceaDetail, setCeaDetail] =
+    useState<Awaited<ReturnType<typeof getCriticalErrorAccuracyDetail>> | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [k, qs, ev, qa] = await Promise.all([
+      const [k, qs, ev, qa, cea] = await Promise.all([
         getCampaignKpis(undefined, dateFrom || undefined, dateTo || undefined),
         getScoreByQuestion(undefined, dateFrom || undefined, dateTo || undefined),
         getEvaluatorActivity(undefined, dateFrom || undefined, dateTo || undefined),
         getQACategoryMetrics(undefined, dateFrom || undefined, dateTo || undefined),
+        getCriticalErrorAccuracyDetail(undefined, dateFrom || undefined, dateTo || undefined),
       ]);
       setKpis(k);
       setQuestionScores(qs);
       setEvaluators(ev);
       setQACategoryMetrics(qa);
+      setCeaDetail(cea);
     } catch (e) {
       console.error(e);
     } finally {
@@ -182,6 +215,19 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
     });
   }
 
+  // CEA below benchmark (COPC 2.7.1.d)
+  if (ceaDetail?.configured) {
+    const CEA_LABEL: Record<string, string> = { CUSTOMER: "Customer", BUSINESS: "Business", COMPLIANCE: "Compliance" };
+    for (const fam of ceaDetail.overall) {
+      if (fam.configured && fam.accuracy !== null && fam.accuracy < fam.target) {
+        alerts.push({
+          type: "warning",
+          msg: `${CEA_LABEL[fam.family]} CEA (${fam.accuracy.toFixed(1)}%) por debajo del benchmark (${fam.target}%)`,
+        });
+      }
+    }
+  }
+
   const pieData = kpis.filter((k) => k.totalEvaluations > 0).map((k) => ({ name: k.name, value: k.totalEvaluations }));
   const qaCategoryChartData = [...qaCategoryMetrics].sort((a, b) => a.avgScore - b.avgScore);
 
@@ -204,42 +250,16 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         </div>
       </div>
 
-      {/* KPI Summary with targets */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Total Evaluaciones</p>
-            <p className="text-2xl font-bold">{totalEvaluations}</p>
-          </CardContent>
-        </Card>
-        <Card className={overallAvg >= targets.avgScore ? "border-green-200" : "border-red-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Score Global</p>
-            <p className="text-2xl font-bold">{overallAvg.toFixed(1)}%</p>
-            <p className="text-xs text-muted-foreground">Target: {targets.avgScore}%</p>
-          </CardContent>
-        </Card>
-        <Card className={overallPassRate >= targets.passRate ? "border-green-200" : "border-red-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Pass Rate</p>
-            <p className="text-2xl font-bold">{overallPassRate}%</p>
-            <p className="text-xs text-muted-foreground">Target: {targets.passRate}%</p>
-          </CardContent>
-        </Card>
-        <Card className={overallDailyRate >= targets.dailyRate ? "border-green-200" : "border-amber-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Tasa Diaria</p>
-            <p className="text-2xl font-bold">{overallDailyRate.toFixed(1)}</p>
-            <p className="text-xs text-muted-foreground">Target: {targets.dailyRate}/día</p>
-          </CardContent>
-        </Card>
-        <Card className={totalFatalFailures <= targets.fatalFailuresAllowed ? "border-green-200" : "border-red-200"}>
-          <CardContent className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">Fallas Fatales</p>
-            <p className="text-2xl font-bold">{totalFatalFailures}</p>
-            <p className="text-xs text-muted-foreground">Permitidas: {targets.fatalFailuresAllowed}</p>
-          </CardContent>
-        </Card>
+      {/* Compact target recap — the hero KPI cards live on the Dashboard; KPIs leads with diagnostics */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-card px-4 py-3 text-sm">
+        <span className="flex items-center gap-1.5">
+          <span className="font-semibold tabular-nums">{totalEvaluations}</span>
+          <span className="text-muted-foreground">evaluaciones</span>
+        </span>
+        <RecapItem label="Score" value={`${overallAvg.toFixed(1)}%`} target={`${targets.avgScore}%`} met={overallAvg >= targets.avgScore} />
+        <RecapItem label="Pass Rate" value={`${overallPassRate}%`} target={`${targets.passRate}%`} met={overallPassRate >= targets.passRate} />
+        <RecapItem label="Tasa diaria" value={overallDailyRate.toFixed(1)} target={`${targets.dailyRate}/d`} met={overallDailyRate >= targets.dailyRate} />
+        <RecapItem label="Fatales" value={String(totalFatalFailures)} target={String(targets.fatalFailuresAllowed)} met={totalFatalFailures <= targets.fatalFailuresAllowed} />
       </div>
 
       {/* Alerts */}
@@ -256,6 +276,9 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
           </CardContent>
         </Card>
       )}
+
+      {/* CEA deep-dive (COPC 2.7.1.d) — the KPIs protagonist */}
+      {ceaDetail && <CeaDetail data={ceaDetail} />}
 
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -450,23 +473,13 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         </Card>
       </div>
 
-      {/* Evaluator Activity */}
-      <Card>
-        <CardHeader><CardTitle className="text-base">Actividad de Evaluadores</CardTitle></CardHeader>
-        <CardContent>
-          {evaluators.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={evaluators.slice(0, 10)}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="name" className="text-xs" angle={-20} textAnchor="end" height={60} />
-                <YAxis allowDecimals={false} className="text-xs" />
-                <Tooltip formatter={(value, name) => [name === "avgScore" ? `${Number(value).toFixed(1)}%` : value, name === "avgScore" ? "Score Promedio" : "Evaluaciones"]} />
-                <Bar dataKey="totalEvaluations" fill="#ff6600" radius={[4, 4, 0, 0]} name="Evaluaciones" />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : <div className="flex h-[300px] items-center justify-center text-muted-foreground">Sin datos</div>}
-        </CardContent>
-      </Card>
+      {/* Evaluator calibration (full — stdDev + delta vs global) */}
+      <EvaluatorCalibrationTable
+        evaluators={evaluators}
+        teamAvg={overallAvg}
+        interactive
+        onNavigate={(href) => router.push(href)}
+      />
 
       {/* Campaign Detail Cards */}
       <h2 className="text-xl font-semibold">Detalle por Campaña</h2>

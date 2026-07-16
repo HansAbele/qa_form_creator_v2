@@ -54,7 +54,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getDispositionAnalytics } from "@/server/queries/analytics";
-import { getCampaignsForPermission } from "@/server/actions/campaigns";
+import { getKpiCampaigns } from "@/server/actions/campaigns";
 
 // ─── Chart configs ────────────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ export function DispositionsAnalyticsClient() {
   // ─── Load campaigns once ────────────────────────────────────────────────────
 
   useEffect(() => {
-    getCampaignsForPermission("canViewKPIs").then((cs) =>
+    getKpiCampaigns().then((cs) =>
       setCampaigns(cs.map((c) => ({ id: c.id, name: c.name }))),
     );
   }, []);

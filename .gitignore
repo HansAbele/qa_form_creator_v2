@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/playwright/.auth/
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -40,6 +43,10 @@ yarn-error.log*
 .env
 .env.local
 .env.production
+.backup-key
+.qore-operations.lock
+.deployed-release
+/backups/
 odoo.local.env
 *.local.env
 !.env.example

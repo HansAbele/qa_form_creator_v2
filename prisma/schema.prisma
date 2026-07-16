@@ -94,16 +94,17 @@ model VerificationToken {
 // ─── Usuarios y campañas ─────────────────────────────
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String
-  password      String?
-  role          Role      @default(QA)
-  active        Boolean   @default(true)
-  image         String?
-  emailVerified DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  password       String?
+  role           Role      @default(QA)
+  active         Boolean   @default(true)
+  sessionVersion Int       @default(0)
+  image          String?
+  emailVerified  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   accounts                Account[]
   sessions                Session[]
@@ -139,19 +140,19 @@ model UserCampaign {
   userId                   String
   campaignId               String
   assignedAt               DateTime            @default(now())
-  roleInCampaign           CampaignAccessLevel @default(CAMPAIGN_ADMIN)
+  roleInCampaign           CampaignAccessLevel @default(EVALUATOR)
   canViewDashboard         Boolean             @default(true)
-  canViewKPIs              Boolean             @default(true)
+  canViewKPIs              Boolean             @default(false)
   canViewForms             Boolean             @default(true)
-  canCreateForms           Boolean             @default(true)
-  canEditForms             Boolean             @default(true)
-  canPublishForms          Boolean             @default(true)
+  canCreateForms           Boolean             @default(false)
+  canEditForms             Boolean             @default(false)
+  canPublishForms          Boolean             @default(false)
   canEvaluate              Boolean             @default(true)
-  canEditEvaluations       Boolean             @default(true)
-  canViewReports           Boolean             @default(true)
-  canExport                Boolean             @default(true)
-  canManageAgents          Boolean             @default(true)
-  canManageDispositions    Boolean             @default(true)
+  canEditEvaluations       Boolean             @default(false)
+  canViewReports           Boolean             @default(false)
+  canExport                Boolean             @default(false)
+  canManageAgents          Boolean             @default(false)
+  canManageDispositions    Boolean             @default(false)
   canManageCampaignScoring Boolean             @default(false)
   canViewAudit             Boolean             @default(false)
 
@@ -401,6 +402,10 @@ model CampaignScoringSettings {
   fatalFailuresAllowed Int      @default(0)
   // When a critical/fatal question fails: true → force score to 0; false → keep computed score, mark FAIL.
   fatalZeroesScore     Boolean  @default(false)
+  // COPC 2.7.1.d — per-campaign Critical Error Accuracy targets (%), one per critical family.
+  customerCeaTarget    Float    @default(95)
+  businessCeaTarget    Float    @default(90)
+  complianceCeaTarget  Float    @default(99.5)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   updatedBy            String?
@@ -423,8 +428,8 @@ model AuditLog {
   impact      String?
   createdAt   DateTime @default(now())
 
-  user     User?     @relation("AuditActor", fields: [userId], references: [id], onDelete: SetNull)
-  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  user     User?     @relation("AuditActor", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([userId, createdAt])
   @@index([campaignId, createdAt])
@@ -432,21 +437,53 @@ model AuditLog {
   @@index([entityType, entityId])
 }
 
+model LoginRateLimit {
+  keyHash             String                      @id @db.VarChar(64)
+  scope               String                      @db.VarChar(16)
+  failureCount        Int                         @default(0)
+  windowStartedAt     DateTime
+  lastFailureAt       DateTime
+  blockedUntil        DateTime?
+  expiresAt           DateTime
+  updatedAt           DateTime                    @updatedAt
+  accountReservations LoginRateLimitReservation[] @relation("AccountLoginReservations")
+  ipReservations      LoginRateLimitReservation[] @relation("IpLoginReservations")
+
+  @@index([blockedUntil])
+  @@index([expiresAt])
+}
+
+model LoginRateLimitReservation {
+  id             String   @id @default(uuid()) @db.Uuid
+  accountKeyHash String   @db.VarChar(64)
+  ipKeyHash      String   @db.VarChar(64)
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  accountLimiter LoginRateLimit @relation("AccountLoginReservations", fields: [accountKeyHash], references: [keyHash], onDelete: Cascade)
+  ipLimiter      LoginRateLimit @relation("IpLoginReservations", fields: [ipKeyHash], references: [keyHash], onDelete: Cascade)
+
+  @@index([accountKeyHash, expiresAt])
+  @@index([ipKeyHash, expiresAt])
+  @@index([expiresAt])
+}
+
 model Notification {
-  id         String    @id @default(cuid())
-  userId     String
-  campaignId String?
-  type       String
-  severity   String    @default("INFO")
-  title      String
-  body       String
-  href       String?
-  entityType String?
-  entityId   String?
-  metadata   Json?
-  readAt     DateTime?
-  archivedAt DateTime?
-  createdAt  DateTime  @default(now())
+  id                 String    @id @default(cuid())
+  userId             String
+  campaignId         String?
+  type               String
+  severity           String    @default("INFO")
+  title              String
+  body               String
+  href               String?
+  entityType         String?
+  entityId           String?
+  requiredPermission String?
+  metadata           Json?
+  readAt             DateTime?
+  archivedAt         DateTime?
+  createdAt          DateTime  @default(now())
 
   user     User      @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
@@ -454,6 +491,7 @@ model Notification {
   @@index([userId, readAt, createdAt])
   @@index([userId, archivedAt, createdAt])
   @@index([campaignId, createdAt])
+  @@index([userId, campaignId, requiredPermission])
   @@index([type, createdAt])
   @@index([entityType, entityId])
 }

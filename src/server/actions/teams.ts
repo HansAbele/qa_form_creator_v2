@@ -5,17 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
 import {
-  assertCampaignAccessForUser,
   assertCampaignPermissionForUser,
-  getCampaignFilter,
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
 
 export async function getTeams(campaignId?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
 
-  const where = await getCampaignFilter(campaignId);
+  const where = campaignId ? { campaignId } : {};
 
   return prisma.team.findMany({
     where,
@@ -43,45 +41,30 @@ export async function getTeamsForManagement(campaignId?: string) {
   });
 }
 
-export async function getTeamById(id: string) {
-  const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
-
-  const team = await prisma.team.findUnique({
-    where: { id },
-    include: {
-      campaign: { select: { id: true, name: true } },
-      agents: {
-        where: { active: true },
-        select: { id: true, name: true, agentCode: true },
-        orderBy: { name: "asc" },
-      },
-      _count: { select: { agents: true } },
-    },
-  });
-  if (!team) throw new Error("Equipo no encontrado");
-  assertCampaignAccessForUser(session.user, team.campaignId);
-  return team;
-}
-
 export async function createTeam(data: { name: string; campaignId: string }) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageAgents");
 
-  const team = await prisma.team.create({
-    data: { name: data.name.trim(), campaignId: data.campaignId },
-  });
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: data.campaignId,
-    module: "teams",
-    action: "created",
-    entityType: "team",
-    entityId: team.id,
-    afterValue: team,
-    impact: "Equipo disponible para asignar agentes.",
+  const team = await prisma.$transaction(async (tx) => {
+    const team = await tx.team.create({
+      data: { name: data.name.trim(), campaignId: data.campaignId },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: data.campaignId,
+        module: "teams",
+        action: "created",
+        entityType: "team",
+        entityId: team.id,
+        afterValue: team,
+        impact: "Equipo disponible para asignar agentes.",
+      },
+      tx,
+    );
+    return team;
   });
   revalidatePath("/admin/campaigns");
   revalidatePath("/operations/teams");
@@ -100,17 +83,23 @@ export async function updateTeam(id: string, data: { name: string }) {
   if (!existing) throw new Error("Equipo no encontrado");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageAgents");
 
-  const team = await prisma.team.update({ where: { id }, data: { name: data.name.trim() } });
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: existing.campaignId,
-    module: "teams",
-    action: "updated",
-    entityType: "team",
-    entityId: id,
-    beforeValue: existing,
-    afterValue: team,
-    impact: "Cambio operativo en nombre de equipo.",
+  const team = await prisma.$transaction(async (tx) => {
+    const team = await tx.team.update({ where: { id }, data: { name: data.name.trim() } });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: existing.campaignId,
+        module: "teams",
+        action: "updated",
+        entityType: "team",
+        entityId: id,
+        beforeValue: existing,
+        afterValue: team,
+        impact: "Cambio operativo en nombre de equipo.",
+      },
+      tx,
+    );
+    return team;
   });
   revalidatePath("/admin/campaigns");
   revalidatePath("/operations/teams");
@@ -129,22 +118,25 @@ export async function deleteTeam(id: string) {
   if (!existing) throw new Error("Equipo no encontrado");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageAgents");
 
-  await prisma.$transaction([
-    prisma.agent.updateMany({
+  await prisma.$transaction(async (tx) => {
+    await tx.agent.updateMany({
       where: { teamId: id, campaignId: existing.campaignId },
       data: { teamId: null },
-    }),
-    prisma.team.delete({ where: { id } }),
-  ]);
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: existing.campaignId,
-    module: "teams",
-    action: "deleted",
-    entityType: "team",
-    entityId: id,
-    beforeValue: existing,
-    impact: "Equipo eliminado y agentes desvinculados del equipo.",
+    });
+    await tx.team.delete({ where: { id } });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: existing.campaignId,
+        module: "teams",
+        action: "deleted",
+        entityType: "team",
+        entityId: id,
+        beforeValue: existing,
+        impact: "Equipo eliminado y agentes desvinculados del equipo.",
+      },
+      tx,
+    );
   });
   revalidatePath("/admin/campaigns");
   revalidatePath("/operations/teams");
@@ -171,19 +163,24 @@ export async function assignAgentsToTeam(teamId: string, agentIds: string[]) {
     throw new Error("Agentes invalidos para este equipo");
   }
 
-  await prisma.agent.updateMany({
-    where: { id: { in: agentIds }, campaignId: team.campaignId },
-    data: { teamId },
-  });
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: team.campaignId,
-    module: "teams",
-    action: "agents_assigned",
-    entityType: "team",
-    entityId: teamId,
-    afterValue: { agentIds },
-    impact: "Agentes reasignados a equipo.",
+  await prisma.$transaction(async (tx) => {
+    await tx.agent.updateMany({
+      where: { id: { in: agentIds }, campaignId: team.campaignId },
+      data: { teamId },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: team.campaignId,
+        module: "teams",
+        action: "agents_assigned",
+        entityType: "team",
+        entityId: teamId,
+        afterValue: { agentIds },
+        impact: "Agentes reasignados a equipo.",
+      },
+      tx,
+    );
   });
   revalidatePath("/admin/campaigns");
   revalidatePath("/operations/teams");
@@ -201,16 +198,21 @@ export async function removeAgentFromTeam(agentId: string) {
   if (!agent) throw new Error("Agente no encontrado");
   await assertCampaignPermissionForUser(session.user, agent.campaignId, "canManageAgents");
 
-  await prisma.agent.update({ where: { id: agentId }, data: { teamId: null } });
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: agent.campaignId,
-    module: "teams",
-    action: "agent_removed",
-    entityType: "agent",
-    entityId: agentId,
-    afterValue: { teamId: null },
-    impact: "Agente removido de equipo.",
+  await prisma.$transaction(async (tx) => {
+    await tx.agent.update({ where: { id: agentId }, data: { teamId: null } });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: agent.campaignId,
+        module: "teams",
+        action: "agent_removed",
+        entityType: "agent",
+        entityId: agentId,
+        afterValue: { teamId: null },
+        impact: "Agente removido de equipo.",
+      },
+      tx,
+    );
   });
   revalidatePath("/admin/campaigns");
   revalidatePath("/operations/teams");

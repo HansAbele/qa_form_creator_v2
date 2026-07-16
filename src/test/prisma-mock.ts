@@ -4,17 +4,25 @@ export const prismaMock = {
   userCampaign: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
+    createMany: vi.fn(),
+    deleteMany: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   user: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
+    count: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   campaign: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
   },
   campaignScoringSettings: {
     findUnique: vi.fn(),
@@ -69,7 +77,12 @@ export const prismaMock = {
     deleteMany: vi.fn(),
   },
   qACategory: {
+    findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
+    count: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
   },
   response: {
     findUnique: vi.fn(),
@@ -101,6 +114,22 @@ export const prismaMock = {
     count: vi.fn(),
     findMany: vi.fn(),
   },
+  loginRateLimit: {
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    upsert: vi.fn(),
+    update: vi.fn(),
+    deleteMany: vi.fn(),
+  },
+  loginRateLimitReservation: {
+    count: vi.fn(),
+    create: vi.fn(),
+    delete: vi.fn(),
+    deleteMany: vi.fn(),
+    findUnique: vi.fn(),
+  },
+  $executeRaw: vi.fn(),
+  $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 };
 
@@ -117,4 +146,11 @@ export function resetPrismaMock() {
       }
     }
   }
+
+  prismaMock.$transaction.mockImplementation(async (operation: unknown) => {
+    if (typeof operation === "function") {
+      return operation(prismaMock);
+    }
+    return Promise.all(operation as Promise<unknown>[]);
+  });
 }

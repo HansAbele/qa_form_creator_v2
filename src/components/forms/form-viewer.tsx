@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { computeScore, type ScoringAnswer, type ScoringQuestion, type WeightedOption } from "@/lib/scoring";
 import type { RatingStyleValue } from "@/types/form-builder";
-import { getAgents } from "@/server/actions/agents";
+import { getAgentsForEvaluation } from "@/server/actions/agents";
 import { saveResponseDraft, submitResponse } from "@/server/actions/responses";
 import type { QuestionType } from "@prisma/client";
 import { DispositionCombobox } from "./disposition-combobox";
@@ -190,8 +190,8 @@ export function FormViewer({ form, passThreshold, initialResponse = null }: Form
   const hasFatal = scoreResult.hasFatalFail;
 
   useEffect(() => {
-    getAgents(form.campaignId).then((data) => {
-      setAgents(data.filter((a) => a.active));
+    getAgentsForEvaluation(form.campaignId).then((data) => {
+      setAgents(data);
     });
   }, [form.campaignId]);
 

@@ -1,15 +1,14 @@
 "use server";
 
+import type { Prisma, QuestionType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import type { Session } from "next-auth";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
 import type { ResponseStatus } from "@/lib/response-status";
-import {
-  computeScore,
-  type ScoringQuestion,
-  type WeightedOption,
-} from "@/lib/scoring";
+import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
+import { computeScore, type ScoringQuestion, type WeightedOption } from "@/lib/scoring";
 import { getCampaignScoringSettings } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
 import { emitNotification } from "@/server/notifications";
@@ -17,9 +16,6 @@ import {
   assertCampaignPermissionForUser,
   getCampaignFilterForPermission,
 } from "@/server/queries/campaign-filter";
-import type { Prisma, QuestionType } from "@prisma/client";
-import type { Session } from "next-auth";
-import { z } from "zod";
 
 const MAX_ANSWERS_PER_SUBMISSION = 500;
 const MAX_ANSWER_LENGTH = 10_000;
@@ -156,9 +152,9 @@ export async function getResponseById(id: string) {
     where: { id },
     include: {
       form: { select: { id: true, title: true, campaignId: true } },
-      agent: { select: { id: true, name: true } },
+      agent: { select: { id: true, name: true, campaignId: true } },
       evaluator: { select: { id: true, name: true } },
-      disposition: { select: { id: true, name: true, code: true } },
+      disposition: { select: { id: true, name: true, code: true, campaignId: true } },
       answers: {
         include: {
           question: {
@@ -187,7 +183,21 @@ export async function getResponseById(id: string) {
 
   if (!response) throw new Error("Evaluacion no encontrada");
 
-  await assertCampaignPermissionForUser(session.user, response.form.campaignId, "canViewReports");
+  if (
+    response.agent.campaignId !== response.form.campaignId ||
+    (response.disposition && response.disposition.campaignId !== response.form.campaignId)
+  ) {
+    throw new Error("La evaluacion contiene relaciones de otra campana");
+  }
+  if (response.status === RESPONSE_STATUS.CANCELLED) {
+    throw new Error("No se puede editar una evaluacion anulada");
+  }
+
+  const permission =
+    response.status === RESPONSE_STATUS.DRAFT && response.evaluatorId === session.user.id
+      ? "canEvaluate"
+      : "canEditEvaluations";
+  await assertCampaignPermissionForUser(session.user, response.form.campaignId, permission);
 
   return {
     ...response,
@@ -223,7 +233,8 @@ function getOptionValues(options: unknown): string[] {
   return options
     .map((o) => {
       if (typeof o === "string") return o;
-      if (o && typeof o === "object" && "value" in o) return String((o as { value: unknown }).value);
+      if (o && typeof o === "object" && "value" in o)
+        return String((o as { value: unknown }).value);
       return "";
     })
     .map((s) => s.trim())
@@ -519,7 +530,7 @@ async function saveEvaluation(
     prisma.form.findUnique({
       where: { id: input.formId },
       include: {
-        campaign: { select: { name: true } },
+        campaign: { select: { name: true, active: true } },
         questions: {
           orderBy: { order: "asc" },
           include: {
@@ -554,6 +565,13 @@ async function saveEvaluation(
     mode: status,
     existing,
   });
+
+  if (form.status !== "PUBLISHED") {
+    throw new Error("Solo se puede evaluar un formulario publicado");
+  }
+  if (!form.campaign.active) {
+    throw new Error("No se puede evaluar una campana inactiva");
+  }
 
   if (input.answers.length > form.questions.length) {
     throw new Error("La evaluacion contiene respuestas no validas");
@@ -634,6 +652,18 @@ async function saveEvaluation(
     capturedAt: new Date().toISOString(),
   };
 
+  const isNew = !existing;
+  const action =
+    status === RESPONSE_STATUS.DRAFT
+      ? isNew
+        ? "draft_created"
+        : "draft_updated"
+      : existing?.status === RESPONSE_STATUS.SUBMITTED
+        ? "updated"
+        : existing?.status === RESPONSE_STATUS.DRAFT
+          ? "submitted"
+          : "created";
+
   const response = await prisma.$transaction(async (tx) => {
     const responseData = {
       formId: input.formId,
@@ -665,8 +695,8 @@ async function saveEvaluation(
       notApplicable: answer.notApplicable,
     }));
 
-    if (existing) {
-      return tx.response.update({
+    const response = existing
+      ? await tx.response.update({
         where: { id: existing.id },
         data: {
           ...responseData,
@@ -675,60 +705,49 @@ async function saveEvaluation(
             create: answerCreateData,
           },
         },
-      });
-    }
+        })
+      : await tx.response.create({
+          data: {
+            ...responseData,
+            answers: {
+              create: answerCreateData,
+            },
+          },
+        });
 
-    return tx.response.create({
-      data: {
-        ...responseData,
-        answers: {
-          create: answerCreateData,
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: form.campaignId,
+        module: "evaluations",
+        action,
+        entityType: "response",
+        entityId: response.id,
+        beforeValue: existing ? existingResponseAuditValue(existing) : null,
+        afterValue: {
+          id: response.id,
+          formId: input.formId,
+          agentId: input.agentId,
+          dispositionId: input.dispositionId,
+          score,
+          result,
+          hasFatalFail,
+          status,
+          answerCount: sanitizedAnswers.length,
+          fatalAnswerCount: sanitizedAnswers.filter((answer) => answer.isFatalFail).length,
+          notApplicableCount: sanitizedAnswers.filter((answer) => answer.notApplicable).length,
+          answers: answerAuditValue(sanitizedAnswers),
         },
+        impact:
+          status === RESPONSE_STATUS.DRAFT
+            ? "Borrador guardado; no impacta Dashboard, KPIs, reportes ni exportaciones."
+            : "Evaluacion incluida o actualizada en Dashboard, KPIs, reportes y exportaciones.",
       },
-    });
+      tx,
+    );
+
+    return response;
   });
-
-  const isNew = !existing;
-  const action =
-    status === RESPONSE_STATUS.DRAFT
-      ? isNew
-        ? "draft_created"
-        : null
-      : existing?.status === RESPONSE_STATUS.SUBMITTED
-        ? "updated"
-        : existing?.status === RESPONSE_STATUS.DRAFT
-          ? "submitted"
-          : "created";
-
-  if (action) {
-    await writeAuditLog({
-      userId: session.user.id,
-      campaignId: form.campaignId,
-      module: "evaluations",
-      action,
-      entityType: "response",
-      entityId: response.id,
-      beforeValue: existing ? existingResponseAuditValue(existing) : null,
-      afterValue: {
-        id: response.id,
-        formId: input.formId,
-        agentId: input.agentId,
-        dispositionId: input.dispositionId,
-        score,
-        result,
-        hasFatalFail,
-        status,
-        answerCount: sanitizedAnswers.length,
-        fatalAnswerCount: sanitizedAnswers.filter((answer) => answer.isFatalFail).length,
-        notApplicableCount: sanitizedAnswers.filter((answer) => answer.notApplicable).length,
-        answers: answerAuditValue(sanitizedAnswers),
-      },
-      impact:
-        status === RESPONSE_STATUS.DRAFT
-          ? "Borrador guardado; no impacta Dashboard, KPIs, reportes ni exportaciones."
-          : "Evaluacion incluida o actualizada en Dashboard, KPIs, reportes y exportaciones.",
-    });
-  }
 
   if (status === RESPONSE_STATUS.SUBMITTED && (hasFatalFail || result === "FAIL")) {
     const fatalAnswerCount = sanitizedAnswers.filter((answer) => answer.isFatalFail).length;
@@ -787,32 +806,38 @@ export async function cancelResponse(data: unknown) {
   );
 
   const cancelledAt = new Date();
-  const response = await prisma.response.update({
-    where: { id: existing.id },
-    data: {
-      status: RESPONSE_STATUS.CANCELLED,
-      cancelledAt,
-      cancelledById: session.user.id,
-      cancellationReason: input.reason,
-    },
-  });
-
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId: existing.form.campaignId,
-    module: "evaluations",
-    action: "cancelled",
-    entityType: "response",
-    entityId: existing.id,
-    beforeValue: existingResponseAuditValue(existing),
-    afterValue: {
-      id: existing.id,
-      status: RESPONSE_STATUS.CANCELLED,
-      cancelledAt: cancelledAt.toISOString(),
-      cancelledById: session.user.id,
-      cancellationReason: input.reason,
-    },
-    impact: "Evaluacion anulada y excluida de Dashboard, KPIs, reportes y exportaciones.",
+  const response = await prisma.$transaction(async (tx) => {
+    const response = await tx.response.update({
+      where: { id: existing.id },
+      data: {
+        status: RESPONSE_STATUS.CANCELLED,
+        cancelledAt,
+        cancelledById: session.user.id,
+        cancellationReason: input.reason,
+      },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: existing.form.campaignId,
+        module: "evaluations",
+        action: "cancelled",
+        entityType: "response",
+        entityId: existing.id,
+        beforeValue: existingResponseAuditValue(existing),
+        afterValue: {
+          id: existing.id,
+          status: RESPONSE_STATUS.CANCELLED,
+          cancelledAt: cancelledAt.toISOString(),
+          cancelledById: session.user.id,
+          cancellationReason: input.reason,
+        },
+        impact:
+          "Evaluacion anulada y excluida de Dashboard, KPIs, reportes y exportaciones.",
+      },
+      tx,
+    );
+    return response;
   });
 
   await emitNotification({

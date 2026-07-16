@@ -1,5 +1,6 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -20,9 +21,9 @@ type CampaignScoringDelegate = {
   }) => Promise<unknown>;
 };
 
-function getScoringDelegate() {
+function getScoringDelegate(database: typeof prisma | Prisma.TransactionClient = prisma) {
   const delegate = (
-    prisma as unknown as { campaignScoringSettings?: CampaignScoringDelegate }
+    database as unknown as { campaignScoringSettings?: CampaignScoringDelegate }
   ).campaignScoringSettings;
 
   if (!delegate) {
@@ -37,11 +38,7 @@ async function assertCanManageCampaignScoring(campaignId: string) {
   if (!session?.user) throw new Error("No autorizado");
 
   if (session.user.role !== "ADMIN") {
-    await assertCampaignPermissionForUser(
-      session.user,
-      campaignId,
-      "canManageCampaignScoring",
-    );
+    await assertCampaignPermissionForUser(session.user, campaignId, "canManageCampaignScoring");
   }
 
   return session;
@@ -53,11 +50,7 @@ export async function readCampaignScoringSettings(campaignIds: string[]) {
 
   if (session.user.role !== "ADMIN") {
     for (const campaignId of campaignIds) {
-      await assertCampaignPermissionForUser(
-        session.user,
-        campaignId,
-        "canManageCampaignScoring",
-      );
+      await assertCampaignPermissionForUser(session.user, campaignId, "canManageCampaignScoring");
     }
   }
 
@@ -69,7 +62,6 @@ export async function updateCampaignScoringSettings(
   patch: CampaignScoringPatch,
 ) {
   const session = await assertCanManageCampaignScoring(campaignId);
-  const delegate = getScoringDelegate();
 
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -80,38 +72,50 @@ export async function updateCampaignScoringSettings(
   const beforeValue = await getCampaignScoringSettings(campaignId);
   const validatedPatch = validateCampaignScoringPatch(patch);
 
-  const saved = await delegate.upsert({
-    where: { campaignId },
-    create: {
-      campaignId,
-      usesGlobalDefaults: validatedPatch.usesGlobalDefaults ?? true,
-      passThreshold: validatedPatch.passThreshold ?? beforeValue.passThreshold,
-      targetPassRate: validatedPatch.targetPassRate ?? beforeValue.targetPassRate,
-      targetAvgScore: validatedPatch.targetAvgScore ?? beforeValue.targetAvgScore,
-      targetDailyRate: validatedPatch.targetDailyRate ?? beforeValue.targetDailyRate,
-      fatalFailuresAllowed:
-        validatedPatch.fatalFailuresAllowed ?? beforeValue.fatalFailuresAllowed,
-      fatalZeroesScore: validatedPatch.fatalZeroesScore ?? beforeValue.fatalZeroesScore,
-      updatedBy: session.user.id,
-    },
-    update: {
-      ...validatedPatch,
-      updatedBy: session.user.id,
-    },
+  await prisma.$transaction(async (tx) => {
+    const saved = await getScoringDelegate(tx).upsert({
+      where: { campaignId },
+      create: {
+        campaignId,
+        usesGlobalDefaults: validatedPatch.usesGlobalDefaults ?? true,
+        passThreshold: validatedPatch.passThreshold ?? beforeValue.passThreshold,
+        targetPassRate: validatedPatch.targetPassRate ?? beforeValue.targetPassRate,
+        targetAvgScore: validatedPatch.targetAvgScore ?? beforeValue.targetAvgScore,
+        targetDailyRate: validatedPatch.targetDailyRate ?? beforeValue.targetDailyRate,
+        customerCeaTarget: validatedPatch.customerCeaTarget ?? beforeValue.customerCeaTarget,
+        businessCeaTarget: validatedPatch.businessCeaTarget ?? beforeValue.businessCeaTarget,
+        complianceCeaTarget: validatedPatch.complianceCeaTarget ?? beforeValue.complianceCeaTarget,
+        fatalFailuresAllowed:
+          validatedPatch.fatalFailuresAllowed ?? beforeValue.fatalFailuresAllowed,
+        fatalZeroesScore: validatedPatch.fatalZeroesScore ?? beforeValue.fatalZeroesScore,
+        updatedBy: session.user.id,
+      },
+      update: {
+        ...validatedPatch,
+        updatedBy: session.user.id,
+      },
+    });
+
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId,
+        module: "settings",
+        action: "campaign_scoring_updated",
+        entityType: "campaign_scoring_settings",
+        entityId: campaignId,
+        beforeValue,
+        afterValue: { saved, effective: { ...beforeValue, ...validatedPatch } },
+        impact:
+          "Dashboard, KPIs, reportes y evaluaciones futuras usan los overrides de la campana.",
+      },
+      tx,
+    );
+
+    return saved;
   });
 
   const afterValue = await getCampaignScoringSettings(campaignId);
-  await writeAuditLog({
-    userId: session.user.id,
-    campaignId,
-    module: "settings",
-    action: "campaign_scoring_updated",
-    entityType: "campaign_scoring_settings",
-    entityId: campaignId,
-    beforeValue,
-    afterValue: { saved, effective: afterValue },
-    impact: "Dashboard, KPIs, reportes y evaluaciones futuras usan los overrides de la campana.",
-  });
 
   revalidatePath("/", "layout");
   revalidatePath("/settings");
