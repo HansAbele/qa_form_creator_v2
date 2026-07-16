@@ -11,6 +11,8 @@ import {
 } from "recharts";
 import { ArrowUpDown, TrendingUp, TrendingDown, Minus, Medal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AccessibleChart } from "@/components/ui/accessible-chart";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +43,7 @@ export function AgentPerformanceClient({
   campaigns,
   passThreshold,
 }: AgentPerformanceClientProps) {
+  const chartAnimation = useChartAnimation();
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgScore", desc: true }]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [campaignFilter, setCampaignFilter] = useState("all");
@@ -234,31 +237,50 @@ export function AgentPerformanceClient({
           <Card>
             <CardHeader><CardTitle className="text-base">Comparación de Score</CardTitle></CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={comparisonScoreData}>
+              <AccessibleChart
+                label="Comparación de score entre agentes seleccionados"
+                description={comparisonScoreData
+                  .map((item) => `${item.name}: ${item.avgScore.toFixed(1)}%`)
+                  .join("; ")}
+              >
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={comparisonScoreData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                   <XAxis dataKey="name" className="text-xs" />
                   <YAxis domain={[0, 100]} />
                   <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
-                  <Bar dataKey="avgScore" radius={[4, 4, 0, 0]}>
+                  <Bar
+                    dataKey="avgScore"
+                    radius={[4, 4, 0, 0]}
+                    isAnimationActive={chartAnimation}
+                  >
                     {comparisonScoreData.map((item, i) => (<Cell key={item.id} fill={COLORS[i % COLORS.length]} />))}
                   </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                  </BarChart>
+                </ResponsiveContainer>
+              </AccessibleChart>
             </CardContent>
           </Card>
           <Card>
             <CardHeader><CardTitle className="text-base">Volumen de Evaluaciones</CardTitle></CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
+              <AccessibleChart
+                label="Volumen de evaluaciones de agentes seleccionados"
+                description={comparisonVolumeData
+                  .map((item) => `${item.name}: ${item.value} evaluaciones`)
+                  .join("; ")}
+              >
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
                   <Pie data={comparisonVolumeData} cx="50%" cy="50%" outerRadius={100} dataKey="value"
+                    isAnimationActive={chartAnimation}
                     label={(props) => `${props.name}: ${props.value}`}>
                     {comparisonVolumeData.map((item, i) => (<Cell key={item.id} fill={COLORS[i % COLORS.length]} />))}
                   </Pie>
                   <Tooltip /><Legend />
-                </PieChart>
-              </ResponsiveContainer>
+                  </PieChart>
+                </ResponsiveContainer>
+              </AccessibleChart>
             </CardContent>
           </Card>
 
@@ -289,9 +311,9 @@ export function AgentPerformanceClient({
 
       {/* Leaderboard */}
       <div className="flex flex-wrap items-center gap-3">
-        <Input placeholder="Buscar agente..." value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} className="w-64" />
+        <Input aria-label="Buscar agente" placeholder="Buscar agente..." value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} className="w-64" />
         <Select value={campaignFilter} onValueChange={(v) => v && setCampaignFilter(v)}>
-          <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label="Filtrar por campaña" className="w-48"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas las campañas</SelectItem>
             {campaigns.map((c) => (<SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>))}

@@ -1,6 +1,6 @@
 # Production Security Runbook — Qore / QA Form Creator
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 This is the production source of truth. Historical one-off deploy, password-reset,
 and data-fix scripts are not approved production paths.
@@ -64,6 +64,19 @@ AUTH_SECRET=<different-openssl-rand-hex-32>
 RATE_LIMIT_HASH_SECRET=<different-openssl-rand-hex-32>
 AUTH_URL=https://<real-production-host>
 LOG_LEVEL=info
+OPERATIONAL_TIME_ZONE=UTC
+EXPORT_MAX_EVALUATIONS=1000
+EXPORT_MAX_ANSWER_ROWS=10000
+EXPORT_MAX_QUESTION_COLUMNS=100
+EXPORT_MAX_CELLS=100000
+EXPORT_MAX_TEXT_BYTES=8000000
+EXPORT_MAX_REQUESTS_PER_MINUTE=4
+EXPORT_MAX_CONCURRENT_PER_USER=1
+EXPORT_MAX_CONCURRENT_GLOBAL=2
+EXPORT_LEASE_TIMEOUT_SECONDS=900
+OBSERVABILITY_SERVICE_NAME=qore-production
+ERROR_REPORTING_WEBHOOK_URL=https://<error-provider>/qore-errors
+ERROR_REPORTING_WEBHOOK_TOKEN=<provider-bearer-token-at-least-32-characters>
 BACKUP_ENCRYPTION_KEY_FILE=/opt/qa-form-creator/.backup-key
 BACKUP_REMOTE=<rclone-remote>:qore-production
 REQUIRE_OFFSITE_BACKUP=true
@@ -99,6 +112,126 @@ encrypted with the legacy passphrase have expired or been re-encrypted.
 `INITIAL_DEPLOY=true` is a one-time authorization. The deploy script accepts it only
 when PostgreSQL proves that `public` has zero tables. It must remain `false` for
 upgrades.
+
+### Operational calendar and export capacity
+
+`OPERATIONAL_TIME_ZONE` must be a valid IANA name such as `UTC` or
+`America/Havana`. It defines how every date-only filter, daily grouping and date label
+maps database instants to an operational day. Filters use the half-open interval from
+the first real instant of the selected start date through, but not including, the first
+instant after the selected end date. This remains correct on 23-hour and 25-hour DST
+days.
+
+The deploy host must provide the matching `/usr/share/zoneinfo` entry. The deploy and
+preflight scripts reject malformed names, path traversal and zones that are not
+installed on that host before Compose is started.
+
+Treat a timezone change as a production behavior change:
+
+1. Approve the new IANA value in the change ticket.
+2. Validate report boundaries around both DST transitions for that zone in staging.
+3. Compare a known dashboard/report period before and after the change.
+4. Deploy the value with the application; do not mix zones between replicas.
+5. Record the effective date and expected historical regrouping in the ticket.
+
+The nine export values are safety limits, not throughput targets. The defaults allow
+1,000 evaluations, 10,000 answer rows, 100 dynamic question columns, 100,000 estimated
+cells and 8,000,000 UTF-8 text bytes; admission permits four reservations per user per
+minute, one active export per user, two active exports globally and a 900-second
+abandoned-lease timeout. Application hard maximums are 2,500, 25,000, 200, 250,000,
+16,000,000, 60, 2, 4 and 3,600, respectively. XLSX detail capacity is estimated with
+its actual 21 cells per answer, not as one cell per answer. Values above these hard
+caps require an architecture change, not an environment override.
+All application replicas must receive the same nine values in one rollout; mixed
+limits make admission decisions depend on which replica acquires the global lock.
+
+Before hydration, Qore asks PostgreSQL for the answer-row total and every exportable
+UTF-8 text byte. ID selection, budget calculation and batched hydration share one
+`REPEATABLE READ` snapshot (60-second transaction timeout), followed by an in-memory
+budget recheck. Admission always acquires a transaction-scoped global PostgreSQL
+advisory lock before the per-user lock, then counts active append-only `AuditLog`
+reservations with PostgreSQL's clock. Global and per-user limits therefore apply across
+replicas without a deadlock-prone lock order. A denied admission records throttled
+`rejected` evidence (at most one row per user per minute) before returning its rate,
+per-user or global-capacity error. Every admitted export has
+one correlation ID and records `reserved`, campaign-scoped `started`, then exactly one
+terminal outcome (`generated`, `cancelled`, `failed` or `rejected`). A stream is
+`generated` only after its consumer observes EOF; cancellation before EOF must never be
+reported as generated.
+
+This path is not end-to-end streaming: the server retains the hydrated
+`snapshotResponses` collection before serialization and the current browser client
+materializes the HTTP response with `response.blob()`. The conservative row, cell, text
+and global-concurrency caps are the present memory boundary. Larger exports require a
+future asynchronous job that reads with a database cursor into durable object storage
+and lets the client download that artifact; do not bypass the hard caps for that use
+case.
+
+### Error reporting webhook contract
+
+The destination in `ERROR_REPORTING_WEBHOOK_URL` must accept an HTTPS `POST` with:
+
+```http
+Content-Type: application/json
+Authorization: Bearer <ERROR_REPORTING_WEBHOOK_TOKEN>
+```
+
+The body is one event. Optional fields are omitted when no value exists:
+
+```json
+{
+  "eventId": "<uuid>",
+  "occurredAt": "<ISO-8601 UTC timestamp>",
+  "service": "qore-production",
+  "environment": "production",
+  "source": "next-server | client-runtime | client-boundary | api-route",
+  "name": "Error",
+  "message": "<sanitized message>",
+  "digest": "<optional Next.js digest>",
+  "stack": "<optional sanitized stack>",
+  "path": "/path-without-query-string",
+  "method": "<optional method>",
+  "routePath": "/optional-route-without-query-string",
+  "routeType": "<optional route type>",
+  "userId": "<optional internal user id>",
+  "metadata": {
+    "key": "<sanitized scalar value>"
+  }
+}
+```
+
+Email addresses, credential-like tokens, sensitive query values and URL query strings
+are redacted before the structured log or webhook call. Cookies and authorization
+headers are not included. The receiver should return any `2xx` status within three
+seconds, deduplicate on `eventId`, retain the JSON according to the incident policy and
+alert on the agreed severity/rate rules.
+
+Webhook rejection, timeout or connection failure is recorded as a warning and does not
+replace the user-facing application error. Every event is also written to the
+structured application log under `operationalError`, so the log pipeline is the
+fallback evidence path.
+
+Before enabling the production URL:
+
+1. Create a dedicated receiver/stream and a token unique to Qore production.
+2. Store the token only in the password manager and `.env.production`; require at
+   least 32 characters and never paste it into a ticket, shell history or log query.
+3. Configure the receiver to accept the JSON fields above and preserve `eventId`.
+4. Trigger one controlled error in staging and confirm both the receiver event and the
+   matching structured log, with no raw email, cookie, authorization value or query
+   secret.
+5. Confirm the receiver responds within three seconds and that an unavailable receiver
+   does not prevent the application from showing its normal retry boundary.
+6. Rotate the bearer token using an overlap window supported by the provider; then
+   revoke and verify rejection of the former value.
+
+Client-runtime reports enter through Qore before reaching the provider. The endpoint
+requires an authenticated session and exact canonical same origin, counts the actual
+request stream up to 8 KiB even when `Content-Length` is absent or false, sends no-store
+responses and limits each user to 12 events per minute. Proxy-forwarded host headers
+are not accepted as origin authority. A burst of `401`,
+`403`, `413` or `429` responses on that endpoint is itself an operational signal to
+investigate, not a reason to relax those controls.
 
 ## Secret incident closure
 
@@ -146,6 +279,14 @@ bash -n scripts/*.sh
 bash scripts/verify-repository-secrets.sh
 git diff --check
 ```
+
+The required CI run supplies an empty PostgreSQL 16 service and must also pass, in
+order, migrations, runtime-role/database-security checks, the real response-concurrency
+test, the real distributed export-admission test (including different users competing
+for the global slot), the real CSV download/lifecycle test, the production build, the
+E2E-only seed and the full Playwright suite. Playwright
+contains the authenticated RBAC matrix, critical persistence flows, Pixel 7 navigation
+and the WCAG 2.1 A/AA axe checks. Never run the E2E seed against production.
 
 On the server, validate Compose without rendering expanded secrets to disk:
 

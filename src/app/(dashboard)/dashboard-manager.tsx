@@ -1,7 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Award,
   Calendar,
@@ -11,9 +9,10 @@ import {
   TrendingUp,
   UsersRound,
 } from "lucide-react";
-import { KpiCard } from "@/components/ui/kpi-card";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AgentsToCoach } from "@/components/dashboard/agents-to-coach";
+import { type CeaFamily, CeaGauges } from "@/components/dashboard/cea-gauges";
 import {
   BAR_COLORS,
   ContextBar,
@@ -24,31 +23,28 @@ import {
   Section,
   VolumeTrendCard,
 } from "@/components/dashboard/dashboard-shared";
-import { CeaGauges, type CeaFamily } from "@/components/dashboard/cea-gauges";
-import { NeedsAttentionStrip } from "@/components/dashboard/needs-attention-strip";
-import { AgentsToCoach } from "@/components/dashboard/agents-to-coach";
+import {
+  DataLoadError,
+  type DataLoadStatus,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
 import {
   EvaluatorCalibrationTable,
   type EvaluatorRow,
 } from "@/components/dashboard/evaluator-calibration-table";
-import {
-  getCriticalErrorAccuracy,
-  getDashboardCampaignKpis,
-  getDashboardCoachingInsights,
-  getDashboardDispositionAnalytics,
-  getDashboardEvaluatorActivity,
-  getDashboardOutcomeKpis,
-  getDashboardStats,
-  getResponseTrends,
-  getScoreDistribution,
-} from "@/server/queries/analytics";
+import { NeedsAttentionStrip } from "@/components/dashboard/needs-attention-strip";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { getDashboardManagerBundle } from "@/server/queries/analytics";
 import type { UiAccess } from "@/server/queries/ui-access";
 
-type Stats = Awaited<ReturnType<typeof getDashboardStats>>;
-type Insights = Awaited<ReturnType<typeof getDashboardCoachingInsights>>;
-type CampaignPerf = Awaited<ReturnType<typeof getDashboardCampaignKpis>>;
-type DispAnalytics = Awaited<ReturnType<typeof getDashboardDispositionAnalytics>>;
-type OutcomeKpis = Awaited<ReturnType<typeof getDashboardOutcomeKpis>>;
+type DashboardBundle = Awaited<ReturnType<typeof getDashboardManagerBundle>>;
+type Stats = DashboardBundle["stats"];
+type Insights = DashboardBundle["coachingInsights"];
+type CampaignPerf = DashboardBundle["campaignKpis"];
+type DispAnalytics = DashboardBundle["dispositionAnalytics"];
+type OutcomeKpis = DashboardBundle["outcomeKpis"];
 
 export function DashboardManager({
   userName,
@@ -63,7 +59,8 @@ export function DashboardManager({
   const [campaignId, setCampaignId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
+  const requestGeneration = useRef(0);
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [trends, setTrends] = useState<{ date: string; count: number; avgScore: number }[]>([]);
@@ -82,44 +79,45 @@ export function DashboardManager({
   });
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++requestGeneration.current;
+    setLoadStatus("loading");
     try {
       const cid = campaignId || undefined;
       const df = dateFrom || undefined;
       const dt = dateTo || undefined;
-      const [s, t, d, ceaData, ins, ev, cp, da, oc] = await Promise.all([
-        getDashboardStats(cid, df, dt),
-        getResponseTrends(cid, df, dt),
-        getScoreDistribution(cid, df, dt),
-        getCriticalErrorAccuracy(cid, df, dt),
-        getDashboardCoachingInsights(cid, df, dt),
-        getDashboardEvaluatorActivity(cid, df, dt),
-        getDashboardCampaignKpis(cid, df, dt),
-        getDashboardDispositionAnalytics(cid, df, dt),
-        getDashboardOutcomeKpis(cid, df, dt),
-      ]);
-      setStats(s);
-      setTrends(t);
-      setDistribution(d);
-      setCea(ceaData);
-      setInsights(ins);
-      setEvaluators(ev);
-      setCampaignPerf(cp);
-      setDispAnalytics(da);
-      setOutcomeKpis(oc);
+      const data = await getDashboardManagerBundle(cid, df, dt);
+      if (requestId !== requestGeneration.current) return;
+      setStats(data.stats);
+      setTrends(data.trends);
+      setDistribution(data.distribution);
+      setCea(data.criticalErrorAccuracy);
+      setInsights(data.coachingInsights);
+      setEvaluators(data.evaluatorActivity);
+      setCampaignPerf(data.campaignKpis);
+      setDispAnalytics(data.dispositionAnalytics);
+      setOutcomeKpis(data.outcomeKpis);
+      setLoadStatus(data.stats.responseCount === 0 ? "empty" : "success");
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      if (requestId !== requestGeneration.current) return;
+      reportDataLoadError(e, "dashboard-manager");
+      setLoadStatus("error");
     }
   }, [campaignId, dateFrom, dateTo]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [loadData]);
 
-  if (loading && !stats) return <DashboardSpinner />;
-  if (!stats) return null;
+  if (loadStatus === "loading" && !stats) return <DashboardSpinner />;
+  if (loadStatus === "error") {
+    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar el dashboard" />;
+  }
+  if (!stats) {
+    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar el dashboard" />;
+  }
 
   const canOpenKpiDetails = access.canViewKPIs;
   const countTrend = trends.map((t) => ({ value: t.count }));
@@ -153,8 +151,7 @@ export function DashboardManager({
         title="Dashboard"
         subtitle={
           <>
-            Bienvenido de vuelta,{" "}
-            <span className="font-medium text-foreground">{userName}</span>
+            Bienvenido de vuelta, <span className="font-medium text-foreground">{userName}</span>
           </>
         }
         campaigns={campaigns}
@@ -167,6 +164,16 @@ export function DashboardManager({
           setDateTo(t);
         }}
       />
+
+      {loadStatus === "empty" ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground"
+        >
+          No hay evaluaciones para los filtros seleccionados. Los indicadores se muestran en cero.
+        </div>
+      ) : null}
 
       {/* KPI row — program health (no "Total Formularios"); columns match card count so the row fills evenly */}
       <div
@@ -242,7 +249,10 @@ export function DashboardManager({
 
       {/* CEA — the COPC differentiator */}
       <Section delay={0.08}>
-        <CeaGauges data={cea} onViewIncidents={canOpenKpiDetails ? viewComplianceIncidents : undefined} />
+        <CeaGauges
+          data={cea}
+          onViewIncidents={canOpenKpiDetails ? viewComplianceIncidents : undefined}
+        />
       </Section>
 
       {/* Distribution + volume trend (coverage signals) */}
@@ -349,7 +359,9 @@ export function DashboardManager({
                           type="button"
                           key={entry.id}
                           className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                            isSelected ? "bg-violet-500/10 ring-1 ring-violet-500/30" : "hover:bg-muted/40"
+                            isSelected
+                              ? "bg-violet-500/10 ring-1 ring-violet-500/30"
+                              : "hover:bg-muted/40"
                           }`}
                           onClick={() => setCampaignId(isSelected ? "" : entry.id)}
                           title={`${entry.name} · ${entry.totalEvaluations} evaluaciones`}
@@ -365,7 +377,9 @@ export function DashboardManager({
                             {hasData && (
                               <div
                                 className={`h-full rounded-full transition-all ${
-                                  entry.avgScore >= entry.targetAvgScore ? "bg-emerald-500" : "bg-rose-500"
+                                  entry.avgScore >= entry.targetAvgScore
+                                    ? "bg-emerald-500"
+                                    : "bg-rose-500"
                                 }`}
                                 style={{ width: `${Math.min(100, entry.avgScore)}%` }}
                               />
@@ -373,20 +387,28 @@ export function DashboardManager({
                           </div>
                           <div className="flex w-[190px] shrink-0 items-center justify-end gap-1.5">
                             <Badge
-                              variant={entry.avgScore >= entry.targetAvgScore ? "default" : "destructive"}
+                              variant={
+                                entry.avgScore >= entry.targetAvgScore ? "default" : "destructive"
+                              }
                               className="tabular-nums"
                             >
-                              {hasData ? `${entry.avgScore.toFixed(1)}/${entry.targetAvgScore}%` : "-"}
+                              {hasData
+                                ? `${entry.avgScore.toFixed(1)}/${entry.targetAvgScore}%`
+                                : "-"}
                             </Badge>
                             <Badge
-                              variant={entry.passRate >= entry.targetPassRate ? "outline" : "destructive"}
+                              variant={
+                                entry.passRate >= entry.targetPassRate ? "outline" : "destructive"
+                              }
                               className="tabular-nums"
                             >
                               PR {entry.passRate}%
                             </Badge>
                             <Badge
                               variant={
-                                entry.fatalFailCount <= entry.fatalFailuresAllowed ? "outline" : "destructive"
+                                entry.fatalFailCount <= entry.fatalFailuresAllowed
+                                  ? "outline"
+                                  : "destructive"
                               }
                               className="tabular-nums"
                             >
@@ -435,7 +457,9 @@ export function DashboardManager({
                           key={entry.id}
                           aria-disabled={!canOpenKpiDetails}
                           className={`group flex min-h-0 w-full flex-col justify-center rounded-md border bg-card px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                            canOpenKpiDetails ? "cursor-pointer hover:bg-muted/40" : "cursor-default"
+                            canOpenKpiDetails
+                              ? "cursor-pointer hover:bg-muted/40"
+                              : "cursor-default"
                           }`}
                           onClick={
                             canOpenKpiDetails

@@ -57,7 +57,11 @@ odoo.local.env
 
 # typescript
 *.tsbuildinfo
-# next-env.d.ts committed intentionally (needed for TS in new machine)
+next-env.d.ts
+
+# Python bytecode
+__pycache__/
+*.py[cod]
 
 # deploy temp dirs
 /_local_save/

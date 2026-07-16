@@ -31,7 +31,13 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["setup"],
-      testIgnore: /.*\.setup\.ts/,
+      testIgnore: [/.*\.setup\.ts/, /.*\.mobile\.spec\.ts/],
+    },
+    {
+      name: "mobile-chromium",
+      testMatch: /.*\.mobile\.spec\.ts/,
+      use: { ...devices["Pixel 7"] },
+      dependencies: ["setup"],
     },
   ],
   webServer: {

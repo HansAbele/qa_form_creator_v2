@@ -42,6 +42,42 @@ const qaUser = {
 
 const CLIENT_RESPONSE_ID = "11111111-1111-4111-8111-111111111111";
 const SAVED_UPDATED_AT = new Date("2026-05-01T02:00:00.000Z");
+const RESPONSE_UNAVAILABLE_ERROR = {
+  name: "ExpectedResponseActionError",
+  code: "NOT_FOUND",
+  message: "Evaluacion no disponible",
+};
+const RESPONSE_UNAVAILABLE_RESULT = {
+  ok: false,
+  error: {
+    code: "NOT_FOUND",
+    message: "Evaluacion no disponible",
+  },
+};
+const FORM_UNAVAILABLE_RESULT = {
+  ok: false,
+  error: {
+    code: "NOT_FOUND",
+    message: "Formulario no disponible",
+  },
+};
+
+async function captureResponseError(operation: () => Promise<unknown>) {
+  try {
+    await operation();
+    throw new Error("La operacion debio fallar");
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return {
+      name: error.name,
+      code:
+        "code" in error && typeof (error as { code?: unknown }).code === "string"
+          ? (error as { code: string }).code
+          : undefined,
+      message: error.message,
+    };
+  }
+}
 
 function validForm() {
   return {
@@ -97,6 +133,110 @@ function validForm() {
   };
 }
 
+function storedResponse(options: {
+  id: string;
+  campaignId: string;
+  evaluatorId?: string;
+  status?: string;
+  corruptAnswer?: boolean;
+}) {
+  const formId = `form-${options.campaignId}`;
+  return {
+    id: options.id,
+    formId,
+    formVersion: "1.0.0",
+    agentId: `agent-${options.campaignId}`,
+    evaluatorId: options.evaluatorId ?? "qa-1",
+    dispositionId: null,
+    score: 80,
+    result: options.status === "DRAFT" ? null : "PASS",
+    hasFatalFail: false,
+    status: options.status ?? "SUBMITTED",
+    scoringSnapshot: null,
+    settingsSnapshot: null,
+    formSnapshot: null,
+    createdAt: new Date("2026-05-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-01T01:00:00.000Z"),
+    submittedAt: options.status === "DRAFT" ? null : new Date("2026-05-01T00:00:00.000Z"),
+    cancellationReason: null,
+    form: { id: formId, title: "QA Form", campaignId: options.campaignId },
+    agent: {
+      id: `agent-${options.campaignId}`,
+      name: "Agent",
+      agentCode: null,
+      campaignId: options.campaignId,
+    },
+    evaluator: { id: options.evaluatorId ?? "qa-1", name: "QA User" },
+    disposition: null,
+    answers: options.corruptAnswer
+      ? [
+          {
+            id: "answer-corrupt",
+            questionId: "question-corrupt",
+            value: "secret",
+            score: 100,
+            comment: null,
+            isFatalFail: false,
+            notApplicable: false,
+            question: {
+              id: "question-corrupt",
+              formId: "form-foreign",
+              label: "Dato ajeno",
+              type: "TEXT",
+              options: null,
+              weight: 0,
+              fatal: false,
+              fatalOptions: null,
+              requiresCommentOnFail: false,
+              formCategory: null,
+            },
+            category: null,
+          },
+        ]
+      : [],
+  };
+}
+
+function responseUpdatePayload(responseId: string, formId: string) {
+  return {
+    responseId,
+    expectedUpdatedAt: "2026-05-01T01:00:00.000Z",
+    formId,
+    agentId: "agent-1",
+    dispositionId: "disp-1",
+    answers: [
+      { questionId: "q-rating", value: "5" },
+      { questionId: "q-select", value: "Good" },
+    ],
+  };
+}
+
+async function expectUnavailableAcrossResponseIdEntrypoints(responseId: string, formId: string) {
+  await expect(captureResponseError(() => getResponseById(responseId))).resolves.toEqual(
+    RESPONSE_UNAVAILABLE_ERROR,
+  );
+  await expect(submitResponseAction(responseUpdatePayload(responseId, formId))).resolves.toEqual(
+    RESPONSE_UNAVAILABLE_RESULT,
+  );
+  await expect(
+    cancelResponseAction({
+      id: responseId,
+      expectedUpdatedAt: "2026-05-01T01:00:00.000Z",
+      reason: "Duplicate evaluation",
+    }),
+  ).resolves.toEqual(RESPONSE_UNAVAILABLE_RESULT);
+
+  expect(prismaMock.response.findUnique).toHaveBeenCalledTimes(3);
+  for (const [query] of prismaMock.response.findUnique.mock.calls) {
+    expect(query.where).toEqual(
+      expect.objectContaining({
+        id: responseId,
+        AND: expect.any(Array),
+      }),
+    );
+  }
+}
+
 describe("submitResponse validation and RBAC", () => {
   beforeEach(() => {
     resetPrismaMock();
@@ -140,6 +280,153 @@ describe("submitResponse validation and RBAC", () => {
       status: "SUBMITTED",
       updatedAt: SAVED_UPDATED_AT,
     });
+  });
+
+  it("returns one contract for a nonexistent response ID on read, update and cancellation", async () => {
+    await expectUnavailableAcrossResponseIdEntrypoints("response-missing", "form-1");
+
+    expect(prismaMock.response.update).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("scopes a new evaluation form lookup by canEvaluate before hydrating it", async () => {
+    await submitResponse({
+      clientResponseId: CLIENT_RESPONSE_ID,
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      answers: [
+        { questionId: "q-rating", value: "4" },
+        { questionId: "q-select", value: "Good" },
+      ],
+    });
+
+    expect(prismaMock.form.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "form-1",
+          AND: [
+            {
+              campaignId: { in: ["campaign-1"] },
+              campaign: {
+                users: {
+                  some: { userId: "qa-1", canEvaluate: true },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+    expect(prismaMock.userCampaign.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("returns the same form contract when a new evaluation form is missing or outside scope", async () => {
+    prismaMock.form.findUnique.mockResolvedValue(null);
+
+    await expect(
+      submitResponseAction({
+        clientResponseId: "22222222-2222-4222-8222-222222222222",
+        formId: "form-missing",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        answers: [],
+      }),
+    ).resolves.toEqual(FORM_UNAVAILABLE_RESULT);
+    await expect(
+      submitResponseAction({
+        clientResponseId: "33333333-3333-4333-8333-333333333333",
+        formId: "form-foreign",
+        agentId: "agent-2",
+        dispositionId: "disp-2",
+        answers: [],
+      }),
+    ).resolves.toEqual(FORM_UNAVAILABLE_RESULT);
+
+    expect(prismaMock.form.findUnique).toHaveBeenCalledTimes(2);
+    for (const [query] of prismaMock.form.findUnique.mock.calls) {
+      expect(query.where).toEqual(
+        expect.objectContaining({
+          AND: [
+            expect.objectContaining({
+              campaignId: { in: ["campaign-1"] },
+              campaign: {
+                users: {
+                  some: { userId: "qa-1", canEvaluate: true },
+                },
+              },
+            }),
+          ],
+        }),
+      );
+    }
+    expect(prismaMock.agent.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.disposition.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.response.create).not.toHaveBeenCalled();
+  });
+
+  it("validates an edit form ID against the scoped response before loading any form", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEditEvaluations: true,
+    });
+    prismaMock.response.findUnique.mockResolvedValue(
+      storedResponse({
+        id: "response-1",
+        campaignId: "campaign-1",
+        evaluatorId: "qa-2",
+      }),
+    );
+
+    await expect(
+      submitResponseAction(
+        responseUpdatePayload("response-1", "form-supplied-by-untrusted-client"),
+      ),
+    ).resolves.toEqual(FORM_UNAVAILABLE_RESULT);
+
+    expect(prismaMock.response.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "response-1", AND: expect.any(Array) }),
+      }),
+    );
+    expect(prismaMock.form.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.response.update).not.toHaveBeenCalled();
+  });
+
+  it("returns the same contract for a response ID outside the user's campaign scope", async () => {
+    prismaMock.response.findUnique.mockResolvedValue(
+      storedResponse({
+        id: "response-foreign",
+        campaignId: "campaign-2",
+        evaluatorId: "qa-2",
+      }),
+    );
+
+    await expectUnavailableAcrossResponseIdEntrypoints("response-foreign", "form-campaign-2");
+
+    expect(prismaMock.response.update).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("returns the same contract for a scoped response ID with a corrupt answer relation", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canEvaluate: true,
+      canEditEvaluations: true,
+    });
+    prismaMock.response.findUnique.mockResolvedValue(
+      storedResponse({
+        id: "response-corrupt",
+        campaignId: "campaign-1",
+        status: "DRAFT",
+        corruptAnswer: true,
+      }),
+    );
+
+    await expectUnavailableAcrossResponseIdEntrypoints("response-corrupt", "form-campaign-1");
+
+    expect(prismaMock.response.update).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("creates a response only when form, agent and disposition share the campaign", async () => {
@@ -220,7 +507,9 @@ describe("submitResponse validation and RBAC", () => {
     });
 
     expect(prismaMock.response.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: CLIENT_RESPONSE_ID } }),
+      expect.objectContaining({
+        where: expect.objectContaining({ id: CLIENT_RESPONSE_ID }),
+      }),
     );
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
@@ -299,7 +588,7 @@ describe("submitResponse validation and RBAC", () => {
           { questionId: "q-select", value: "Good" },
         ],
       }),
-    ).rejects.toThrow("El identificador de evaluacion ya fue usado en otro contexto");
+    ).rejects.toMatchObject(RESPONSE_UNAVAILABLE_ERROR);
 
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
@@ -401,9 +690,7 @@ describe("submitResponse validation and RBAC", () => {
       answers: [],
     });
 
-    await expect(getResponseById("response-2")).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
-    );
+    await expect(getResponseById("response-2")).rejects.toThrow("Evaluacion no disponible");
   });
 
   it("checks campaign permission before exposing cancellation or corrupt-relation state", async () => {
@@ -420,7 +707,9 @@ describe("submitResponse validation and RBAC", () => {
       answers: [],
     });
 
-    await expect(getResponseById("response-foreign")).rejects.toThrow("No autorizado");
+    await expect(getResponseById("response-foreign")).rejects.toMatchObject(
+      RESPONSE_UNAVAILABLE_ERROR,
+    );
   });
 
   it("lets a QA resume only their own draft with evaluate access", async () => {
@@ -489,9 +778,7 @@ describe("submitResponse validation and RBAC", () => {
       ],
     });
 
-    await expect(getResponseById("response-2")).rejects.toThrow(
-      "La evaluacion contiene relaciones de otra campana",
-    );
+    await expect(getResponseById("response-2")).rejects.toMatchObject(RESPONSE_UNAVAILABLE_ERROR);
   });
 
   it("rejects an agent from another campaign", async () => {
@@ -791,6 +1078,26 @@ describe("submitResponse validation and RBAC", () => {
       ],
     });
 
+    expect(prismaMock.response.findUnique.mock.invocationCallOrder[0]).toBeLessThan(
+      prismaMock.form.findUnique.mock.invocationCallOrder[0],
+    );
+    expect(prismaMock.form.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "form-1",
+          AND: [
+            {
+              campaignId: { in: ["campaign-1"] },
+              campaign: {
+                users: {
+                  some: { userId: "qa-1", canEditEvaluations: true },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
     expect(prismaMock.response.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "response-1", updatedAt, status: "SUBMITTED" },
@@ -853,11 +1160,7 @@ describe("submitResponse validation and RBAC", () => {
         ],
       }),
     ).resolves.toEqual({
-      ok: false,
-      error: {
-        code: "VALIDATION",
-        message: "La evaluacion contiene relaciones inconsistentes",
-      },
+      ...RESPONSE_UNAVAILABLE_RESULT,
     });
     expect(prismaMock.userCampaign.findUnique).toHaveBeenCalled();
     expect(prismaMock.response.update).not.toHaveBeenCalled();
@@ -1265,12 +1568,12 @@ describe("submitResponse validation and RBAC", () => {
     });
 
     await expect(
-      cancelResponse({
+      cancelResponseAction({
         id: "response-foreign",
         expectedUpdatedAt: updatedAt.toISOString(),
         reason: "Duplicate evaluation",
       }),
-    ).rejects.toThrow("No autorizado");
+    ).resolves.toEqual(RESPONSE_UNAVAILABLE_RESULT);
   });
 
   it("does not cancel an evaluation changed by another session", async () => {

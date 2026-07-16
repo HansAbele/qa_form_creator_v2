@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import { AnimatedNumber } from "./animated-number";
+import { useChartAnimation } from "./use-chart-animation";
 
 type Tone = "orange" | "navy" | "emerald" | "amber" | "rose" | "violet";
 
@@ -95,6 +96,7 @@ export function KpiCard({
   index = 0,
 }: KpiCardProps) {
   const T = TONES[tone];
+  const chartAnimation = useChartAnimation();
 
   return (
     <motion.div
@@ -152,23 +154,13 @@ export function KpiCard({
 
           {/* Mini sparkline */}
           {trend && trend.length > 1 && (
-            <div className="mt-2 h-8 w-full">
+            <div aria-hidden="true" className="mt-2 h-8 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trend}>
                   <defs>
-                    <linearGradient
-                      id={`spark-${tone}-${index}`}
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
+                    <linearGradient id={`spark-${tone}-${index}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={T.chart} stopOpacity={0.4} />
-                      <stop
-                        offset="100%"
-                        stopColor={T.chart}
-                        stopOpacity={0}
-                      />
+                      <stop offset="100%" stopColor={T.chart} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <Area
@@ -177,7 +169,7 @@ export function KpiCard({
                     stroke={T.chart}
                     strokeWidth={1.5}
                     fill={`url(#spark-${tone}-${index})`}
-                    isAnimationActive={true}
+                    isAnimationActive={chartAnimation}
                     animationDuration={900}
                   />
                 </AreaChart>
@@ -192,7 +184,7 @@ export function KpiCard({
             T.iconBg,
           )}
         >
-          <Icon className={cn("h-5 w-5", T.icon)} />
+          <Icon aria-hidden="true" className={cn("h-5 w-5", T.icon)} />
         </div>
       </div>
     </motion.div>

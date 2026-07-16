@@ -1,29 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { motion } from "motion/react";
 import { ArrowLeft, Award, Target, TrendingUp, UsersRound } from "lucide-react";
+import { motion } from "motion/react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
+import {
+  DataLoadError,
+  type DataLoadStatus,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  type ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  type ChartConfig,
 } from "@/components/ui/chart";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { getTeamPerformance } from "@/server/queries/analytics";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
+import { summarizeChartData } from "@/lib/chart-accessibility";
 import type { AppSettings } from "@/lib/settings";
+import { getTeamPerformance } from "@/server/queries/analytics";
 
 const scoreConfig = {
   avgScore: { label: "Score Promedio", color: "#8b5cf6" },
@@ -46,25 +46,35 @@ function Section({ children, delay = 0 }: { children: React.ReactNode; delay?: n
 }
 
 export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
+  const chartAnimation = useChartAnimation();
   const router = useRouter();
   const [teams, setTeams] = useState<TeamPerf[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
+  const requestGeneration = useRef(0);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++requestGeneration.current;
+    setLoadStatus("loading");
     try {
       const data = await getTeamPerformance();
+      if (requestId !== requestGeneration.current) return;
       setTeams(data);
-    } finally {
-      setLoading(false);
+      setLoadStatus(data.length === 0 ? "empty" : "success");
+    } catch (error) {
+      if (requestId !== requestGeneration.current) return;
+      reportDataLoadError(error, "teams-analytics");
+      setLoadStatus("error");
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [loadData]);
 
-  if (loading) {
+  if (loadStatus === "loading") {
     return (
       <div className="flex h-[50vh] items-center justify-center">
         <motion.div
@@ -76,9 +86,11 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
     );
   }
 
-  const avgAll = teams.length > 0
-    ? teams.reduce((s, t) => s + t.avgScore, 0) / teams.length
-    : 0;
+  if (loadStatus === "error") {
+    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar los equipos" />;
+  }
+
+  const avgAll = teams.length > 0 ? teams.reduce((s, t) => s + t.avgScore, 0) / teams.length : 0;
 
   return (
     <div className="space-y-6">
@@ -129,19 +141,51 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
           </CardHeader>
           <CardContent>
             {teams.length > 0 ? (
-              <ChartContainer config={scoreConfig} className="h-[400px] w-full">
+              <ChartContainer
+                config={scoreConfig}
+                accessibilityLabel="Comparación de equipos por score promedio"
+                accessibilityDescription={summarizeChartData(
+                  teams.map(
+                    (team) =>
+                      `${team.name}: score ${team.avgScore.toFixed(1)}%, ${team.evalCount} evaluaciones`,
+                  ),
+                )}
+                className="h-[400px] w-full"
+              >
                 <BarChart data={teams} layout="vertical" margin={{ left: 20, right: 12 }}>
-                  <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis type="number" domain={[0, 100]} tickLine={false} axisLine={false} className="text-xs" />
-                  <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={120} className="text-xs" />
+                  <CartesianGrid
+                    horizontal={false}
+                    strokeDasharray="3 3"
+                    className="stroke-border"
+                  />
+                  <XAxis
+                    type="number"
+                    domain={[0, 100]}
+                    tickLine={false}
+                    axisLine={false}
+                    className="text-xs"
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tickLine={false}
+                    axisLine={false}
+                    width={120}
+                    className="text-xs"
+                  />
                   <ChartTooltip
                     cursor={{ fill: "rgba(139,92,246,0.08)" }}
-                    content={<ChartTooltipContent formatter={(v) => [`${Number(v).toFixed(1)}%`, "Score"]} />}
+                    content={
+                      <ChartTooltipContent
+                        formatter={(v) => [`${Number(v).toFixed(1)}%`, "Score"]}
+                      />
+                    }
                   />
                   <Bar
                     dataKey="avgScore"
                     radius={[0, 6, 6, 0]}
                     animationDuration={900}
+                    isAnimationActive={chartAnimation}
                     className="cursor-pointer"
                     onClick={(data) => {
                       const entry = data as unknown as { payload?: { id?: string } };
@@ -183,7 +227,9 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
                   <span className="font-medium">{t.name}</span>
                   <span className="text-center">{t.agentCount} agentes</span>
                   <div className="flex justify-center">
-                    <Badge variant={t.avgScore >= settings.passThreshold ? "default" : "destructive"}>
+                    <Badge
+                      variant={t.avgScore >= settings.passThreshold ? "default" : "destructive"}
+                    >
                       {t.avgScore.toFixed(1)}%
                     </Badge>
                   </div>

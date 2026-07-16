@@ -59,9 +59,10 @@ function assertSafeSeedTarget() {
 async function main() {
   assertSafeSeedTarget();
 
-  const [adminPassword, qaPassword, supervisorPassword] = await Promise.all([
+  const [adminPassword, qaPassword, qaElevatedPassword, supervisorPassword] = await Promise.all([
     hash(requireStrongPassword("QORE_SEED_ADMIN_PASSWORD"), 12),
     hash(requireStrongPassword("QORE_SEED_QA_PASSWORD"), 12),
+    hash(requireStrongPassword("QORE_SEED_QA_ELEVATED_PASSWORD"), 12),
     hash(requireStrongPassword("QORE_SEED_SUPERVISOR_PASSWORD"), 12),
   ]);
   const adminAccess = {
@@ -109,6 +110,21 @@ async function main() {
   });
   console.log(`Campaign: ${campaign.name}`);
 
+  const restrictedCampaign = await prisma.campaign.upsert({
+    where: { id: "restricted-campaign" },
+    update: {
+      name: "Backoffice Restricted",
+      description: "E2E isolation fixture that must remain hidden from unassigned users",
+      active: true,
+    },
+    create: {
+      id: "restricted-campaign",
+      name: "Backoffice Restricted",
+      description: "E2E isolation fixture that must remain hidden from unassigned users",
+    },
+  });
+  console.log(`Campaign: ${restrictedCampaign.name}`);
+
   // ─── Assign admin to campaign ────────────────────────
   await prisma.userCampaign.upsert({
     where: {
@@ -121,6 +137,21 @@ async function main() {
     create: {
       userId: admin.id,
       campaignId: campaign.id,
+      ...adminAccess,
+    },
+  });
+
+  await prisma.userCampaign.upsert({
+    where: {
+      userId_campaignId: {
+        userId: admin.id,
+        campaignId: restrictedCampaign.id,
+      },
+    },
+    update: adminAccess,
+    create: {
+      userId: admin.id,
+      campaignId: restrictedCampaign.id,
       ...adminAccess,
     },
   });
@@ -157,6 +188,38 @@ async function main() {
     },
   });
   console.log(`QA user: ${qaUser.email}`);
+
+  const qaElevatedUser = await prisma.user.upsert({
+    where: { email: "qa.elevated@qa.local" },
+    update: {
+      role: Role.QA,
+      password: qaElevatedPassword,
+      active: true,
+      sessionVersion: { increment: 1 },
+    },
+    create: {
+      email: "qa.elevated@qa.local",
+      name: "QA Elevated",
+      password: qaElevatedPassword,
+      role: Role.QA,
+    },
+  });
+
+  await prisma.userCampaign.upsert({
+    where: {
+      userId_campaignId: {
+        userId: qaElevatedUser.id,
+        campaignId: campaign.id,
+      },
+    },
+    update: adminAccess,
+    create: {
+      userId: qaElevatedUser.id,
+      campaignId: campaign.id,
+      ...adminAccess,
+    },
+  });
+  console.log(`Elevated QA user: ${qaElevatedUser.email}`);
 
   const supervisorUser = await prisma.user.upsert({
     where: { email: "supervisor@qa.local" },
@@ -219,6 +282,60 @@ async function main() {
     agents.push(agent);
   }
   console.log(`Agents created: ${agents.length}`);
+
+  await prisma.agent.upsert({
+    where: {
+      agentCode_campaignId: {
+        agentCode: "restricted.agent",
+        campaignId: restrictedCampaign.id,
+      },
+    },
+    update: { name: "Restricted Agent", active: true },
+    create: {
+      name: "Restricted Agent",
+      agentCode: "restricted.agent",
+      campaignId: restrictedCampaign.id,
+    },
+  });
+
+  await Promise.all([
+    prisma.disposition.upsert({
+      where: {
+        name_campaignId: {
+          name: "Resolved",
+          campaignId: campaign.id,
+        },
+      },
+      update: { active: true, outcomeType: "RESOLVED" },
+      create: {
+        name: "Resolved",
+        code: "RES",
+        campaignId: campaign.id,
+        active: true,
+        outcomeType: "RESOLVED",
+        isSystem: true,
+        createdById: admin.id,
+      },
+    }),
+    prisma.disposition.upsert({
+      where: {
+        name_campaignId: {
+          name: "Restricted Resolution",
+          campaignId: restrictedCampaign.id,
+        },
+      },
+      update: { active: true, outcomeType: "RESOLVED" },
+      create: {
+        name: "Restricted Resolution",
+        code: "SEC",
+        campaignId: restrictedCampaign.id,
+        active: true,
+        outcomeType: "RESOLVED",
+        isSystem: true,
+        createdById: admin.id,
+      },
+    }),
+  ]);
 
   // ─── Sample form ─────────────────────────────────────
   const existingForm = await prisma.form.findFirst({
@@ -378,6 +495,145 @@ async function main() {
 
     console.log(`Form created: ${form.title}`);
   }
+
+  const restrictedForm = await prisma.form.upsert({
+    where: { id: "restricted-campaign-form" },
+    update: {
+      title: "Backoffice Restricted QA Form",
+      description: "E2E fixture for campaign-level data isolation",
+      campaignId: restrictedCampaign.id,
+      status: "PUBLISHED",
+      publishedAt: new Date(),
+      archivedAt: null,
+    },
+    create: {
+      id: "restricted-campaign-form",
+      title: "Backoffice Restricted QA Form",
+      description: "E2E fixture for campaign-level data isolation",
+      campaignId: restrictedCampaign.id,
+      createdById: admin.id,
+      status: "PUBLISHED",
+      publishedAt: new Date(),
+    },
+  });
+
+  const restrictedFormCategory = await prisma.formCategory.upsert({
+    where: {
+      formId_qaCategoryId: {
+        formId: restrictedForm.id,
+        qaCategoryId: "qa_soft_skills",
+      },
+    },
+    update: { weight: 100, sortOrder: 0 },
+    create: {
+      formId: restrictedForm.id,
+      qaCategoryId: "qa_soft_skills",
+      weight: 100,
+      sortOrder: 0,
+    },
+  });
+
+  await prisma.question.upsert({
+    where: { id: "restricted-campaign-rating-question" },
+    update: {
+      formId: restrictedForm.id,
+      formCategoryId: restrictedFormCategory.id,
+      type: QuestionType.RATING,
+      label: "Restricted quality score",
+      required: true,
+      weight: 100,
+      order: 0,
+    },
+    create: {
+      id: "restricted-campaign-rating-question",
+      formId: restrictedForm.id,
+      formCategoryId: restrictedFormCategory.id,
+      type: QuestionType.RATING,
+      label: "Restricted quality score",
+      required: true,
+      weight: 100,
+      order: 0,
+    },
+  });
+
+  await Promise.all([
+    prisma.notification.upsert({
+      where: { id: "e2e-notification-visible" },
+      update: {
+        userId: qaUser.id,
+        campaignId: campaign.id,
+        type: "system",
+        severity: "INFO",
+        title: "E2E Customer Service notice",
+        body: "Visible notification for the assigned campaign",
+        href: null,
+        requiredPermission: "canViewDashboard",
+        readAt: null,
+        archivedAt: null,
+      },
+      create: {
+        id: "e2e-notification-visible",
+        userId: qaUser.id,
+        campaignId: campaign.id,
+        type: "system",
+        severity: "INFO",
+        title: "E2E Customer Service notice",
+        body: "Visible notification for the assigned campaign",
+        requiredPermission: "canViewDashboard",
+      },
+    }),
+    prisma.notification.upsert({
+      where: { id: "e2e-notification-restricted" },
+      update: {
+        userId: qaUser.id,
+        campaignId: restrictedCampaign.id,
+        type: "system",
+        severity: "CRITICAL",
+        title: "E2E Backoffice secret notice",
+        body: "This notification must be filtered by campaign access",
+        href: null,
+        requiredPermission: "canViewDashboard",
+        readAt: null,
+        archivedAt: null,
+      },
+      create: {
+        id: "e2e-notification-restricted",
+        userId: qaUser.id,
+        campaignId: restrictedCampaign.id,
+        type: "system",
+        severity: "CRITICAL",
+        title: "E2E Backoffice secret notice",
+        body: "This notification must be filtered by campaign access",
+        requiredPermission: "canViewDashboard",
+      },
+    }),
+  ]);
+
+  await prisma.auditLog.createMany({
+    data: [
+      {
+        id: "e2e-audit-visible",
+        userId: qaElevatedUser.id,
+        campaignId: campaign.id,
+        module: "E2E",
+        action: "VISIBLE_FIXTURE",
+        entityType: "Campaign",
+        entityId: campaign.id,
+        impact: "E2E Customer Service audit event",
+      },
+      {
+        id: "e2e-audit-restricted",
+        userId: admin.id,
+        campaignId: restrictedCampaign.id,
+        module: "E2E",
+        action: "RESTRICTED_FIXTURE",
+        entityType: "Campaign",
+        entityId: restrictedCampaign.id,
+        impact: "E2E Backoffice secret audit event",
+      },
+    ],
+    skipDuplicates: true,
+  });
 
   console.log("\nSeed completed successfully!");
   console.log("─────────────────────────────");

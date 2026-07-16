@@ -43,6 +43,7 @@ jobs:
       NEXT_TELEMETRY_DISABLED: 1
       QORE_SEED_ADMIN_PASSWORD: Ci-Admin-Secure-2026!
       QORE_SEED_QA_PASSWORD: Ci-Qa-Secure-2026!
+      QORE_SEED_QA_ELEVATED_PASSWORD: Ci-Qa-Elevated-2026!
       QORE_SEED_SUPERVISOR_PASSWORD: Ci-Supervisor-Secure-2026!
 
     steps:
@@ -113,6 +114,30 @@ jobs:
 
       - name: Verify atomic concurrent login admission
         run: DATABASE_URL="$DB_APP_DATABASE_URL" pnpm exec tsx scripts/test-rate-limit-concurrency.ts
+
+      - name: Verify optimistic response concurrency on PostgreSQL 16
+        run: |
+          test -n "$DB_APP_DATABASE_URL"
+          DATABASE_URL="$DB_APP_DATABASE_URL" \
+            RESPONSE_CONCURRENCY_DATABASE_URL="$DB_APP_DATABASE_URL" \
+            RESPONSE_CONCURRENCY_ADMIN_DATABASE_URL="$DATABASE_URL" \
+            pnpm test:integration:response-concurrency
+
+      - name: Verify concurrent export admission on PostgreSQL 16
+        run: |
+          test -n "$DB_APP_DATABASE_URL"
+          DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_ADMISSION_DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_ADMISSION_ADMIN_DATABASE_URL="$DATABASE_URL" \
+            pnpm test:integration:export-admission
+
+      - name: Verify authorized CSV export lifecycle on PostgreSQL 16
+        run: |
+          test -n "$DB_APP_DATABASE_URL"
+          DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_DOWNLOAD_DATABASE_URL="$DB_APP_DATABASE_URL" \
+            EXPORT_DOWNLOAD_ADMIN_DATABASE_URL="$DATABASE_URL" \
+            pnpm test:integration:export-download
 
       - name: Reject migration drift
         run: >-
