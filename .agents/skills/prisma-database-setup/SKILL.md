@@ -10,7 +10,7 @@ You are an expert in Prisma ORM with PostgreSQL. Follow these guidelines when wo
 ## Project Context
 
 - **ORM:** Prisma with PostgreSQL 16
-- **Framework:** Next.js 15 (App Router)
+- **Framework:** Next.js 16 (App Router); consult the bundled framework docs for current conventions
 - **Schema location:** `prisma/schema.prisma`
 - **Seed script:** `prisma/seed.ts`
 - **Client singleton:** `src/lib/prisma.ts`

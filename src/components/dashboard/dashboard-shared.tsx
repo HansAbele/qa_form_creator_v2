@@ -2,7 +2,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import { Filter, Sparkles, X } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   Area,
   AreaChart,
@@ -18,12 +18,13 @@ import {
 import { DateRangeFilter } from "@/components/dashboard/date-range-filter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  type ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  type ChartConfig,
 } from "@/components/ui/chart";
 import { Label } from "@/components/ui/label";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Select,
   SelectContent,
@@ -31,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatDateOnlyForDisplay } from "@/lib/date-display";
 
 // ─── Chart configs (theme-aware via CSS vars) ─────────────
 export const TREND_CONFIG = {
@@ -52,13 +54,7 @@ export const BAR_COLORS = [
 ];
 
 // ─── Section fade + slide wrapper ─────────────────────────
-export function Section({
-  children,
-  delay = 0,
-}: {
-  children: React.ReactNode;
-  delay?: number;
-}) {
+export function Section({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -119,12 +115,14 @@ export function ContextBar({
         <div className="flex flex-wrap items-end gap-2">
           {campaigns.length > 1 && (
             <div className="space-y-1">
-              <Label className="text-xs">Campaña</Label>
+              <Label htmlFor="dashboard-campaign" className="text-xs">
+                Campaña
+              </Label>
               <Select
                 value={campaignId || "all"}
                 onValueChange={(v) => onCampaignChange(v === "all" || !v ? "" : v)}
               >
-                <SelectTrigger className="h-10 w-44">
+                <SelectTrigger id="dashboard-campaign" className="h-10 w-44">
                   <SelectValue placeholder={campaignLabel} />
                 </SelectTrigger>
                 <SelectContent>
@@ -177,6 +175,8 @@ export function DistributionCard({
   title?: string;
   data: { range: string; count: number }[];
 }) {
+  const chartAnimation = useChartAnimation();
+
   return (
     <Card>
       <CardHeader>
@@ -184,13 +184,38 @@ export function DistributionCard({
       </CardHeader>
       <CardContent>
         {data.some((d) => d.count > 0) ? (
-          <ChartContainer config={DIST_CONFIG} className="h-[250px] w-full">
+          <ChartContainer
+            config={DIST_CONFIG}
+            accessibilityLabel={title}
+            accessibilityDescription={data
+              .map((item) => `${item.range}: ${item.count} evaluaciones`)
+              .join("; ")}
+            className="h-[250px] w-full"
+          >
             <BarChart data={data}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="range" tickLine={false} axisLine={false} tickMargin={8} className="text-xs" />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={false} tickMargin={8} className="text-xs" />
+              <XAxis
+                dataKey="range"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                className="text-xs"
+              />
+              <YAxis
+                allowDecimals={false}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                className="text-xs"
+              />
               <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-              <Bar dataKey="count" fill="#ff6600" radius={[6, 6, 0, 0]} animationDuration={900} />
+              <Bar
+                dataKey="count"
+                fill="#ff6600"
+                radius={[6, 6, 0, 0]}
+                animationDuration={900}
+                isAnimationActive={chartAnimation}
+              />
             </BarChart>
           </ChartContainer>
         ) : (
@@ -211,6 +236,8 @@ export function ScoreTrendCard({
   targetAvgScore: number;
   icon?: LucideIcon;
 }) {
+  const chartAnimation = useChartAnimation();
+
   return (
     <Card>
       <CardHeader>
@@ -221,7 +248,17 @@ export function ScoreTrendCard({
       </CardHeader>
       <CardContent>
         {trends.length > 0 ? (
-          <ChartContainer config={TREND_CONFIG} className="h-[250px] w-full">
+          <ChartContainer
+            config={TREND_CONFIG}
+            accessibilityLabel="Tendencia de score promedio"
+            accessibilityDescription={`${trends
+              .map(
+                (item) =>
+                  `${formatDateOnlyForDisplay(item.date)}: ${item.avgScore.toFixed(1)}%`,
+              )
+              .join("; ")}. Target: ${targetAvgScore}%.`}
+            className="h-[250px] w-full"
+          >
             <LineChart data={trends}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
               <XAxis
@@ -229,21 +266,35 @@ export function ScoreTrendCard({
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
-                tickFormatter={(v) => String(v).slice(5)}
+                tickFormatter={(v) =>
+                  formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                }
                 className="text-xs"
               />
-              <YAxis domain={[0, 100]} tickLine={false} axisLine={false} tickMargin={8} className="text-xs" />
+              <YAxis
+                domain={[0, 100]}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                className="text-xs"
+              />
               <ReferenceLine
                 y={targetAvgScore}
                 stroke="#12A277"
                 strokeDasharray="4 4"
-                label={{ value: `Target ${targetAvgScore}%`, position: "insideTopRight", fill: "#12A277", fontSize: 11 }}
+                label={{
+                  value: `Target ${targetAvgScore}%`,
+                  position: "insideTopRight",
+                  fill: "#12A277",
+                  fontSize: 11,
+                }}
               />
               <ChartTooltip
                 cursor={false}
                 content={
                   <ChartTooltipContent
                     indicator="line"
+                    labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
                     formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
                   />
                 }
@@ -256,6 +307,7 @@ export function ScoreTrendCard({
                 dot={{ r: 3, fill: "#1a2b45" }}
                 activeDot={{ r: 5 }}
                 animationDuration={1000}
+                isAnimationActive={chartAnimation}
               />
             </LineChart>
           </ChartContainer>
@@ -275,6 +327,8 @@ export function VolumeTrendCard({
   trends: { date: string; count: number }[];
   icon?: LucideIcon;
 }) {
+  const chartAnimation = useChartAnimation();
+
   return (
     <Card>
       <CardHeader>
@@ -285,7 +339,16 @@ export function VolumeTrendCard({
       </CardHeader>
       <CardContent>
         {trends.length > 0 ? (
-          <ChartContainer config={TREND_CONFIG} className="h-[250px] w-full">
+          <ChartContainer
+            config={TREND_CONFIG}
+            accessibilityLabel="Tendencia de evaluaciones"
+            accessibilityDescription={trends
+              .map(
+                (item) => `${formatDateOnlyForDisplay(item.date)}: ${item.count} evaluaciones`,
+              )
+              .join("; ")}
+            className="h-[250px] w-full"
+          >
             <AreaChart data={trends}>
               <defs>
                 <linearGradient id="fillVolume" x1="0" y1="0" x2="0" y2="1">
@@ -299,11 +362,27 @@ export function VolumeTrendCard({
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
-                tickFormatter={(v) => String(v).slice(5)}
+                tickFormatter={(v) =>
+                  formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                }
                 className="text-xs"
               />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={false} tickMargin={8} className="text-xs" />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+              <YAxis
+                allowDecimals={false}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                className="text-xs"
+              />
+              <ChartTooltip
+                cursor={false}
+                content={
+                  <ChartTooltipContent
+                    indicator="dot"
+                    labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                  />
+                }
+              />
               <Area
                 type="monotone"
                 dataKey="count"
@@ -311,6 +390,7 @@ export function VolumeTrendCard({
                 strokeWidth={2}
                 fill="url(#fillVolume)"
                 animationDuration={1000}
+                isAnimationActive={chartAnimation}
               />
             </AreaChart>
           </ChartContainer>
@@ -324,13 +404,21 @@ export function VolumeTrendCard({
 
 // ─── Full-screen spinner ─────────────────────────────────
 export function DashboardSpinner() {
+  const shouldReduceMotion = useReducedMotion();
+
   return (
-    <div className="flex h-[50vh] items-center justify-center">
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex h-[50vh] items-center justify-center"
+    >
       <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+        aria-hidden="true"
+        animate={shouldReduceMotion ? undefined : { rotate: 360 }}
+        transition={shouldReduceMotion ? undefined : { duration: 1.2, repeat: Infinity, ease: "linear" }}
         className="h-8 w-8 rounded-full border-2 border-orange-500/30 border-t-orange-500"
       />
+      <span className="sr-only">Cargando dashboard</span>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar, ClipboardCheck, Scale, ShieldAlert, Target, TrendingUp } from "lucide-react";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -13,9 +13,16 @@ import {
   EmptyState,
   Section,
 } from "@/components/dashboard/dashboard-shared";
+import {
+  DataLoadError,
+  type DataLoadStatus,
+  reportDataLoadError,
+} from "@/components/dashboard/data-load-state";
 import { getMyDashboard } from "@/server/queries/analytics";
 import type { UiAccess } from "@/server/queries/ui-access";
 import { cn } from "@/lib/utils";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
+import { formatOperationalTimestamp } from "@/lib/date-display";
 
 type MyDashboard = Awaited<ReturnType<typeof getMyDashboard>>;
 
@@ -28,29 +35,43 @@ export function DashboardEvaluator({
   access: UiAccess;
   campaigns: { id: string; name: string }[];
 }) {
+  const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
   const [data, setData] = useState<MyDashboard | null>(null);
+  const requestGeneration = useRef(0);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++requestGeneration.current;
+    setLoadStatus("loading");
     try {
-      setData(await getMyDashboard(dateFrom || undefined, dateTo || undefined));
+      const result = await getMyDashboard(dateFrom || undefined, dateTo || undefined);
+      if (requestId !== requestGeneration.current) return;
+      setData(result);
+      setLoadStatus("success");
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      if (requestId !== requestGeneration.current) return;
+      reportDataLoadError(e, "dashboard-evaluator");
+      setLoadStatus("error");
     }
   }, [dateFrom, dateTo]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [loadData]);
 
-  if (loading && !data) return <DashboardSpinner />;
-  if (!data) return null;
+  if (loadStatus === "loading" && !data) return <DashboardSpinner />;
+  if (loadStatus === "error") {
+    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar tu dashboard" />;
+  }
+  if (!data) {
+    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar tu dashboard" />;
+  }
 
   const countTrend = data.trend.map((t) => ({ value: t.count }));
   const canOpenReports = access.canViewReports;
@@ -167,7 +188,9 @@ export function DashboardEvaluator({
                           {r.score.toFixed(1)}%
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(r.createdAt).toLocaleDateString("es-ES")}
+                          {formatOperationalTimestamp(r.createdAt, operationalTimeZone, {
+                            dateStyle: "short",
+                          })}
                         </span>
                       </div>
                     </button>

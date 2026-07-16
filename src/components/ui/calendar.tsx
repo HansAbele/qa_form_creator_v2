@@ -35,7 +35,7 @@ export function Calendar({ month, from, to, onMonthChange, onSelectDay }: Calend
   const today = new Date();
 
   return (
-    <div className="w-[280px] select-none">
+    <div className="w-full max-w-[280px] select-none">
       <div className="mb-2 flex items-center justify-between">
         <button
           type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -29,6 +29,23 @@ export function CampaignForm({ campaign, open, onOpenChange }: CampaignFormProps
   const [name, setName] = useState(campaign?.name ?? "");
   const [description, setDescription] = useState(campaign?.description ?? "");
   const [active, setActive] = useState(campaign?.active ?? true);
+  const formIdentity = campaign?.id ?? "__new__";
+  const previousOpen = useRef(false);
+  const previousFormIdentity = useRef(formIdentity);
+
+  useEffect(() => {
+    const justOpened = open && !previousOpen.current;
+    const entityChanged = open && previousFormIdentity.current !== formIdentity;
+
+    if (justOpened || entityChanged) {
+      setName(campaign?.name ?? "");
+      setDescription(campaign?.description ?? "");
+      setActive(campaign?.active ?? true);
+    }
+
+    previousOpen.current = open;
+    previousFormIdentity.current = formIdentity;
+  }, [open, formIdentity, campaign?.name, campaign?.description, campaign?.active]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

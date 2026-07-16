@@ -3,7 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Archive, FileText, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ClipboardPenLine,
+  Clock3,
+  FileText,
+  Pencil,
+  Plus,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,13 +34,94 @@ interface FormItem {
   canPublish: boolean;
 }
 
+interface EvaluationDraftItem {
+  id: string;
+  formId: string;
+  formTitle: string;
+  formVersion: string | null;
+  campaignName: string;
+  agentName: string;
+  agentCode: string | null;
+  evaluatorName: string;
+  updatedAt: string;
+  isOwn: boolean;
+}
+
 interface FormsListClientProps {
   forms: FormItem[];
+  evaluationDrafts: EvaluationDraftItem[];
   canCreate: boolean;
 }
 
-export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
+function EvaluationDraftGroup({
+  title,
+  description,
+  drafts,
+}: {
+  title: string;
+  description: string;
+  drafts: EvaluationDraftItem[];
+}) {
+  if (drafts.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-heading font-semibold">{title}</h3>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+        <Badge variant="secondary">{drafts.length}</Badge>
+      </div>
+      <div className="space-y-3">
+        {drafts.map((draft) => (
+          <Card key={draft.id} className="bg-muted/20">
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{draft.agentName}</p>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {draft.formTitle}
+                    {draft.formVersion && ` · v${draft.formVersion}`}
+                  </p>
+                </div>
+                <Badge variant={draft.isOwn ? "secondary" : "outline"}>
+                  {draft.isOwn ? "Propio" : "Administrable"}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline">{draft.campaignName}</Badge>
+                {draft.agentCode && <span>Agente {draft.agentCode}</span>}
+                {!draft.isOwn && <span>Evaluador: {draft.evaluatorName}</span>}
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Clock3 className="h-3.5 w-3.5" />
+                <span>Actualizado</span>
+                <time dateTime={draft.updatedAt} suppressHydrationWarning>
+                  {new Date(draft.updatedAt).toLocaleString("es-ES", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </time>
+              </div>
+              <Link
+                href={`/forms/${draft.formId}?responseId=${draft.id}`}
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full")}
+              >
+                {draft.isOwn ? "Continuar borrador" : "Gestionar borrador"}
+              </Link>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsListClientProps) {
   const router = useRouter();
+  const ownDrafts = evaluationDrafts.filter((draft) => draft.isOwn);
+  const manageableDrafts = evaluationDrafts.filter((draft) => !draft.isOwn);
 
   const statusLabel = (status: string) => {
     switch (status) {
@@ -95,6 +185,36 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
         )}
       </div>
 
+      {evaluationDrafts.length > 0 && (
+        <section aria-labelledby="evaluation-drafts-heading" className="space-y-4">
+          <div>
+            <h2
+              id="evaluation-drafts-heading"
+              className="flex items-center gap-2 font-heading text-xl font-semibold"
+            >
+              <ClipboardPenLine className="h-5 w-5 text-primary" />
+              Borradores de evaluación
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Retoma tus evaluaciones pendientes o gestiona las que están bajo tu responsabilidad.
+              Se muestran hasta 50 borradores recientes.
+            </p>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <EvaluationDraftGroup
+              title="Mis borradores"
+              description="Evaluaciones que comenzaste y puedes continuar."
+              drafts={ownDrafts}
+            />
+            <EvaluationDraftGroup
+              title="Borradores administrables"
+              description="Evaluaciones de otros QA que puedes corregir o completar."
+              drafts={manageableDrafts}
+            />
+          </div>
+        </section>
+      )}
+
       {forms.length === 0 ? (
         <div className="flex h-64 items-center justify-center rounded-lg border border-dashed">
           <div className="text-center">
@@ -116,9 +236,7 @@ export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
                   <Badge variant="outline">v{form.version}</Badge>
                 </div>
                 {form.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {form.description}
-                  </p>
+                  <p className="text-sm text-muted-foreground line-clamp-2">{form.description}</p>
                 )}
               </CardHeader>
               <CardContent>

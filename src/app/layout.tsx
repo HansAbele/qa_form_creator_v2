@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { NavigationGuardRuntime } from "@/components/navigation/navigation-guard-runtime";
+import { getOperationalTimeZone } from "@/lib/operational-time";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -9,10 +11,17 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const operationalTimeZone = getOperationalTimeZone();
+
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html
+      lang="es"
+      data-operational-time-zone={operationalTimeZone}
+      suppressHydrationWarning
+    >
       <body className="min-h-screen bg-background font-sans antialiased">
-        <Providers>{children}</Providers>
+        <NavigationGuardRuntime />
+        <Providers operationalTimeZone={operationalTimeZone}>{children}</Providers>
       </body>
     </html>
   );

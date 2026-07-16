@@ -5,7 +5,10 @@ import type { DispositionOutcomeValue } from "@/lib/disposition-outcome";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
-import { assertCampaignPermissionForUser } from "@/server/queries/campaign-filter";
+import {
+  assertCampaignPermissionForUser,
+  getCampaignFilterForPermission,
+} from "@/server/queries/campaign-filter";
 
 // ─── Categories ─────────────────────────────────────
 
@@ -16,15 +19,16 @@ export async function getDispositionCategories(campaignId: string) {
 
   return prisma.dispositionCategory.findMany({
     where: { campaignId },
-    include: { _count: { select: { dispositions: true } } },
+    include: {
+      _count: {
+        select: { dispositions: { where: { campaignId } } },
+      },
+    },
     orderBy: { name: "asc" },
   });
 }
 
-export async function createDispositionCategory(data: {
-  name: string;
-  campaignId: string;
-}) {
+export async function createDispositionCategory(data: { name: string; campaignId: string }) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
@@ -133,15 +137,36 @@ export async function getDispositions(campaignId: string) {
   if (!session?.user) throw new Error("No autorizado");
   await assertCampaignPermissionForUser(session.user, campaignId, "canManageDispositions");
 
-  return prisma.disposition.findMany({
+  const dispositions = await prisma.disposition.findMany({
     where: { campaignId },
     include: {
-      category: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, campaignId: true } },
       createdBy: { select: { name: true } },
-      _count: { select: { responses: true } },
+      _count: {
+        select: {
+          responses: {
+            where: {
+              form: { campaignId },
+              agent: { campaignId },
+            },
+          },
+        },
+      },
     },
-    orderBy: [{ category: { name: "asc" } }, { name: "asc" }],
+    orderBy: { name: "asc" },
   });
+
+  return dispositions
+    .map(({ category, ...disposition }) => ({
+      ...disposition,
+      category:
+        category?.campaignId === campaignId ? { id: category.id, name: category.name } : null,
+    }))
+    .sort(
+      (a, b) =>
+        (a.category?.name ?? "").localeCompare(b.category?.name ?? "") ||
+        a.name.localeCompare(b.name),
+    );
 }
 
 export async function getDispositionsForSelector(campaignId: string) {
@@ -159,15 +184,20 @@ export async function getDispositionsForSelector(campaignId: string) {
       id: true,
       name: true,
       code: true,
-      category: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, campaignId: true } },
     },
     orderBy: { name: "asc" },
   });
 
-  const grouped: Record<string, { categoryName: string; items: typeof dispositions }> = {};
-  const uncategorized: typeof dispositions = [];
+  const safeDispositions = dispositions.map(({ category, ...disposition }) => ({
+    ...disposition,
+    category: category?.campaignId === campaignId ? { id: category.id, name: category.name } : null,
+  }));
 
-  for (const d of dispositions) {
+  const grouped: Record<string, { categoryName: string; items: typeof safeDispositions }> = {};
+  const uncategorized: typeof safeDispositions = [];
+
+  for (const d of safeDispositions) {
     if (d.category) {
       if (!grouped[d.category.id]) {
         grouped[d.category.id] = { categoryName: d.category.name, items: [] };
@@ -182,7 +212,32 @@ export async function getDispositionsForSelector(campaignId: string) {
     a.categoryName.localeCompare(b.categoryName),
   );
 
-  return { categories, uncategorized, all: dispositions };
+  return { categories, uncategorized, all: safeDispositions };
+}
+
+export async function getDispositionsForReports() {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+  const campaignFilter = await getCampaignFilterForPermission("canViewReports");
+
+  const dispositions = await prisma.disposition.findMany({
+    where: campaignFilter,
+    select: {
+      id: true,
+      name: true,
+      campaignId: true,
+      campaign: { select: { name: true } },
+      category: { select: { campaignId: true } },
+    },
+    orderBy: [{ campaign: { name: "asc" } }, { name: "asc" }],
+  });
+
+  return dispositions
+    .filter(
+      (disposition) =>
+        !disposition.category || disposition.category.campaignId === disposition.campaignId,
+    )
+    .map(({ category: _category, ...disposition }) => disposition);
 }
 
 export async function createDisposition(data: {
@@ -276,9 +331,7 @@ export async function seedDefaultDispositions(campaignId: string, kind: "inbound
     select: { name: true },
   });
   const existingNames = new Set(existing.map((d) => d.name.toLowerCase()));
-  const toCreate = DEFAULT_TAXONOMIES[kind].filter(
-    (d) => !existingNames.has(d.name.toLowerCase()),
-  );
+  const toCreate = DEFAULT_TAXONOMIES[kind].filter((d) => !existingNames.has(d.name.toLowerCase()));
 
   if (toCreate.length === 0) return { created: 0 };
 
@@ -314,29 +367,49 @@ export async function seedDefaultDispositions(campaignId: string, kind: "inbound
 export async function createDispositionInline(data: {
   name: string;
   campaignId: string;
+  allowSimilar?: boolean;
 }) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
   const trimmed = data.name.trim();
-  if (trimmed.length < 2) throw new Error("El nombre debe tener al menos 2 caracteres");
+  if (trimmed.length < 2) {
+    return {
+      ok: false as const,
+      code: "INVALID_NAME" as const,
+      message: "El nombre debe tener al menos 2 caracteres",
+    };
+  }
 
   const existing = await prisma.disposition.findUnique({
     where: { name_campaignId: { name: trimmed, campaignId: data.campaignId } },
   });
-  if (existing) throw new Error(`Ya existe "${trimmed}" en esta campaña`);
+  if (existing) {
+    return {
+      ok: false as const,
+      code: "DUPLICATE" as const,
+      message: `Ya existe "${trimmed}" en esta campaña`,
+    };
+  }
 
-  // Fuzzy duplicate check
-  const allInCampaign = await prisma.disposition.findMany({
-    where: { campaignId: data.campaignId, active: true },
-    select: { id: true, name: true },
-  });
+  if (!data.allowSimilar) {
+    const allInCampaign = await prisma.disposition.findMany({
+      where: { campaignId: data.campaignId, active: true },
+      select: { id: true, name: true },
+    });
 
-  const similar = allInCampaign.find(
-    (d) => levenshteinDistance(d.name.toLowerCase(), trimmed.toLowerCase()) <= 2,
-  );
-  if (similar) throw new Error(`SIMILAR:${similar.id}:${similar.name}`);
+    const similar = allInCampaign.find(
+      (d) => levenshteinDistance(d.name.toLowerCase(), trimmed.toLowerCase()) <= 2,
+    );
+    if (similar) {
+      return {
+        ok: false as const,
+        code: "SIMILAR" as const,
+        existing: similar,
+      };
+    }
+  }
 
   const disposition = await prisma.$transaction(async (tx) => {
     const disposition = await tx.disposition.create({
@@ -359,7 +432,7 @@ export async function createDispositionInline(data: {
   });
   revalidatePath("/admin/campaigns");
   revalidatePath("/operations/dispositions");
-  return disposition;
+  return { ok: true as const, disposition };
 }
 
 export async function updateDisposition(

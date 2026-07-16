@@ -1,13 +1,16 @@
 "use client";
 
-import { signOut, useSession } from "next-auth/react";
 import { LogOut, Moon, Sun } from "lucide-react";
+import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { useTheme } from "@/components/theme-provider";
+import { MobileSidebar } from "@/components/layout/sidebar";
 import { NotificationCenter } from "@/components/notifications/notification-center";
+import { useTheme } from "@/components/theme-provider";
+import { permitNextDocumentUnload, requestAppNavigation } from "@/lib/navigation-guard";
 import { cn } from "@/lib/utils";
+import type { UiAccess } from "@/server/queries/ui-access";
 
-export function Header() {
+export function Header({ access }: { access: UiAccess }) {
   const { data: session } = useSession();
   const { theme, resolvedTheme, setTheme } = useTheme();
 
@@ -27,56 +30,66 @@ export function Header() {
         : "QA";
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-card px-6">
-      <div />
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-3 sm:px-4 md:px-6">
+      <MobileSidebar access={access} />
 
-      <div className="flex items-center gap-4">
-        {/* Horizontal segmented theme switcher */}
-        <div className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5">
+      <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+        <fieldset className="m-0 inline-flex min-w-0 items-center gap-0.5 rounded-md border border-border bg-muted p-0.5">
+          <legend className="sr-only">Tema de la interfaz</legend>
           <button
             type="button"
+            aria-label="Usar tema claro"
             aria-pressed={mounted ? !isDark : undefined}
+            title="Tema claro"
             onClick={() => setTheme("light")}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-semibold transition-colors",
+              "inline-flex min-h-8 items-center gap-1.5 rounded-[5px] px-2 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:px-2.5",
               mounted && !isDark
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Sun className="h-3.5 w-3.5" />
+            <Sun aria-hidden="true" className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Claro</span>
           </button>
           <button
             type="button"
+            aria-label="Usar tema oscuro"
             aria-pressed={mounted ? isDark : undefined}
+            title="Tema oscuro"
             onClick={() => setTheme("dark")}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-semibold transition-colors",
+              "inline-flex min-h-8 items-center gap-1.5 rounded-[5px] px-2 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:px-2.5",
               mounted && isDark
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Moon className="h-3.5 w-3.5" />
+            <Moon aria-hidden="true" className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Oscuro</span>
           </button>
-        </div>
+        </fieldset>
 
         {session?.user && (
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-3">
             <NotificationCenter />
-            <div className="text-right">
-              <p className="text-sm font-medium text-foreground">{session.user.name}</p>
+            <div className="hidden min-w-0 max-w-48 text-right lg:block">
+              <p className="truncate text-sm font-medium text-foreground">{session.user.name}</p>
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
             <button
               type="button"
-              onClick={() => signOut({ callbackUrl: "/login" })}
-              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+              onClick={async () => {
+                if (!requestAppNavigation()) return;
+                const { url } = await signOut({ redirect: false, redirectTo: "/login" });
+                permitNextDocumentUnload();
+                window.location.assign(url);
+              }}
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               aria-label="Cerrar sesión"
+              title="Cerrar sesión"
             >
-              <LogOut className="h-5 w-5" />
+              <LogOut aria-hidden="true" className="h-5 w-5" />
             </button>
           </div>
         )}

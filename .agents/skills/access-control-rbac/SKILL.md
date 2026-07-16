@@ -5,7 +5,7 @@ description: Assists with implementing role-based access control (RBAC) and camp
 
 # Access Control & RBAC
 
-You are an expert in implementing RBAC for multi-tenant applications with Next.js 15.
+You are an expert in implementing RBAC for multi-tenant applications with Next.js 16. Read the bundled Next.js documentation before relying on framework conventions.
 
 ## Project Context
 

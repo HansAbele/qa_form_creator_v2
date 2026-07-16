@@ -196,9 +196,13 @@ export function computeScore(
   const hasFatalFail = results.some((r) => r.isFatalFail);
   if (hasFatalFail && opts.fatalZeroesScore) score = 0;
 
+  // Prisma stores Response.score as Decimal(5,2). Canonicalize to that same
+  // precision before deriving PASS/FAIL so the persisted value, verdict and UI
+  // can never disagree at a rounding boundary (for example 69.995 -> 70.00).
+  score = Math.round((score + Number.EPSILON * Math.max(1, Math.abs(score))) * 100) / 100;
+
   const blockers = results.filter((r) => r.needsComment).length;
-  const result: "PASS" | "FAIL" =
-    hasFatalFail || score < opts.passThreshold ? "FAIL" : "PASS";
+  const result: "PASS" | "FAIL" = hasFatalFail || score < opts.passThreshold ? "FAIL" : "PASS";
 
   return {
     score,

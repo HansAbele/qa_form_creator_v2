@@ -17,10 +17,14 @@
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit --pretty false --incremental false",
+    "typecheck": "next typegen && tsc --noEmit --pretty false --incremental false",
     "test": "vitest --passWithNoTests --environment=node --exclude=**/node_modules/** --exclude=**/.next/** --exclude=**/.claude/** --exclude=**/tests/e2e/** --exclude=**/playwright-report/** --exclude=**/test-results/**",
     "test:ci": "vitest run --passWithNoTests --environment=node --exclude=**/node_modules/** --exclude=**/.next/** --exclude=**/.claude/** --exclude=**/tests/e2e/** --exclude=**/playwright-report/** --exclude=**/test-results/**",
-    "test:e2e": "playwright test"
+    "test:integration:response-concurrency": "vitest run tests/integration/response-concurrency.test.ts --environment=node",
+    "test:integration:export-admission": "vitest run tests/integration/export-admission-concurrency.test.ts --environment=node",
+    "test:integration:export-download": "vitest run tests/integration/export-download.test.ts --environment=node",
+    "test:e2e": "playwright test",
+    "benchmark:analytics": "tsx scripts/benchmark-analytics.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -64,6 +68,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@biomejs/biome": "2.4.10",
     "@next/env": "16.2.10",
     "@playwright/test": "^1.61.1",

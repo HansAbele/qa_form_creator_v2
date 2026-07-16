@@ -17,8 +17,12 @@ test.describe("Forms (QA Manager)", () => {
   test("should open form builder", async ({ page }) => {
     await page.goto("/forms/new");
     await expect(page.getByRole("heading", { name: "Nuevo Formulario" })).toBeVisible();
-    await expect(page.getByText("Editor", { exact: true })).toBeVisible();
-    await expect(page.getByText("Vista previa", { exact: true })).toBeVisible();
+    const editorTab = page.getByRole("tab", { name: "Editor" });
+    const previewTab = page.getByRole("tab", { name: "Vista previa" });
+    await expect(editorTab).toHaveCount(1);
+    await expect(previewTab).toHaveCount(1);
+    await expect(editorTab).toBeVisible();
+    await expect(previewTab).toBeVisible();
   });
 
   test("should add a question in form builder", async ({ page }) => {

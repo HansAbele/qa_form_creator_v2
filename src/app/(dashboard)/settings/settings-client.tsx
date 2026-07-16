@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { toast } from "sonner";
@@ -71,6 +71,8 @@ import { updateMyName, changeMyPassword, type ProfileInfo } from "@/server/actio
 import { updateCampaignAccess } from "@/server/actions/users";
 import { updateSettings, resetSettings } from "@/server/actions/settings";
 import { updateCampaignScoringSettings } from "@/server/actions/campaign-scoring";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
+import { formatOperationalTimestamp } from "@/lib/date-display";
 import {
   readOperationalAudit,
   type OperationalAuditEvent,
@@ -2086,6 +2088,7 @@ function OperationalAuditTab({
   users: AccessUser[];
   campaigns: { id: string; name: string }[];
 }) {
+  const operationalTimeZone = useOperationalTimeZone();
   const [auditPage, setAuditPage] = useState(initialPage);
   const [filters, setFilters] = useState({
     query: "",
@@ -2099,6 +2102,7 @@ function OperationalAuditTab({
   });
   const [selectedEvent, setSelectedEvent] = useState<OperationalAuditEvent | null>(null);
   const [loading, startLoading] = useTransition();
+  const auditRequestGeneration = useRef(0);
 
   const moduleOptions = useMemo(
     () => uniqueOptions(auditPage.events.map((event) => event.module)),
@@ -2110,6 +2114,7 @@ function OperationalAuditTab({
   );
 
   const loadPage = (page: number) => {
+    const generation = ++auditRequestGeneration.current;
     startLoading(async () => {
       try {
         const nextPage = await readOperationalAudit({
@@ -2117,9 +2122,11 @@ function OperationalAuditTab({
           page,
           pageSize: filters.pageSize,
         });
-        setAuditPage(nextPage);
+        if (generation === auditRequestGeneration.current) setAuditPage(nextPage);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Error al leer auditoría");
+        if (generation === auditRequestGeneration.current) {
+          toast.error(error instanceof Error ? error.message : "Error al leer auditoría");
+        }
       }
     });
   };
@@ -2136,13 +2143,20 @@ function OperationalAuditTab({
       pageSize: filters.pageSize,
     };
     setFilters(nextFilters);
+    const generation = ++auditRequestGeneration.current;
     startLoading(async () => {
-      const nextPage = await readOperationalAudit({
-        ...nextFilters,
-        page: 1,
-        pageSize: nextFilters.pageSize,
-      });
-      setAuditPage(nextPage);
+      try {
+        const nextPage = await readOperationalAudit({
+          ...nextFilters,
+          page: 1,
+          pageSize: nextFilters.pageSize,
+        });
+        if (generation === auditRequestGeneration.current) setAuditPage(nextPage);
+      } catch (error) {
+        if (generation === auditRequestGeneration.current) {
+          toast.error(error instanceof Error ? error.message : "Error al leer auditoría");
+        }
+      }
     });
   };
 
@@ -2295,7 +2309,7 @@ function OperationalAuditTab({
               {auditPage.events.map((event) => (
                 <TableRow key={event.id}>
                   <TableCell className="whitespace-nowrap text-xs">
-                    {formatAuditDate(event.createdAt)}
+                    {formatAuditDate(event.createdAt, operationalTimeZone)}
                   </TableCell>
                   <TableCell>{event.userName ?? "Sistema"}</TableCell>
                   <TableCell>{event.campaignName ?? "Global"}</TableCell>
@@ -2363,7 +2377,9 @@ function OperationalAuditTab({
             <DialogHeader>
               <DialogTitle>Detalle de auditoría</DialogTitle>
             </DialogHeader>
-            {selectedEvent && <AuditEventDetail event={selectedEvent} />}
+            {selectedEvent && (
+              <AuditEventDetail event={selectedEvent} timeZone={operationalTimeZone} />
+            )}
           </DialogContent>
         </Dialog>
       </CardContent>
@@ -2441,11 +2457,17 @@ function OperationalConfigSection({
   );
 }
 
-function AuditEventDetail({ event }: { event: OperationalAuditEvent }) {
+function AuditEventDetail({
+  event,
+  timeZone,
+}: {
+  event: OperationalAuditEvent;
+  timeZone: string;
+}) {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <DetailItem label="Fecha" value={formatAuditDate(event.createdAt)} />
+        <DetailItem label="Fecha" value={formatAuditDate(event.createdAt, timeZone)} />
         <DetailItem label="Usuario" value={event.userName ?? "Sistema"} />
         <DetailItem label="Campaña" value={event.campaignName ?? "Global"} />
         <DetailItem label="Entidad" value={event.entityType ?? "-"} />
@@ -2486,8 +2508,8 @@ function JsonPanel({ title, value }: { title: string; value: unknown }) {
   );
 }
 
-function formatAuditDate(value: string) {
-  return new Date(value).toLocaleString("es-ES", {
+function formatAuditDate(value: string, timeZone: string) {
+  return formatOperationalTimestamp(value, timeZone, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

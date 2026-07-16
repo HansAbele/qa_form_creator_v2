@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import { cache } from "react";
 import authConfig from "./auth.config";
 import { shouldUseSecureAuthCookies } from "./auth-cookie-policy";
 import { createAuthoritativeAuth } from "./session-authority";
@@ -35,4 +36,4 @@ export const { handlers, signIn, signOut } = nextAuth;
 
 // Do not export Auth.js' raw reader. Every server caller must pass through the
 // database-backed active/role/campaign/session-version verification.
-export const auth = createAuthoritativeAuth(nextAuth.auth);
+export const auth = cache(createAuthoritativeAuth(nextAuth.auth));

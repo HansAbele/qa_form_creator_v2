@@ -1,6 +1,7 @@
 "use client";
 
 import { ShieldAlert } from "lucide-react";
+import { useId } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -13,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Table,
   TableBody,
@@ -22,14 +24,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { formatDateOnlyForDisplay } from "@/lib/date-display";
 
 type Detail = Awaited<
   ReturnType<typeof import("@/server/queries/analytics").getCriticalErrorAccuracyDetail>
 >;
 type Fam = "CUSTOMER" | "BUSINESS" | "COMPLIANCE";
 
-const FAMILY_LABEL: Record<Fam, string> = { CUSTOMER: "Customer", BUSINESS: "Business", COMPLIANCE: "Compliance" };
-const FAMILY_COLOR: Record<Fam, string> = { CUSTOMER: "#2563eb", BUSINESS: "#E8931A", COMPLIANCE: "#EC456A" };
+const FAMILY_LABEL: Record<Fam, string> = {
+  CUSTOMER: "Customer",
+  BUSINESS: "Business",
+  COMPLIANCE: "Compliance",
+};
+const FAMILY_COLOR: Record<Fam, string> = {
+  CUSTOMER: "#2563eb",
+  BUSINESS: "#E8931A",
+  COMPLIANCE: "#EC456A",
+};
 const FAMILIES: Fam[] = ["CUSTOMER", "BUSINESS", "COMPLIANCE"];
 
 function accClass(v: number | null, target: number) {
@@ -48,6 +59,8 @@ function AccCell({ v, target }: { v: number | null; target: number }) {
 }
 
 export function CeaDetail({ data }: { data: Detail }) {
+  const chartAnimation = useChartAnimation();
+  const trendDescriptionId = useId();
   const header = (
     <CardHeader>
       <CardTitle className="flex items-center gap-2 text-base">
@@ -89,25 +102,51 @@ export function CeaDetail({ data }: { data: Detail }) {
                 <span className="text-sm font-semibold">{FAMILY_LABEL[o.family]} CEA</span>
                 <span className="text-xs text-muted-foreground">Benchmark {o.target}%</span>
               </div>
-              <p className={cn("mt-1 font-heading text-3xl font-bold tabular-nums", accClass(o.accuracy, o.target))}>
+              <p
+                className={cn(
+                  "mt-1 font-heading text-3xl font-bold tabular-nums",
+                  accClass(o.accuracy, o.target),
+                )}
+              >
                 {o.accuracy === null ? "—" : `${o.accuracy.toFixed(1)}%`}
               </p>
               <p className="text-xs text-muted-foreground">
-                {o.configured ? `${o.applicable} evaluaciones · ${o.failedCount} con error` : "Sin preguntas de este tipo"}
+                {o.configured
+                  ? `${o.applicable} evaluaciones · ${o.failedCount} con error`
+                  : "Sin preguntas de este tipo"}
               </p>
             </div>
           ))}
         </div>
 
         {data.trend.length >= 2 && (
-          <div>
+          <div
+            role="img"
+            aria-label="Tendencia de precisión de error crítico por familia"
+            aria-describedby={trendDescriptionId}
+          >
             <p className="mb-2 text-sm font-medium">Tendencia por familia</p>
+            <p id={trendDescriptionId} className="sr-only">
+              {data.trend
+                .map(
+                  (item) =>
+                    `${formatDateOnlyForDisplay(item.date)}: Customer ${item.CUSTOMER ?? "sin datos"}%, Business ${item.BUSINESS ?? "sin datos"}%, Compliance ${item.COMPLIANCE ?? "sin datos"}%`,
+                )
+                .join("; ")}
+            </p>
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={data.trend}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} className="text-xs" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(v) =>
+                    formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                  }
+                  className="text-xs"
+                />
                 <YAxis domain={[yLo, 100]} className="text-xs" />
                 <Tooltip
+                  labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
                   formatter={(value, name) => [
                     value === null ? "—" : `${Number(value).toFixed(1)}%`,
                     FAMILY_LABEL[name as Fam] ?? name,
@@ -115,10 +154,25 @@ export function CeaDetail({ data }: { data: Detail }) {
                 />
                 <Legend formatter={(value) => FAMILY_LABEL[value as Fam] ?? value} />
                 {FAMILIES.map((f) => (
-                  <ReferenceLine key={`ref-${f}`} y={data.targets[f]} stroke={FAMILY_COLOR[f]} strokeDasharray="2 4" strokeOpacity={0.4} />
+                  <ReferenceLine
+                    key={`ref-${f}`}
+                    y={data.targets[f]}
+                    stroke={FAMILY_COLOR[f]}
+                    strokeDasharray="2 4"
+                    strokeOpacity={0.4}
+                  />
                 ))}
                 {FAMILIES.map((f) => (
-                  <Line key={f} type="monotone" dataKey={f} stroke={FAMILY_COLOR[f]} strokeWidth={2} dot={false} connectNulls />
+                  <Line
+                    key={f}
+                    type="monotone"
+                    dataKey={f}
+                    stroke={FAMILY_COLOR[f]}
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                    isAnimationActive={chartAnimation}
+                  />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -141,9 +195,15 @@ export function CeaDetail({ data }: { data: Detail }) {
                 {data.byCampaign.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="max-w-[160px] truncate font-medium">{c.name}</TableCell>
-                    <TableCell className="text-right"><AccCell v={c.CUSTOMER} target={data.targets.CUSTOMER} /></TableCell>
-                    <TableCell className="text-right"><AccCell v={c.BUSINESS} target={data.targets.BUSINESS} /></TableCell>
-                    <TableCell className="text-right"><AccCell v={c.COMPLIANCE} target={data.targets.COMPLIANCE} /></TableCell>
+                    <TableCell className="text-right">
+                      <AccCell v={c.CUSTOMER} target={data.targets.CUSTOMER} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AccCell v={c.BUSINESS} target={data.targets.BUSINESS} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AccCell v={c.COMPLIANCE} target={data.targets.COMPLIANCE} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -165,11 +225,19 @@ export function CeaDetail({ data }: { data: Detail }) {
                   <TableRow key={a.id}>
                     <TableCell className="max-w-[160px] truncate font-medium">
                       {a.name}
-                      {a.agentCode ? <span className="ml-1 text-xs text-muted-foreground">({a.agentCode})</span> : null}
+                      {a.agentCode ? (
+                        <span className="ml-1 text-xs text-muted-foreground">({a.agentCode})</span>
+                      ) : null}
                     </TableCell>
-                    <TableCell className="text-right"><AccCell v={a.CUSTOMER} target={data.targets.CUSTOMER} /></TableCell>
-                    <TableCell className="text-right"><AccCell v={a.BUSINESS} target={data.targets.BUSINESS} /></TableCell>
-                    <TableCell className="text-right"><AccCell v={a.COMPLIANCE} target={data.targets.COMPLIANCE} /></TableCell>
+                    <TableCell className="text-right">
+                      <AccCell v={a.CUSTOMER} target={data.targets.CUSTOMER} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AccCell v={a.BUSINESS} target={data.targets.BUSINESS} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AccCell v={a.COMPLIANCE} target={data.targets.COMPLIANCE} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -39,6 +39,23 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(team?.name ?? "");
   const [campaignId, setCampaignId] = useState(team?.campaignId ?? "");
+  const formIdentity = team?.id ?? "__new__";
+  const previousOpen = useRef(false);
+  const previousFormIdentity = useRef(formIdentity);
+
+  useEffect(() => {
+    const justOpened = open && !previousOpen.current;
+    const entityChanged = open && previousFormIdentity.current !== formIdentity;
+
+    if (justOpened || entityChanged) {
+      setName(team?.name ?? "");
+      setCampaignId(team?.campaignId ?? "");
+    }
+
+    previousOpen.current = open;
+    previousFormIdentity.current = formIdentity;
+  }, [open, formIdentity, team?.name, team?.campaignId]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {

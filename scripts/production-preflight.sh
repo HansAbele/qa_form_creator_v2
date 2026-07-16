@@ -57,7 +57,8 @@ require_env() {
 
 for name in \
   DB_OWNER_USER DB_OWNER_PASSWORD DB_APP_USER DB_APP_PASSWORD AUTH_SECRET \
-  RATE_LIMIT_HASH_SECRET AUTH_URL BACKUP_ENCRYPTION_KEY_FILE BACKUP_REMOTE \
+  RATE_LIMIT_HASH_SECRET AUTH_URL OPERATIONAL_TIME_ZONE ERROR_REPORTING_WEBHOOK_URL \
+  ERROR_REPORTING_WEBHOOK_TOKEN BACKUP_ENCRYPTION_KEY_FILE BACKUP_REMOTE \
   SECRET_ROTATION_CONFIRMED SECRET_HISTORY_REMEDIATED; do
   require_env "$name"
 done
@@ -79,6 +80,37 @@ done
   || fail "all database and application secrets must be distinct"
 [[ "$AUTH_URL" = https://* ]] || fail "AUTH_URL must use HTTPS"
 [ "$AUTH_URL" != "https://CHANGE_ME.example" ] || fail "AUTH_URL is still a placeholder"
+[[ "$ERROR_REPORTING_WEBHOOK_URL" = https://* ]] \
+  || fail "ERROR_REPORTING_WEBHOOK_URL must use HTTPS"
+[[ "$ERROR_REPORTING_WEBHOOK_URL" != *CHANGE_ME* ]] \
+  || fail "ERROR_REPORTING_WEBHOOK_URL is still a placeholder"
+[ "${#ERROR_REPORTING_WEBHOOK_TOKEN}" -ge 32 ] \
+  || fail "ERROR_REPORTING_WEBHOOK_TOKEN must contain at least 32 characters"
+[[ "$ERROR_REPORTING_WEBHOOK_TOKEN" != CHANGE_ME* ]] \
+  || fail "ERROR_REPORTING_WEBHOOK_TOKEN is still a placeholder"
+[[ "$OPERATIONAL_TIME_ZONE" != *".."* ]] \
+  && [[ "$OPERATIONAL_TIME_ZONE" =~ ^[A-Za-z][A-Za-z0-9._+-]*(/[A-Za-z0-9][A-Za-z0-9._+-]*)*$ ]] \
+  && [ -f "/usr/share/zoneinfo/$OPERATIONAL_TIME_ZONE" ] \
+  || fail "OPERATIONAL_TIME_ZONE must be a valid IANA time zone"
+
+validate_export_limit() {
+  local name="$1" minimum="$2" maximum="$3" fallback="$4" value
+  value="${!name:-$fallback}"
+  [[ "$value" =~ ^[0-9]+$ ]] \
+    && [ "$value" -ge "$minimum" ] \
+    && [ "$value" -le "$maximum" ] \
+    || fail "$name must be an integer between $minimum and $maximum"
+}
+
+validate_export_limit EXPORT_MAX_EVALUATIONS 1 2500 1000
+validate_export_limit EXPORT_MAX_ANSWER_ROWS 1 25000 10000
+validate_export_limit EXPORT_MAX_QUESTION_COLUMNS 1 200 100
+validate_export_limit EXPORT_MAX_CELLS 1 250000 100000
+validate_export_limit EXPORT_MAX_TEXT_BYTES 1 16000000 8000000
+validate_export_limit EXPORT_MAX_REQUESTS_PER_MINUTE 1 60 4
+validate_export_limit EXPORT_MAX_CONCURRENT_PER_USER 1 2 1
+validate_export_limit EXPORT_MAX_CONCURRENT_GLOBAL 1 4 2
+validate_export_limit EXPORT_LEASE_TIMEOUT_SECONDS 60 3600 900
 [[ "$BACKUP_REMOTE" != CHANGE_ME* ]] || fail "BACKUP_REMOTE is still a placeholder"
 [[ "$BACKUP_REMOTE" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*:.+ ]] \
   || fail "BACKUP_REMOTE must be a configured rclone remote, not a local path"

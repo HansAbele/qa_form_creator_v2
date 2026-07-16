@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -62,6 +62,33 @@ export function DispositionForm({
   const [categoryId, setCategoryId] = useState(disposition?.categoryId ?? "none");
   const [outcomeType, setOutcomeType] = useState(disposition?.outcomeType ?? "none");
   const [active, setActive] = useState(disposition?.active ?? true);
+  const formIdentity = disposition?.id ?? `__new__:${campaignId}`;
+  const previousOpen = useRef(false);
+  const previousFormIdentity = useRef(formIdentity);
+
+  useEffect(() => {
+    const justOpened = open && !previousOpen.current;
+    const entityChanged = open && previousFormIdentity.current !== formIdentity;
+
+    if (justOpened || entityChanged) {
+      setName(disposition?.name ?? "");
+      setCode(disposition?.code ?? "");
+      setCategoryId(disposition?.categoryId ?? "none");
+      setOutcomeType(disposition?.outcomeType ?? "none");
+      setActive(disposition?.active ?? true);
+    }
+
+    previousOpen.current = open;
+    previousFormIdentity.current = formIdentity;
+  }, [
+    open,
+    formIdentity,
+    disposition?.name,
+    disposition?.code,
+    disposition?.categoryId,
+    disposition?.outcomeType,
+    disposition?.active,
+  ]);
 
   const outcomeValue = outcomeType === "none" ? null : (outcomeType as DispositionOutcomeValue);
 

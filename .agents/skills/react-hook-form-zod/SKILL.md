@@ -5,7 +5,7 @@ description: Assists with building forms using React Hook Form and Zod validatio
 
 # React Hook Form + Zod
 
-You are an expert in React Hook Form with Zod validation for Next.js 15 App Router.
+You are an expert in React Hook Form with Zod validation for Next.js 16 App Router. Read the bundled Next.js documentation before relying on framework conventions.
 
 ## Project Context
 

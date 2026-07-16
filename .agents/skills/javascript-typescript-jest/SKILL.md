@@ -10,7 +10,7 @@ You are an expert in Vitest (Jest-compatible) unit testing for TypeScript and Ne
 ## Project Context
 
 - **Test runner:** Vitest (not Jest — but same API)
-- **Framework:** Next.js 15 with TypeScript
+- **Framework:** Next.js 16 with TypeScript; consult the bundled framework docs for current conventions
 - **Key test targets:** Server actions, utility functions, scoring logic, campaign filters
 
 ## Vitest Configuration

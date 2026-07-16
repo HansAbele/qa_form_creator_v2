@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { computeScore, type ScoringAnswer, type ScoringQuestion } from "./scoring";
 
-function q(overrides: Partial<ScoringQuestion> & Pick<ScoringQuestion, "id" | "type">): ScoringQuestion {
+function q(
+  overrides: Partial<ScoringQuestion> & Pick<ScoringQuestion, "id" | "type">,
+): ScoringQuestion {
   return {
     weight: 0,
     fatal: false,
@@ -33,6 +35,22 @@ describe("computeScore", () => {
       PASS,
     );
     expect(r.score).toBe(84);
+    expect(r.result).toBe("PASS");
+  });
+
+  it("derives PASS/FAIL from the canonical two-decimal persisted score", () => {
+    const r = computeScore(
+      [
+        q({ id: "low", type: "RATING", weight: 50_025 }),
+        q({ id: "high", type: "RATING", weight: 49_975 }),
+      ],
+      answers({ low: "3", high: "4" }),
+      PASS,
+    );
+
+    // Raw weighted score is 69.995. Decimal(5,2) stores 70.00, therefore the
+    // authoritative verdict must also be PASS.
+    expect(r.score).toBe(70);
     expect(r.result).toBe("PASS");
   });
 
@@ -114,7 +132,13 @@ describe("computeScore", () => {
     const r = computeScore(
       [
         q({ id: "rate", type: "RATING", weight: 0 }),
-        q({ id: "sel", type: "SELECT", fatal: true, fatalOptions: ["No"], requiresCommentOnFail: true }),
+        q({
+          id: "sel",
+          type: "SELECT",
+          fatal: true,
+          fatalOptions: ["No"],
+          requiresCommentOnFail: true,
+        }),
       ],
       answers({ rate: "4", sel: "No" }),
       PASS,

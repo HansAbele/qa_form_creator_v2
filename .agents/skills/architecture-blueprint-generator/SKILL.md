@@ -29,7 +29,7 @@ You are an expert software architect who creates clear, actionable architecture 
 │  │           Docker Compose Network                     │ │
 │  │  ┌───────────────┐    ┌───────────────────────────┐ │ │
 │  │  │  app           │    │  db                       │ │ │
-│  │  │  Next.js 15    │───▶│  PostgreSQL 16            │ │ │
+│  │  │  Next.js 16    │───▶│  PostgreSQL 16            │ │ │
 │  │  │  Node 20-alpine│    │  Volume: pgdata           │ │ │
 │  │  │  Port 3000     │    │  Port 5432 (internal)     │ │ │
 │  │  └───────────────┘    └───────────────────────────┘ │ │
