@@ -1,11 +1,11 @@
 "use client";
 
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import type { QuestionType } from "@prisma/client";
 import { AlertTriangle, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -17,22 +17,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  APP_NAVIGATION_REQUEST_EVENT,
+  type AppNavigationRequestEvent,
+  consumeDocumentUnloadPermission,
+  requestAppNavigation,
+} from "@/lib/navigation-guard";
+import { formatOperationalTimestamp } from "@/lib/date-display";
+import {
   computeScore,
   type ScoringAnswer,
   type ScoringQuestion,
   type WeightedOption,
 } from "@/lib/scoring";
 import { cn } from "@/lib/utils";
-import {
-  APP_NAVIGATION_REQUEST_EVENT,
-  type AppNavigationRequestEvent,
-  consumeDocumentUnloadPermission,
-  requestAppNavigation,
-} from "@/lib/navigation-guard";
-import type { RatingStyleValue } from "@/types/form-builder";
 import { getAgentsForEvaluation } from "@/server/actions/agents";
 import { saveResponseDraftAction, submitResponseAction } from "@/server/actions/responses";
-import type { QuestionType } from "@prisma/client";
+import type { RatingStyleValue } from "@/types/form-builder";
 import { DispositionCombobox } from "./disposition-combobox";
 import { EvaluationSummary } from "./evaluation-summary";
 import { QuestionRenderer } from "./question-renderer";
@@ -152,6 +152,7 @@ export function FormViewer({
   initialResponse = null,
 }: FormViewerProps) {
   const router = useRouter();
+  const operationalTimeZone = useOperationalTimeZone();
   const initialAnswers = Object.fromEntries(
     (initialResponse?.answers ?? []).map((answer) => [answer.questionId, answer.value]),
   );
@@ -180,6 +181,10 @@ export function FormViewer({
   const [autosaveRevision, setAutosaveRevision] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
+  const [contextErrors, setContextErrors] = useState<{
+    agent?: string;
+    disposition?: string;
+  }>({});
   const [submitting, setSubmitting] = useState(false);
   const autosaveInitializedRef = useRef(false);
   const draftIdRef = useRef(draftId);
@@ -368,7 +373,11 @@ export function FormViewer({
               window.history.replaceState(null, "", `/forms/${form.id}?responseId=${savedDraftId}`);
             }
             if (!response.replayed) {
-              setLastSavedAt(new Date().toLocaleTimeString("es-ES", { timeStyle: "short" }));
+              setLastSavedAt(
+                formatOperationalTimestamp(new Date(), operationalTimeZone, {
+                  timeStyle: "short",
+                }),
+              );
             }
             if (!silent) {
               toast.success(
@@ -405,7 +414,14 @@ export function FormViewer({
 
       return operation;
     },
-    [agentId, buildPayload, dispositionId, form.id, isEditingSubmitted],
+    [
+      agentId,
+      buildPayload,
+      dispositionId,
+      form.id,
+      isEditingSubmitted,
+      operationalTimeZone,
+    ],
   );
 
   useEffect(() => {
@@ -510,15 +526,14 @@ export function FormViewer({
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
     const newCommentErrors: Record<string, string> = {};
+    const newContextErrors: { agent?: string; disposition?: string } = {};
 
     if (!agentId) {
-      toast.error("Selecciona un agente");
-      return false;
+      newContextErrors.agent = "Selecciona un agente.";
     }
 
     if (!dispositionId && !preservesMissingHistoricalDisposition) {
-      toast.error("Selecciona una disposicion");
-      return false;
+      newContextErrors.disposition = "Selecciona una disposición.";
     }
 
     for (const question of form.questions) {
@@ -536,7 +551,35 @@ export function FormViewer({
 
     setErrors(newErrors);
     setCommentErrors(newCommentErrors);
-    return Object.keys(newErrors).length === 0 && Object.keys(newCommentErrors).length === 0;
+    setContextErrors(newContextErrors);
+    const valid =
+      Object.keys(newContextErrors).length === 0 &&
+      Object.keys(newErrors).length === 0 &&
+      Object.keys(newCommentErrors).length === 0;
+
+    if (!valid) {
+      toast.error("Revisa los campos marcados antes de enviar.");
+      const firstInvalidId = newContextErrors.agent
+        ? "evaluation-agent"
+        : newContextErrors.disposition
+          ? "evaluation-disposition"
+          : Object.keys(newErrors)[0]
+            ? `${Object.keys(newErrors)[0]}-answer`
+            : Object.keys(newCommentErrors)[0]
+              ? `${Object.keys(newCommentErrors)[0]}-comment`
+              : null;
+      requestAnimationFrame(() => {
+        if (!firstInvalidId) return;
+        const control = document.getElementById(firstInvalidId);
+        const focusTarget = control?.matches('[role="radiogroup"], fieldset')
+          ? control.querySelector<HTMLElement>('[role="radio"], input[type="radio"]')
+          : control;
+        focusTarget?.focus();
+        control?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    }
+
+    return valid;
   };
 
   const handleSubmit = async () => {
@@ -606,9 +649,24 @@ export function FormViewer({
         {/* Context bar */}
         <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Agente evaluado</Label>
-            <Select value={agentId} onValueChange={(v) => v && setAgentId(v)}>
-              <SelectTrigger className="h-10 w-full">
+            <Label htmlFor="evaluation-agent" className="text-xs text-muted-foreground">
+              Agente evaluado
+            </Label>
+            <Select
+              value={agentId}
+              onValueChange={(value) => {
+                if (!value) return;
+                setAgentId(value);
+                setContextErrors((current) => ({ ...current, agent: undefined }));
+              }}
+            >
+              <SelectTrigger
+                id="evaluation-agent"
+                aria-describedby={contextErrors.agent ? "evaluation-agent-error" : undefined}
+                aria-invalid={Boolean(contextErrors.agent)}
+                aria-required="true"
+                className="h-10 w-full"
+              >
                 <SelectValue placeholder="Seleccionar agente...">
                   {(value: string | null) => {
                     if (!value) return "Seleccionar agente...";
@@ -627,27 +685,41 @@ export function FormViewer({
                 ))}
               </SelectContent>
             </Select>
+            {contextErrors.agent ? (
+              <p id="evaluation-agent-error" role="alert" className="text-xs text-destructive">
+                {contextErrors.agent}
+              </p>
+            ) : null}
           </div>
           <div className="space-y-1">
             <DispositionCombobox
+              id="evaluation-disposition"
               key={form.campaignId}
               campaignId={form.campaignId}
               value={dispositionId}
-              onChange={setDispositionId}
+              onChange={(value) => {
+                setDispositionId(value);
+                setContextErrors((current) => ({ ...current, disposition: undefined }));
+              }}
               canManageDispositions={canManageDispositions}
               initialDisposition={initialResponse?.disposition ?? null}
+              error={contextErrors.disposition}
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Campana</Label>
+            <p className="text-xs text-muted-foreground">Campaña</p>
             <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm">
               {form.campaign.name}
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Fecha</Label>
+            <p className="text-xs text-muted-foreground">Fecha</p>
             <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm capitalize">
-              {format(new Date(), "d MMM yyyy", { locale: es })}
+              {formatOperationalTimestamp(new Date(), operationalTimeZone, {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
             </div>
           </div>
         </div>

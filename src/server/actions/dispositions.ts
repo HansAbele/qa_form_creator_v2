@@ -5,7 +5,10 @@ import type { DispositionOutcomeValue } from "@/lib/disposition-outcome";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
-import { assertCampaignPermissionForUser } from "@/server/queries/campaign-filter";
+import {
+  assertCampaignPermissionForUser,
+  getCampaignFilterForPermission,
+} from "@/server/queries/campaign-filter";
 
 // ─── Categories ─────────────────────────────────────
 
@@ -210,6 +213,31 @@ export async function getDispositionsForSelector(campaignId: string) {
   );
 
   return { categories, uncategorized, all: safeDispositions };
+}
+
+export async function getDispositionsForReports() {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+  const campaignFilter = await getCampaignFilterForPermission("canViewReports");
+
+  const dispositions = await prisma.disposition.findMany({
+    where: campaignFilter,
+    select: {
+      id: true,
+      name: true,
+      campaignId: true,
+      campaign: { select: { name: true } },
+      category: { select: { campaignId: true } },
+    },
+    orderBy: [{ campaign: { name: "asc" } }, { name: "asc" }],
+  });
+
+  return dispositions
+    .filter(
+      (disposition) =>
+        !disposition.category || disposition.category.campaignId === disposition.campaignId,
+    )
+    .map(({ category: _category, ...disposition }) => disposition);
 }
 
 export async function createDisposition(data: {

@@ -14,14 +14,16 @@ import { getCampaignScoringSettings } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
 import { emitNotification } from "@/server/notifications";
 import {
-  assertCampaignPermissionForUser,
   getCampaignFilterForPermission,
+  hasCampaignPermissionForUser,
 } from "@/server/queries/campaign-filter";
 
 const MAX_ANSWERS_PER_SUBMISSION = 500;
 const MAX_ANSWER_LENGTH = 10_000;
 const CONCURRENT_RESPONSE_CHANGE_ERROR =
   "La evaluacion fue modificada por otra sesion. Recarga la pagina e intenta nuevamente";
+const RESPONSE_UNAVAILABLE_MESSAGE = "Evaluacion no disponible";
+const FORM_UNAVAILABLE_MESSAGE = "Formulario no disponible";
 
 type ResponseActionErrorCode = "CONFLICT" | "VALIDATION" | "NOT_FOUND" | "INVALID_STATE";
 
@@ -37,6 +39,14 @@ class ExpectedResponseActionError extends Error {
 
 function failResponseAction(code: ResponseActionErrorCode, message: string): never {
   throw new ExpectedResponseActionError(code, message);
+}
+
+function failResponseUnavailable(): never {
+  failResponseAction("NOT_FOUND", RESPONSE_UNAVAILABLE_MESSAGE);
+}
+
+function failFormUnavailable(): never {
+  failResponseAction("NOT_FOUND", FORM_UNAVAILABLE_MESSAGE);
 }
 
 type ResponseActionResult<T> =
@@ -182,6 +192,86 @@ type ExistingResponseForMutation = {
   }[];
 };
 
+type ResponseLookupMode = "READ_OR_MUTATE" | "CANCEL" | "CREATE_REPLAY";
+
+type EvaluationPermission = "canEvaluate" | "canEditEvaluations";
+
+function formPermissionScope(
+  user: Session["user"],
+  permission: EvaluationPermission,
+): Prisma.FormWhereInput {
+  if (user.role === "ADMIN") return {};
+  if (user.role === "SUPERVISOR") return { id: { in: [] } };
+
+  return {
+    campaignId: { in: user.campaignIds },
+    campaign: {
+      users: {
+        some: {
+          userId: user.id,
+          ...(permission === "canEvaluate" ? { canEvaluate: true } : { canEditEvaluations: true }),
+        },
+      },
+    },
+  };
+}
+
+function responsePermissionScope(
+  user: Session["user"],
+  mode: ResponseLookupMode,
+): Prisma.ResponseWhereInput {
+  if (user.role === "ADMIN") return {};
+  if (user.role === "SUPERVISOR") return { id: { in: [] } };
+
+  if (mode === "CANCEL") {
+    return { form: formPermissionScope(user, "canEditEvaluations") };
+  }
+  if (mode === "CREATE_REPLAY") {
+    return {
+      evaluatorId: user.id,
+      form: formPermissionScope(user, "canEvaluate"),
+    };
+  }
+
+  return {
+    OR: [
+      {
+        status: RESPONSE_STATUS.DRAFT,
+        evaluatorId: user.id,
+        form: formPermissionScope(user, "canEvaluate"),
+      },
+      {
+        NOT: { status: RESPONSE_STATUS.DRAFT, evaluatorId: user.id },
+        form: formPermissionScope(user, "canEditEvaluations"),
+      },
+    ],
+  };
+}
+
+async function assertResponsePermissionOrUnavailable(
+  user: Session["user"],
+  response: Pick<ExistingResponseForMutation, "evaluatorId" | "status" | "form">,
+  mode: ResponseLookupMode,
+) {
+  if (mode === "CREATE_REPLAY" && response.evaluatorId !== user.id) {
+    failResponseUnavailable();
+  }
+
+  const permission =
+    mode === "CANCEL"
+      ? "canEditEvaluations"
+      : mode === "CREATE_REPLAY" ||
+          (response.status === RESPONSE_STATUS.DRAFT && response.evaluatorId === user.id)
+        ? "canEvaluate"
+        : "canEditEvaluations";
+  const allowed = await hasCampaignPermissionForUser(user, response.form.campaignId, permission);
+  if (!allowed) failResponseUnavailable();
+}
+
+function hasMutationResponseIntegrity(response: ExistingResponseForMutation) {
+  return response.answers.every((answer) => answer.question.formId === response.formId);
+}
+
 function isPrismaErrorCode(error: unknown, code: string) {
   return (
     typeof error === "object" &&
@@ -256,7 +346,10 @@ export async function getResponseById(id: string) {
   if (!session?.user) throw new Error("No autorizado");
 
   const response = await prisma.response.findUnique({
-    where: { id },
+    where: {
+      id,
+      AND: [responsePermissionScope(session.user, "READ_OR_MUTATE")],
+    },
     include: {
       form: { select: { id: true, title: true, campaignId: true } },
       agent: { select: { id: true, name: true, agentCode: true, campaignId: true } },
@@ -289,20 +382,16 @@ export async function getResponseById(id: string) {
     },
   });
 
-  if (!response) throw new Error("Evaluacion no encontrada");
+  if (!response) failResponseUnavailable();
 
-  const permission =
-    response.status === RESPONSE_STATUS.DRAFT && response.evaluatorId === session.user.id
-      ? "canEvaluate"
-      : "canEditEvaluations";
-  await assertCampaignPermissionForUser(session.user, response.form.campaignId, permission);
+  await assertResponsePermissionOrUnavailable(session.user, response, "READ_OR_MUTATE");
 
   if (
     response.agent.campaignId !== response.form.campaignId ||
     (response.disposition && response.disposition.campaignId !== response.form.campaignId) ||
     response.answers.some((answer) => answer.question.formId !== response.form.id)
   ) {
-    throw new Error("La evaluacion contiene relaciones de otra campana");
+    failResponseUnavailable();
   }
   if (response.status === RESPONSE_STATUS.CANCELLED) {
     throw new Error("No se puede editar una evaluacion anulada");
@@ -572,11 +661,18 @@ function existingResponseAuditValue(response: ExistingResponseForMutation) {
   };
 }
 
-async function loadExistingResponse(responseId?: string) {
+async function loadExistingResponse(
+  responseId: string | undefined,
+  user: Session["user"],
+  mode: ResponseLookupMode,
+) {
   if (!responseId) return null;
 
   return prisma.response.findUnique({
-    where: { id: responseId },
+    where: {
+      id: responseId,
+      AND: [responsePermissionScope(user, mode)],
+    },
     include: {
       form: { select: { campaignId: true } },
       answers: {
@@ -594,29 +690,53 @@ async function loadExistingResponse(responseId?: string) {
   }) as Promise<ExistingResponseForMutation | null>;
 }
 
-async function assertMutationPermission(args: {
-  user: Session["user"];
-  campaignId: string;
-  existing: ExistingResponseForMutation | null;
-}) {
-  const { user, campaignId, existing } = args;
-
-  if (!existing) {
-    await assertCampaignPermissionForUser(user, campaignId, "canEvaluate");
-    return;
-  }
-
-  if (existing.status === RESPONSE_STATUS.SUBMITTED) {
-    await assertCampaignPermissionForUser(user, existing.form.campaignId, "canEditEvaluations");
-    return;
+function mutationPermissionForResponse(
+  user: Session["user"],
+  existing: ExistingResponseForMutation,
+): EvaluationPermission {
+  if (existing.status !== RESPONSE_STATUS.DRAFT) {
+    return "canEditEvaluations";
   }
 
   if (existing.evaluatorId === user.id) {
-    await assertCampaignPermissionForUser(user, existing.form.campaignId, "canEvaluate");
-    return;
+    return "canEvaluate";
   }
 
-  await assertCampaignPermissionForUser(user, existing.form.campaignId, "canEditEvaluations");
+  return "canEditEvaluations";
+}
+
+async function loadMutationForm(
+  formId: string,
+  user: Session["user"],
+  permission: EvaluationPermission,
+) {
+  return prisma.form.findUnique({
+    where: {
+      id: formId,
+      AND: [formPermissionScope(user, permission)],
+    },
+    include: {
+      campaign: { select: { name: true, active: true } },
+      questions: {
+        orderBy: { order: "asc" },
+        include: {
+          formCategory: {
+            select: {
+              qaCategoryId: true,
+              qaCategory: {
+                select: {
+                  id: true,
+                  name: true,
+                  systemColor: true,
+                  systemIcon: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 }
 
 function isSameCreateContext(
@@ -645,55 +765,27 @@ async function saveEvaluation(
   if (!session?.user) throw new Error("No autorizado");
   const input = parseResponseMutationInput(data);
 
-  const [form, existing] = await Promise.all([
-    prisma.form.findUnique({
-      where: { id: input.formId },
-      include: {
-        campaign: { select: { name: true, active: true } },
-        questions: {
-          orderBy: { order: "asc" },
-          include: {
-            formCategory: {
-              select: {
-                qaCategoryId: true,
-                qaCategory: {
-                  select: {
-                    id: true,
-                    name: true,
-                    systemColor: true,
-                    systemIcon: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    }),
-    loadExistingResponse(input.responseId),
-  ]);
+  const existing = input.responseId
+    ? await loadExistingResponse(input.responseId, session.user, "READ_OR_MUTATE")
+    : null;
 
+  if (input.responseId && !existing) {
+    failResponseUnavailable();
+  }
   if (existing) {
-    await assertMutationPermission({
-      user: session.user,
-      campaignId: existing.form.campaignId,
-      existing,
-    });
+    await assertResponsePermissionOrUnavailable(session.user, existing, "READ_OR_MUTATE");
+    if (!hasMutationResponseIntegrity(existing)) failResponseUnavailable();
+    // Never use the caller-supplied Form ID to hydrate data during an edit. The
+    // scoped Response is the authority for the relation and must match first.
+    if (existing.formId !== input.formId) failFormUnavailable();
   }
-  if (!form) failResponseAction("NOT_FOUND", "Formulario no encontrado");
-  if (!existing) {
-    await assertMutationPermission({
-      user: session.user,
-      campaignId: form.campaignId,
-      existing,
-    });
-  }
-  if (existing && existing.formId !== input.formId) {
-    failResponseAction("VALIDATION", "Evaluacion no pertenece al formulario indicado");
-  }
-  if (existing?.answers.some((answer) => answer.question.formId !== existing.formId)) {
-    failResponseAction("VALIDATION", "La evaluacion contiene relaciones inconsistentes");
-  }
+
+  const form = await loadMutationForm(
+    existing?.formId ?? input.formId,
+    session.user,
+    existing ? mutationPermissionForResponse(session.user, existing) : "canEvaluate",
+  );
+  if (!form) failFormUnavailable();
 
   if (existing?.status === RESPONSE_STATUS.CANCELLED) {
     failResponseAction("INVALID_STATE", "No se puede modificar una evaluacion anulada");
@@ -705,9 +797,6 @@ async function saveEvaluation(
     );
   }
 
-  if (input.responseId && !existing) {
-    failResponseAction("NOT_FOUND", "Evaluacion no encontrada");
-  }
   if (
     existing &&
     new Date(input.expectedUpdatedAt as string).getTime() !== existing.updatedAt.getTime()
@@ -942,8 +1031,18 @@ async function saveEvaluation(
         failResponseAction("CONFLICT", CONCURRENT_RESPONSE_CHANGE_ERROR);
       }
       if (!existing && isPrismaUniqueConflict(error)) {
-        const replayedResponse = await loadExistingResponse(input.clientResponseId);
-        if (!replayedResponse) throw error;
+        const replayedResponse = await loadExistingResponse(
+          input.clientResponseId,
+          session.user,
+          "CREATE_REPLAY",
+        );
+        if (!replayedResponse) failResponseUnavailable();
+        await assertResponsePermissionOrUnavailable(
+          session.user,
+          replayedResponse,
+          "CREATE_REPLAY",
+        );
+        if (!hasMutationResponseIntegrity(replayedResponse)) failResponseUnavailable();
         if (!isSameCreateContext(replayedResponse, input, session.user.id, status)) {
           failResponseAction(
             "INVALID_STATE",
@@ -1024,14 +1123,11 @@ export async function cancelResponse(data: unknown) {
   const parsedInput = cancelResponseSchema.safeParse(data);
   if (!parsedInput.success) failResponseAction("VALIDATION", "Datos de anulacion invalidos");
   const input = parsedInput.data;
-  const existing = await loadExistingResponse(input.id);
-  if (!existing) failResponseAction("NOT_FOUND", "Evaluacion no encontrada");
+  const existing = await loadExistingResponse(input.id, session.user, "CANCEL");
+  if (!existing) failResponseUnavailable();
 
-  await assertCampaignPermissionForUser(
-    session.user,
-    existing.form.campaignId,
-    "canEditEvaluations",
-  );
+  await assertResponsePermissionOrUnavailable(session.user, existing, "CANCEL");
+  if (!hasMutationResponseIntegrity(existing)) failResponseUnavailable();
   if (existing.status === RESPONSE_STATUS.CANCELLED) {
     failResponseAction("INVALID_STATE", "La evaluacion ya esta anulada");
   }

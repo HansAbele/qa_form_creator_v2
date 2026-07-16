@@ -433,7 +433,7 @@ model AuditLog {
 
   @@index([userId, createdAt])
   @@index([campaignId, createdAt])
-  @@index([module, action])
+  @@index([module, action, entityType, createdAt])
   @@index([entityType, entityId])
 }
 

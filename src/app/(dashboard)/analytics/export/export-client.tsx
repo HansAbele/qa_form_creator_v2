@@ -1,21 +1,26 @@
 "use client";
 
+import { Download, FileJson, FileSpreadsheet, FileText } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Download, FileSpreadsheet, FileJson, FileText } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   ALL_EXPORT_FIELDS,
   DEFAULT_EXPORT_FIELDS,
   EXPORT_FIELD_GROUPS,
   type ExportFieldKey,
 } from "@/lib/export-fields";
-import { exportToCsv, exportToJson, exportToExcel } from "@/server/actions/exports";
 
 interface ExportClientProps {
   campaigns: { id: string; name: string }[];
@@ -30,9 +35,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
   const [selectedFields, setSelectedFields] = useState<ExportFieldKey[]>(DEFAULT_EXPORT_FIELDS);
   const [exporting, setExporting] = useState<string | null>(null);
 
-  const filteredForms = campaignId
-    ? forms.filter((f) => f.campaignId === campaignId)
-    : forms;
+  const filteredForms = campaignId ? forms.filter((f) => f.campaignId === campaignId) : forms;
 
   const getFilters = () => ({
     campaignId: campaignId || undefined,
@@ -50,9 +53,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
     });
   };
 
-  const downloadFile = (content: string, filename: string, mimeType: string) => {
-    const bom = mimeType.includes("csv") ? "\uFEFF" : "";
-    const blob = new Blob([bom + content], { type: `${mimeType};charset=utf-8` });
+  const downloadFile = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -63,67 +64,30 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportCsv = async () => {
-    setExporting("csv");
+  const handleExport = async (format: "csv" | "json" | "xlsx") => {
+    setExporting(format);
     try {
-      const csv = await exportToCsv(getFilters());
-      if (!csv) {
-        toast.error("No hay datos para exportar");
-        return;
-      }
-      downloadFile(csv, `evaluaciones_${Date.now()}.csv`, "text/csv");
-      toast.success("CSV exportado");
-    } catch {
-      toast.error("Error al exportar");
-    } finally {
-      setExporting(null);
-    }
-  };
-
-  const handleExportExcel = async () => {
-    setExporting("excel");
-    try {
-      const base64 = await exportToExcel(getFilters());
-      if (!base64) {
-        toast.error("No hay datos para exportar");
-        return;
-      }
-      const byteChars = atob(base64);
-      const byteArray = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) {
-        byteArray[i] = byteChars.charCodeAt(i);
-      }
-      const blob = new Blob([byteArray], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      const response = await fetch(`/api/exports/${format}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(getFilters()),
       });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `evaluaciones_${Date.now()}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success("Excel exportado");
-    } catch {
-      toast.error("Error al exportar");
-    } finally {
-      setExporting(null);
-    }
-  };
-
-  const handleExportJson = async () => {
-    setExporting("json");
-    try {
-      const json = await exportToJson(getFilters());
-      if (json === "[]") {
-        toast.error("No hay datos para exportar");
-        return;
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        throw new Error(payload?.error?.message ?? "No fue posible generar la exportación.");
       }
-      downloadFile(json, `evaluaciones_${Date.now()}.json`, "application/json");
-      toast.success("JSON exportado");
-    } catch {
-      toast.error("Error al exportar");
+
+      const blob = await response.blob();
+      if (blob.size === 0) throw new Error("No hay datos para exportar.");
+      const disposition = response.headers.get("content-disposition");
+      const filename =
+        disposition?.match(/filename="([^"]+)"/)?.[1] ?? `evaluaciones_${Date.now()}.${format}`;
+      downloadFile(blob, filename);
+      toast.success(`${format === "xlsx" ? "Excel" : format.toUpperCase()} exportado`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al exportar");
     } finally {
       setExporting(null);
     }
@@ -141,7 +105,9 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1">
-              <Label className="text-xs">Campaña</Label>
+              <Label htmlFor="export-campaign" className="text-xs">
+                Campaña
+              </Label>
               <Select
                 value={campaignId || "all"}
                 onValueChange={(v) => {
@@ -150,7 +116,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
                   setFormId("");
                 }}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="export-campaign" className="w-full">
                   <SelectValue placeholder="Todas">
                     {(value: string | null) => {
                       if (!value || value === "all") return "Todas";
@@ -169,9 +135,14 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Formulario</Label>
-              <Select value={formId || "all"} onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}>
-                <SelectTrigger className="w-full">
+              <Label htmlFor="export-form" className="text-xs">
+                Formulario
+              </Label>
+              <Select
+                value={formId || "all"}
+                onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}
+              >
+                <SelectTrigger id="export-form" className="w-full">
                   <SelectValue placeholder="Todos">
                     {(value: string | null) => {
                       if (!value || value === "all") return "Todos";
@@ -190,16 +161,22 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Desde</Label>
+              <Label htmlFor="export-date-from" className="text-xs">
+                Desde
+              </Label>
               <Input
+                id="export-date-from"
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Hasta</Label>
+              <Label htmlFor="export-date-to" className="text-xs">
+                Hasta
+              </Label>
               <Input
+                id="export-date-to"
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
@@ -241,10 +218,8 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
                 <div className="flex items-center justify-between gap-3 border-b pb-2">
                   <p className="text-sm font-medium">{group.label}</p>
                   <span className="text-xs text-muted-foreground">
-                    {
-                      group.fields.filter((field) => selectedFields.includes(field.key)).length
-                    }
-                    /{group.fields.length}
+                    {group.fields.filter((field) => selectedFields.includes(field.key)).length}/
+                    {group.fields.length}
                   </span>
                 </div>
                 <div className="grid gap-2">
@@ -277,12 +252,10 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
             <FileText className="h-12 w-12 text-green-600" />
             <div className="text-center">
               <p className="font-medium">Exportar CSV</p>
-              <p className="text-sm text-muted-foreground">
-                Compatible con Excel y Google Sheets
-              </p>
+              <p className="text-sm text-muted-foreground">Compatible con Excel y Google Sheets</p>
             </div>
             <Button
-              onClick={handleExportCsv}
+              onClick={() => handleExport("csv")}
               disabled={exporting !== null}
               className="w-full"
             >
@@ -297,12 +270,10 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
             <FileJson className="h-12 w-12 text-blue-600" />
             <div className="text-center">
               <p className="font-medium">Exportar JSON</p>
-              <p className="text-sm text-muted-foreground">
-                Datos estructurados para integración
-              </p>
+              <p className="text-sm text-muted-foreground">Datos estructurados para integración</p>
             </div>
             <Button
-              onClick={handleExportJson}
+              onClick={() => handleExport("json")}
               disabled={exporting !== null}
               className="w-full"
             >
@@ -317,17 +288,15 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
             <FileSpreadsheet className="h-12 w-12 text-emerald-600" />
             <div className="text-center">
               <p className="font-medium">Exportar Excel</p>
-              <p className="text-sm text-muted-foreground">
-                Con formato, colores y filtros
-              </p>
+              <p className="text-sm text-muted-foreground">Con formato, colores y filtros</p>
             </div>
             <Button
-              onClick={handleExportExcel}
+              onClick={() => handleExport("xlsx")}
               disabled={exporting !== null}
               className="w-full"
             >
               <Download className="mr-1 h-4 w-4" />
-              {exporting === "excel" ? "Exportando..." : "Descargar Excel"}
+              {exporting === "xlsx" ? "Exportando..." : "Descargar Excel"}
             </Button>
           </CardContent>
         </Card>

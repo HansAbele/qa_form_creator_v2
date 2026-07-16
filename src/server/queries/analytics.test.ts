@@ -18,6 +18,28 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/settings", () => ({
+  getCampaignScoringSettingsMap: async (campaignIds: string[]) => {
+    const entries = await Promise.all(
+      campaignIds.map(async (campaignId) => {
+        const configured = await getCampaignScoringSettingsMock(campaignId);
+        if (configured) return [campaignId, configured] as const;
+
+        return [
+          campaignId,
+          {
+            campaignId,
+            usesGlobalDefaults: true,
+            passThreshold: (await getPassThresholdForCampaignMock(campaignId)) ?? 70,
+            targetPassRate: 85,
+            targetAvgScore: 80,
+            targetDailyRate: 20,
+            fatalFailuresAllowed: 0,
+          },
+        ] as const;
+      }),
+    );
+    return new Map(entries);
+  },
   getCampaignScoringSettings: getCampaignScoringSettingsMock,
   getPassThresholdForCampaign: getPassThresholdForCampaignMock,
   getSettings: getSettingsMock,
@@ -39,10 +61,12 @@ import {
   getDashboardStats,
   getDispositionAnalytics,
   getDispositionDetail,
+  getEvaluatorDetail,
   getFilteredResponses,
   getMyDashboard,
   getQACategoryMetrics,
   getReportData,
+  getReportResponseDetail,
   getResponseDetail,
   getResponseTrends,
   getScoreByQuestion,
@@ -92,6 +116,32 @@ describe("QA category analytics", () => {
   });
 
   it("scopes QA category metrics to campaigns with KPI permission", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([
+      {
+        id: "cat-resolution",
+        name: "Resolucion",
+        color: "#ff6600",
+        icon: "target",
+        totalAnswers: BigInt(1),
+        totalEvaluations: BigInt(1),
+        avgScore: "100",
+        failedAnswers: BigInt(0),
+        fatalFailCount: BigInt(0),
+        commentCount: BigInt(0),
+      },
+      {
+        id: "cat-compliance",
+        name: "Cumplimiento",
+        color: "#dc2626",
+        icon: "shield",
+        totalAnswers: BigInt(1),
+        totalEvaluations: BigInt(1),
+        avgScore: "50",
+        failedAnswers: BigInt(1),
+        fatalFailCount: BigInt(1),
+        commentCount: BigInt(1),
+      },
+    ]);
     prismaMock.answer.findMany.mockResolvedValue([
       {
         score: 100,
@@ -170,16 +220,8 @@ describe("QA category analytics", () => {
       }),
     ]);
 
-    expect(prismaMock.answer.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          categoryId: { not: null },
-          response: expect.objectContaining({
-            form: { campaignId: { in: ["campaign-1"] } },
-          }),
-        }),
-      }),
-    );
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaMock.answer.findMany).not.toHaveBeenCalled();
   });
 
   it("omits categories hidden from KPI dashboards", async () => {
@@ -210,6 +252,20 @@ describe("QA category analytics", () => {
   });
 
   it("counts fatal option answers even when they do not have numeric score", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([
+      {
+        id: "cat-critical",
+        name: "Critica",
+        color: "#dc2626",
+        icon: "shield",
+        totalAnswers: BigInt(1),
+        totalEvaluations: BigInt(1),
+        avgScore: "0",
+        failedAnswers: BigInt(1),
+        fatalFailCount: BigInt(1),
+        commentCount: BigInt(1),
+      },
+    ]);
     prismaMock.answer.findMany.mockResolvedValue([
       {
         score: null,
@@ -245,6 +301,9 @@ describe("QA category analytics", () => {
   });
 
   it("ignores score answers linked to a question from another form", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([
+      { question: "Saludo", avgScore: "90", totalAnswers: BigInt(1) },
+    ]);
     prismaMock.answer.findMany.mockResolvedValue([
       {
         score: 90,
@@ -281,13 +340,8 @@ describe("QA category analytics", () => {
     await expect(getScoreByQuestion("campaign-1")).resolves.toEqual([
       { question: "Saludo", avgScore: 90, totalAnswers: 1 },
     ]);
-    expect(prismaMock.answer.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          question: expect.objectContaining({ form: { campaignId: "campaign-1" } }),
-        }),
-      }),
-    );
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaMock.answer.findMany).not.toHaveBeenCalled();
   });
 
   it("returns campaign KPI targets and fatal failures from effective campaign settings", async () => {
@@ -295,16 +349,20 @@ describe("QA category analytics", () => {
       {
         id: "campaign-1",
         name: "Retencion",
-        forms: [{ id: "form-1" }, { id: "form-2" }],
-        agents: [{ id: "agent-1" }],
-        _count: { users: 2 },
+        _count: { forms: 2, agents: 1, users: 2 },
       },
     ]);
-    prismaMock.response.count
-      .mockResolvedValueOnce(5)
-      .mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(2);
-    prismaMock.response.aggregate.mockResolvedValue({ _avg: { score: 86.4 } });
+    prismaMock.$queryRaw.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        totalEvaluations: BigInt(5),
+        avgScore: "86.4",
+        passCount: BigInt(4),
+        fatalFailCount: BigInt(2),
+        minCreatedAt: new Date("2026-05-01T12:00:00Z"),
+        maxCreatedAt: new Date("2026-05-05T12:00:00Z"),
+      },
+    ]);
 
     await expect(getCampaignKpis(undefined, "2026-05-01", "2026-05-05")).resolves.toEqual([
       expect.objectContaining({
@@ -321,32 +379,8 @@ describe("QA category analytics", () => {
         fatalFailuresAllowed: 1,
       }),
     ]);
-    expect(prismaMock.response.count).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        where: expect.objectContaining({
-          hasFatalFail: false,
-          OR: [
-            { result: "PASS" },
-            {
-              OR: [{ result: null }, { result: { notIn: ["PASS", "FAIL"] } }],
-              score: { gte: 75 },
-            },
-          ],
-          AND: [
-            {
-              AND: [
-                { form: { campaignId: "campaign-1" } },
-                { agent: { campaignId: "campaign-1" } },
-                {
-                  OR: [{ dispositionId: null }, { disposition: { campaignId: "campaign-1" } }],
-                },
-              ],
-            },
-          ],
-        }),
-      }),
-    );
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaMock.response.count).not.toHaveBeenCalled();
   });
 
   it("uses each campaign threshold for a multi-campaign dashboard pass rate", async () => {
@@ -386,13 +420,15 @@ describe("QA category analytics", () => {
     const passCall = serializedCountCalls.find(
       (call) => call.includes('"gte":75') && call.includes('"gte":85'),
     );
-    expect(passCall).toContain('"agent":{"campaignId":"campaign-low"}');
-    expect(passCall).toContain('"agent":{"campaignId":"campaign-high"}');
-    expect(passCall).toContain('"disposition":{"campaignId":"campaign-low"}');
-    expect(passCall).toContain('"disposition":{"campaignId":"campaign-high"}');
+    expect(passCall).toContain('"team":{"campaignId":"campaign-low"}');
+    expect(passCall).toContain('"team":{"campaignId":"campaign-high"}');
+    expect(passCall).toContain('"category":{"campaignId":"campaign-low"}');
+    expect(passCall).toContain('"category":{"campaignId":"campaign-high"}');
     const recentWhere = JSON.stringify(prismaMock.response.findMany.mock.calls[0]?.[0]?.where);
-    expect(recentWhere).toContain('"agent":{"campaignId":"campaign-low"}');
-    expect(recentWhere).toContain('"agent":{"campaignId":"campaign-high"}');
+    expect(recentWhere).toContain('"team":{"campaignId":"campaign-low"}');
+    expect(recentWhere).toContain('"team":{"campaignId":"campaign-high"}');
+    expect(recentWhere).toContain('"category":{"campaignId":"campaign-low"}');
+    expect(recentWhere).toContain('"category":{"campaignId":"campaign-high"}');
   });
 
   it("returns report rows with pass status and target deltas from campaign targets", async () => {
@@ -436,24 +472,48 @@ describe("QA category analytics", () => {
         ],
       },
     ]);
-
-    await expect(getReportData({ campaignId: "campaign-1" })).resolves.toEqual([
-      expect.objectContaining({
-        id: "response-1",
+    prismaMock.$queryRaw.mockResolvedValueOnce([{ id: "response-1" }]).mockResolvedValueOnce([
+      {
         campaignId: "campaign-1",
-        campaignName: "Retencion",
-        passThreshold: 75,
-        targetPassRate: 90,
-        targetAvgScore: 85,
-        targetDailyRate: 12,
-        fatalFailuresAllowed: 1,
-        passesThreshold: false,
-        scoreTargetDelta: -11,
-      }),
+        totalEvaluations: BigInt(1),
+        avgScore: "74",
+        passCount: BigInt(0),
+        fatalFailCount: BigInt(0),
+        minCreatedAt: new Date("2026-05-03T12:00:00Z"),
+        maxCreatedAt: new Date("2026-05-03T12:00:00Z"),
+      },
     ]);
+
+    await expect(getReportData({ campaignId: "campaign-1" })).resolves.toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            id: "response-1",
+            campaignId: "campaign-1",
+            campaignName: "Retencion",
+            passThreshold: 75,
+            targetPassRate: 90,
+            targetAvgScore: 85,
+            targetDailyRate: 12,
+            fatalFailuresAllowed: 1,
+            passesThreshold: false,
+            scoreTargetDelta: -11,
+          }),
+        ],
+        page: 1,
+        pageSize: 50,
+        totalCount: 1,
+        totalPages: 1,
+        summary: expect.objectContaining({
+          totalEvaluations: 1,
+          avgScore: 74,
+          passRate: 0,
+        }),
+      }),
+    );
   });
 
-  it("drops report rows with cross-campaign or cross-form relations", async () => {
+  it("hydrates only IDs returned by the integrity-scoped report page query", async () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       userId: "qa-1",
       campaignId: "campaign-1",
@@ -495,38 +555,74 @@ describe("QA category analytics", () => {
         },
       ],
     };
-    prismaMock.response.findMany.mockResolvedValue([
-      base,
+    prismaMock.response.findMany.mockResolvedValue([base]);
+    prismaMock.$queryRaw.mockResolvedValueOnce([{ id: "response-valid" }]).mockResolvedValueOnce([
       {
-        ...base,
-        id: "response-foreign-agent",
-        agent: { ...base.agent, name: "Agente ajeno", campaignId: "campaign-2" },
-      },
-      {
-        ...base,
-        id: "response-foreign-disposition",
-        disposition: {
-          name: "Disposicion ajena",
-          outcomeType: null,
-          campaignId: "campaign-2",
-        },
-      },
-      {
-        ...base,
-        id: "response-foreign-question",
-        answers: [
-          {
-            ...base.answers[0],
-            question: { ...base.answers[0].question, formId: "form-2", label: "Pregunta ajena" },
-          },
-        ],
+        campaignId: "campaign-1",
+        totalEvaluations: BigInt(1),
+        avgScore: "90",
+        passCount: BigInt(1),
+        fatalFailCount: BigInt(0),
+        minCreatedAt: base.createdAt,
+        maxCreatedAt: base.createdAt,
       },
     ]);
 
     const result = await getReportData({ campaignId: "campaign-1" });
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual(expect.objectContaining({ id: "response-valid" }));
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toEqual(expect.objectContaining({ id: "response-valid" }));
+    expect(prismaMock.response.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ["response-valid"] },
+          form: { campaignId: "campaign-1" },
+          status: "SUBMITTED",
+          OR: [
+            expect.objectContaining({
+              AND: expect.arrayContaining([
+                {
+                  agent: {
+                    campaignId: "campaign-1",
+                    OR: [{ teamId: null }, { team: { campaignId: "campaign-1" } }],
+                  },
+                },
+                {
+                  OR: [
+                    { dispositionId: null },
+                    {
+                      disposition: {
+                        campaignId: "campaign-1",
+                        OR: [{ categoryId: null }, { category: { campaignId: "campaign-1" } }],
+                      },
+                    },
+                  ],
+                },
+              ]),
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("does not select or expose evaluator email to a non-admin KPI reader", async () => {
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "qa-2",
+      name: "Eva",
+      role: "QA",
+    });
+    prismaMock.response.findMany.mockResolvedValue([]);
+    prismaMock.response.aggregate.mockResolvedValue({ _avg: { score: null } });
+
+    const result = await getEvaluatorDetail("qa-2");
+
+    expect(result).toEqual(expect.objectContaining({ name: "Eva", email: null, role: "QA" }));
+    expect(prismaMock.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: { id: true, name: true, role: true },
+      }),
+    );
   });
 
   it("returns actionable insights and excludes campaigns with no evaluations", async () => {
@@ -537,24 +633,61 @@ describe("QA category analytics", () => {
       {
         id: "campaign-1",
         name: "Retencion",
-        forms: [{ id: "form-1" }],
-        agents: [{ id: "agent-1" }],
-        _count: { users: 2 },
+        _count: { forms: 1, agents: 1, users: 2 },
       },
       {
         // No forms → 0 evaluations → must NOT be flagged in "Necesita atención".
         id: "campaign-2",
         name: "Sin datos",
-        forms: [],
-        agents: [],
-        _count: { users: 0 },
+        _count: { forms: 0, agents: 0, users: 0 },
       },
     ]);
-    prismaMock.response.count
-      .mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(1);
-    prismaMock.response.aggregate.mockResolvedValue({ _avg: { score: 66 } });
+    prismaMock.$queryRaw.mockImplementation(async (query) => {
+      const sql = (query as { strings?: readonly string[] }).strings?.join(" ") ?? "";
+      if (sql.includes("ranked AS")) {
+        return [
+          {
+            id: "agent-1",
+            name: "Ana",
+            agentCode: "A-1",
+            campaignId: "campaign-1",
+            campaignName: "Retencion",
+            totalEvaluations: BigInt(3),
+            avgScore: "57.6666667",
+            passCount: BigInt(0),
+            fatalFailCount: BigInt(1),
+            recentAvg: "57.6666667",
+            previousAvg: null,
+          },
+        ];
+      }
+      if (sql.includes('qc."visibleInDashboard"')) {
+        return [
+          {
+            id: "cat-1",
+            name: "Cumplimiento",
+            color: "#dc2626",
+            campaignId: "campaign-1",
+            totalScore: "45",
+            scoredCount: BigInt(1),
+            totalAnswers: BigInt(1),
+            fatalFailCount: BigInt(1),
+            affectedAgents: BigInt(1),
+          },
+        ];
+      }
+      return [
+        {
+          campaignId: "campaign-1",
+          totalEvaluations: BigInt(4),
+          avgScore: "66",
+          passCount: BigInt(1),
+          fatalFailCount: BigInt(1),
+          minCreatedAt: new Date("2026-05-01T12:00:00Z"),
+          maxCreatedAt: new Date("2026-05-05T12:00:00Z"),
+        },
+      ];
+    });
     prismaMock.agent.findMany.mockResolvedValue([
       {
         id: "agent-1",
@@ -673,21 +806,18 @@ describe("QA category analytics", () => {
 
     await expect(getResponseTrends()).resolves.toEqual([]);
 
-    expect(prismaMock.response.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          form: { campaignId: { in: [] } },
-        }),
-      }),
-    );
+    expect(prismaMock.$queryRaw).not.toHaveBeenCalled();
+    expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
 
   it("does not expose a draft response through report-only access", async () => {
-    prismaMock.userCampaign.findUnique.mockResolvedValue({
-      campaignId: "campaign-1",
-      canViewReports: true,
-      canEditEvaluations: false,
-    });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewReports: true,
+        canEditEvaluations: false,
+      },
+    ]);
     prismaMock.response.findUnique.mockResolvedValue({
       id: "response-draft",
       evaluatorId: "qa-2",
@@ -704,8 +834,120 @@ describe("QA category analytics", () => {
       answers: [],
     });
 
-    await expect(getResponseDetail("response-draft")).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+    await expect(getResponseDetail("response-draft")).rejects.toThrow("Evaluacion no disponible");
+    expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(1);
+    expect(prismaMock.response.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            {
+              status: "DRAFT",
+              form: { campaignId: { in: [] } },
+            },
+            {
+              NOT: { status: "DRAFT" },
+              form: { campaignId: { in: ["campaign-1"] } },
+            },
+          ]),
+        }),
+        select: {
+          id: true,
+          formId: true,
+          status: true,
+          form: { select: { campaignId: true } },
+        },
+      }),
+    );
+    expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("allows a submitted response through report scope without granting edit access", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewReports: true,
+        canEditEvaluations: false,
+      },
+    ]);
+    const createdAt = new Date("2026-07-10T12:00:00Z");
+    prismaMock.response.findFirst
+      .mockResolvedValueOnce({
+        id: "response-submitted",
+        formId: "form-1",
+        status: "SUBMITTED",
+        form: { campaignId: "campaign-1" },
+      })
+      .mockResolvedValueOnce({
+        id: "response-submitted",
+        status: "SUBMITTED",
+        score: 90,
+        result: "PASS",
+        hasFatalFail: false,
+        createdAt,
+        updatedAt: createdAt,
+        submittedAt: createdAt,
+        cancelledAt: null,
+        cancellationReason: null,
+        scoringSnapshot: null,
+        settingsSnapshot: null,
+        formSnapshot: null,
+        form: {
+          id: "form-1",
+          title: "QA Form",
+          campaignId: "campaign-1",
+          status: "PUBLISHED",
+          campaign: { active: true },
+        },
+        agent: {
+          id: "agent-1",
+          name: "Ana",
+          agentCode: "A-1",
+          campaignId: "campaign-1",
+          campaign: { name: "Campana Uno" },
+        },
+        evaluator: { id: "qa-2", name: "Eva", email: "eva@example.com" },
+        disposition: null,
+        answers: [],
+      });
+
+    await expect(getResponseDetail("response-submitted")).resolves.toEqual(
+      expect.objectContaining({ id: "response-submitted", canEdit: false }),
+    );
+    expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a report detail whose agent team belongs to another campaign", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewReports: true },
+    ]);
+    prismaMock.response.findFirst.mockResolvedValue({
+      id: "response-corrupt-team",
+      form: { id: "form-1", campaignId: "campaign-1" },
+      agent: {
+        name: "Agente ajeno",
+        agentCode: "X-1",
+        campaignId: "campaign-1",
+        teamId: "team-foreign",
+        team: { campaignId: "campaign-2" },
+      },
+      disposition: null,
+      answers: [],
+    });
+
+    await expect(getReportResponseDetail("response-corrupt-team")).rejects.toThrow(
+      "Evaluacion no disponible",
+    );
+    expect(prismaMock.response.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          agent: {
+            select: expect.objectContaining({
+              teamId: true,
+              team: { select: { campaignId: true } },
+            }),
+          },
+        }),
+      }),
     );
   });
 });
@@ -730,6 +972,28 @@ describe("Critical Error Accuracy (CEA)", () => {
   });
 
   it("computes transaction-level accuracy per family and degrades to 'no configurado'", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([
+      {
+        scopeType: "OVERALL",
+        scopeId: null,
+        scopeName: null,
+        agentCode: null,
+        date: null,
+        family: "CUSTOMER",
+        applicable: BigInt(2),
+        failedCount: BigInt(1),
+      },
+      {
+        scopeType: "OVERALL",
+        scopeId: null,
+        scopeName: null,
+        agentCode: null,
+        date: null,
+        family: "BUSINESS",
+        applicable: BigInt(1),
+        failedCount: BigInt(0),
+      },
+    ]);
     prismaMock.answer.findMany.mockResolvedValue([
       {
         responseId: "r1",
@@ -834,6 +1098,48 @@ describe("Critical Error Accuracy (CEA)", () => {
         },
       },
     ]);
+    prismaMock.$queryRaw.mockResolvedValue([
+      {
+        scopeType: "OVERALL",
+        scopeId: null,
+        scopeName: null,
+        agentCode: null,
+        date: null,
+        family: "CUSTOMER",
+        applicable: BigInt(2),
+        failedCount: BigInt(1),
+      },
+      {
+        scopeType: "CAMPAIGN",
+        scopeId: "campaign-1",
+        scopeName: "Campaign 1",
+        agentCode: null,
+        date: null,
+        family: "CUSTOMER",
+        applicable: BigInt(2),
+        failedCount: BigInt(1),
+      },
+      {
+        scopeType: "AGENT",
+        scopeId: "a1",
+        scopeName: "Agent 1",
+        agentCode: "A1",
+        date: null,
+        family: "CUSTOMER",
+        applicable: BigInt(2),
+        failedCount: BigInt(1),
+      },
+      {
+        scopeType: "DAY",
+        scopeId: "2026-06-29",
+        scopeName: null,
+        agentCode: null,
+        date: "2026-06-29",
+        family: "CUSTOMER",
+        applicable: BigInt(2),
+        failedCount: BigInt(1),
+      },
+    ]);
 
     const detail = await getCriticalErrorAccuracyDetail();
 
@@ -881,6 +1187,39 @@ describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
   });
 
   it("derives every personal dashboard metric from the current evaluator only", async () => {
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          evaluations: BigInt(2),
+          avgScore: "70",
+          fatalCount: BigInt(1),
+          stdDev: "10",
+          minCreatedAt: new Date("2026-06-29T10:00:00Z"),
+          maxCreatedAt: new Date("2026-06-30T10:00:00Z"),
+        },
+      ])
+      .mockResolvedValueOnce([
+        { date: "2026-06-29", count: BigInt(1), avgScore: "60" },
+        { date: "2026-06-30", count: BigInt(1), avgScore: "80" },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucket0: BigInt(0),
+          bucket1: BigInt(1),
+          bucket2: BigInt(1),
+          bucket3: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "a1",
+          name: "Agent 1",
+          agentCode: "A1",
+          campaignId: "campaign-1",
+          campaignName: "Campaign 1",
+          avgScore: "70",
+        },
+      ]);
     prismaMock.response.findMany.mockResolvedValue([
       {
         id: "m1",
@@ -931,13 +1270,19 @@ describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
     expect(prismaMock.response.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ evaluatorId: "qa-1" }),
+        take: 8,
       }),
     );
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(4);
     expect(prismaMock.response.aggregate).not.toHaveBeenCalled();
     expect(prismaMock.agent.findMany).not.toHaveBeenCalled();
   });
 
   it("classifies legacy personal results with each campaign threshold", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-low", canViewDashboard: true },
+      { campaignId: "campaign-high", canViewDashboard: true },
+    ]);
     getPassThresholdForCampaignMock.mockImplementation(async (campaignId?: string) =>
       campaignId === "campaign-high" ? 85 : 75,
     );
@@ -950,6 +1295,47 @@ describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
       targetDailyRate: 20,
       fatalFailuresAllowed: 0,
     }));
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          evaluations: BigInt(2),
+          avgScore: "80",
+          fatalCount: BigInt(0),
+          stdDev: "0",
+          minCreatedAt: new Date("2026-06-29T10:00:00Z"),
+          maxCreatedAt: new Date("2026-06-30T10:00:00Z"),
+        },
+      ])
+      .mockResolvedValueOnce([
+        { date: "2026-06-29", count: BigInt(1), avgScore: "80" },
+        { date: "2026-06-30", count: BigInt(1), avgScore: "80" },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucket0: BigInt(0),
+          bucket1: BigInt(0),
+          bucket2: BigInt(2),
+          bucket3: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "agent-low",
+          name: "Agent Low",
+          agentCode: "L1",
+          campaignId: "campaign-low",
+          campaignName: "Low",
+          avgScore: "80",
+        },
+        {
+          id: "agent-high",
+          name: "Agent High",
+          agentCode: "H1",
+          campaignId: "campaign-high",
+          campaignName: "High",
+          avgScore: "80",
+        },
+      ]);
     prismaMock.response.findMany.mockResolvedValue([
       {
         id: "low-pass",
@@ -1143,6 +1529,18 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
   });
 
   it("rejects high-score explicit and fatal failures in disposition analytics", async () => {
+    prismaMock.campaign.findMany.mockResolvedValue([{ id: "campaign-low" }]);
+    prismaMock.$queryRaw.mockResolvedValue([
+      {
+        id: "disposition-1",
+        name: "Escalado",
+        code: "ESC",
+        categoryName: "Escalamientos",
+        totalEvaluations: BigInt(2),
+        avgScore: "98",
+        passCount: BigInt(0),
+      },
+    ]);
     prismaMock.disposition.findMany.mockResolvedValue([
       {
         id: "disposition-1",
@@ -1172,82 +1570,77 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
     await expect(getDispositionAnalytics()).resolves.toEqual([
       expect.objectContaining({ id: "disposition-1", avgScore: 98, passRate: 0 }),
     ]);
-    expect(prismaMock.disposition.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        include: expect.objectContaining({
-          responses: expect.objectContaining({
-            select: expect.objectContaining({ result: true, hasFatalFail: true }),
-          }),
-        }),
-      }),
-    );
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaMock.disposition.findMany).not.toHaveBeenCalled();
   });
 
   it("rejects high-score explicit and fatal failures in team detail", async () => {
-    prismaMock.team.findUnique.mockResolvedValue({
-      id: "team-1",
-      name: "Equipo Uno",
-      campaignId: "campaign-low",
-      campaign: { name: "Campana Uno" },
-      agents: [
-        {
-          id: "agent-1",
-          name: "Ana",
-          agentCode: "A-1",
-          campaignId: "campaign-low",
-          responses: [
-            {
-              score: 97,
-              result: "FAIL",
-              hasFatalFail: false,
-              createdAt: new Date("2026-07-02T12:00:00Z"),
-              form: { campaignId: "campaign-low" },
-              disposition: null,
-            },
-            {
-              score: 97,
-              result: null,
-              hasFatalFail: true,
-              createdAt: new Date("2026-07-01T12:00:00Z"),
-              form: { campaignId: "campaign-low" },
-              disposition: null,
-            },
-            {
-              score: 100,
-              result: "PASS",
-              hasFatalFail: false,
-              createdAt: new Date("2026-07-03T12:00:00Z"),
-              form: { campaignId: "campaign-high" },
-              disposition: null,
-            },
-            {
-              score: 100,
-              result: "PASS",
-              hasFatalFail: false,
-              createdAt: new Date("2026-07-04T12:00:00Z"),
-              form: { campaignId: "campaign-low" },
-              disposition: { campaignId: "campaign-high" },
-            },
-          ],
-        },
-        {
-          id: "agent-foreign",
-          name: "Fuera de campana",
-          agentCode: "F-1",
-          campaignId: "campaign-high",
-          responses: [
-            {
-              score: 100,
-              result: "PASS",
-              hasFatalFail: false,
-              createdAt: new Date("2026-07-03T12:00:00Z"),
-              form: { campaignId: "campaign-low" },
-              disposition: null,
-            },
-          ],
-        },
-      ],
-    });
+    prismaMock.team.findFirst
+      .mockResolvedValueOnce({ id: "team-1", campaignId: "campaign-low" })
+      .mockResolvedValueOnce({
+        id: "team-1",
+        name: "Equipo Uno",
+        campaignId: "campaign-low",
+        campaign: { name: "Campana Uno" },
+        agents: [
+          {
+            id: "agent-1",
+            name: "Ana",
+            agentCode: "A-1",
+            campaignId: "campaign-low",
+            responses: [
+              {
+                score: 97,
+                result: "FAIL",
+                hasFatalFail: false,
+                createdAt: new Date("2026-07-02T12:00:00Z"),
+                form: { campaignId: "campaign-low" },
+                disposition: null,
+              },
+              {
+                score: 97,
+                result: null,
+                hasFatalFail: true,
+                createdAt: new Date("2026-07-01T12:00:00Z"),
+                form: { campaignId: "campaign-low" },
+                disposition: null,
+              },
+              {
+                score: 100,
+                result: "PASS",
+                hasFatalFail: false,
+                createdAt: new Date("2026-07-03T12:00:00Z"),
+                form: { campaignId: "campaign-high" },
+                disposition: null,
+              },
+              {
+                score: 100,
+                result: "PASS",
+                hasFatalFail: false,
+                createdAt: new Date("2026-07-04T12:00:00Z"),
+                form: { campaignId: "campaign-low" },
+                disposition: { campaignId: "campaign-high" },
+              },
+            ],
+          },
+          {
+            id: "agent-foreign",
+            name: "Fuera de campana",
+            agentCode: "F-1",
+            campaignId: "campaign-high",
+            responses: [
+              {
+                score: 100,
+                result: "PASS",
+                hasFatalFail: false,
+                createdAt: new Date("2026-07-03T12:00:00Z"),
+                form: { campaignId: "campaign-low" },
+                disposition: null,
+              },
+            ],
+          },
+        ],
+      });
 
     const result = await getTeamDetail("team-1");
 
@@ -1255,7 +1648,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       expect.objectContaining({ id: "agent-1", avgScore: 97, passRate: 0 }),
     ]);
     expect(result).toEqual(expect.objectContaining({ agentCount: 1, totalEvaluations: 2 }));
-    expect(prismaMock.team.findUnique).toHaveBeenCalledWith(
+    expect(prismaMock.team.findFirst).toHaveBeenLastCalledWith(
       expect.objectContaining({
         include: expect.objectContaining({
           agents: expect.objectContaining({
@@ -1271,16 +1664,19 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
   });
 
   it("rejects high-score explicit and fatal failures in disposition detail", async () => {
-    prismaMock.disposition.findUnique.mockResolvedValue({
-      id: "disposition-1",
-      name: "Escalado",
-      code: "ESC",
-      active: true,
-      campaignId: "campaign-low",
-      categoryId: "category-foreign",
-      category: { name: "Categoria ajena", campaignId: "campaign-high" },
-      campaign: { id: "campaign-low", name: "Campana Uno" },
-    });
+    prismaMock.campaign.findMany.mockResolvedValue([{ id: "campaign-low" }]);
+    prismaMock.disposition.findFirst
+      .mockResolvedValueOnce({ id: "disposition-1", campaignId: "campaign-low" })
+      .mockResolvedValueOnce({
+        id: "disposition-1",
+        name: "Escalado",
+        code: "ESC",
+        active: true,
+        campaignId: "campaign-low",
+        categoryId: "category-1",
+        category: { name: "Escalamientos", campaignId: "campaign-low" },
+        campaign: { id: "campaign-low", name: "Campana Uno" },
+      });
     prismaMock.response.findMany.mockResolvedValue([
       {
         id: "response-1",
@@ -1309,6 +1705,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       _avg: { score: 96 },
       _count: { _all: 2 },
     });
+    prismaMock.disposition.findMany.mockResolvedValue([]);
 
     const result = await getDispositionDetail("disposition-1");
 
@@ -1318,7 +1715,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
         avgScore: 96,
         passThreshold: 75,
         passRate: 0,
-        categoryName: null,
+        categoryName: "Escalamientos",
         recentResponses: [
           expect.objectContaining({ id: "response-1", result: "FAIL" }),
           expect.objectContaining({ id: "response-2", result: "FAIL" }),
@@ -1329,8 +1726,12 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           dispositionId: "disposition-1",
-          form: { campaignId: "campaign-low" },
-          agent: { campaignId: "campaign-low" },
+          AND: expect.arrayContaining([
+            { form: { campaignId: "campaign-low" } },
+            expect.objectContaining({
+              agent: expect.objectContaining({ campaignId: "campaign-low" }),
+            }),
+          ]),
         }),
         select: expect.objectContaining({ result: true, hasFatalFail: true }),
       }),
@@ -1346,38 +1747,41 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       evaluator: { id: "evaluator-1", name: "Eva" },
       answers: [],
     };
-    prismaMock.agent.findUnique.mockResolvedValue({
-      id: "agent-1",
-      name: "Ana",
-      agentCode: "A-1",
-      campaignId: "campaign-low",
-      campaign: { name: "Campana Uno" },
-      team: { name: "Equipo ajeno", campaignId: "campaign-high" },
-      responses: [
-        {
-          ...baseResponse,
-          id: "response-valid",
-          form: { title: "Formulario Uno", campaignId: "campaign-low" },
-          disposition: null,
-        },
-        {
-          ...baseResponse,
-          id: "response-foreign-form",
-          form: { title: "Formulario Ajeno", campaignId: "campaign-high" },
-          disposition: null,
-        },
-        {
-          ...baseResponse,
-          id: "response-foreign-disposition",
-          form: { title: "Formulario Uno", campaignId: "campaign-low" },
-          disposition: {
-            id: "disposition-foreign",
-            name: "Ajena",
-            campaignId: "campaign-high",
+    prismaMock.campaign.findMany.mockResolvedValue([{ id: "campaign-low" }]);
+    prismaMock.agent.findFirst
+      .mockResolvedValueOnce({ id: "agent-1", campaignId: "campaign-low" })
+      .mockResolvedValueOnce({
+        id: "agent-1",
+        name: "Ana",
+        agentCode: "A-1",
+        campaignId: "campaign-low",
+        campaign: { name: "Campana Uno" },
+        team: { name: "Equipo Uno", campaignId: "campaign-low" },
+        responses: [
+          {
+            ...baseResponse,
+            id: "response-valid",
+            form: { title: "Formulario Uno", campaignId: "campaign-low" },
+            disposition: null,
           },
-        },
-      ],
-    });
+          {
+            ...baseResponse,
+            id: "response-foreign-form",
+            form: { title: "Formulario Ajeno", campaignId: "campaign-high" },
+            disposition: null,
+          },
+          {
+            ...baseResponse,
+            id: "response-foreign-disposition",
+            form: { title: "Formulario Uno", campaignId: "campaign-low" },
+            disposition: {
+              id: "disposition-foreign",
+              name: "Ajena",
+              campaignId: "campaign-high",
+            },
+          },
+        ],
+      });
 
     const result = await getAgentDetail("agent-1");
 
@@ -1386,48 +1790,123 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
         totalEvaluations: 1,
         avgScore: 88,
         passThreshold: 75,
-        teamName: null,
+        teamName: "Equipo Uno",
         recentResponses: [expect.objectContaining({ id: "response-valid", result: "PASS" })],
       }),
     );
   });
 
+  it("uses scoped existence checks and uniform errors before loading drill-down PII", async () => {
+    prismaMock.campaign.findMany.mockResolvedValue([{ id: "campaign-low" }]);
+
+    await expect(getAgentDetail("hidden-agent")).rejects.toThrow("Agente no disponible");
+    expect(prismaMock.agent.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "hidden-agent",
+          OR: [
+            {
+              campaignId: "campaign-low",
+              OR: [{ teamId: null }, { team: { campaignId: "campaign-low" } }],
+            },
+          ],
+        }),
+        select: { id: true, campaignId: true },
+      }),
+    );
+
+    await expect(getTeamDetail("hidden-team")).rejects.toThrow("Equipo no disponible");
+    expect(prismaMock.team.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "hidden-team" }),
+        select: { id: true, campaignId: true },
+      }),
+    );
+
+    await expect(getDispositionDetail("hidden-disposition")).rejects.toThrow(
+      "Disposicion no disponible",
+    );
+    expect(prismaMock.disposition.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "hidden-disposition",
+          OR: [
+            {
+              campaignId: "campaign-low",
+              OR: [{ categoryId: null }, { category: { campaignId: "campaign-low" } }],
+            },
+          ],
+        }),
+        select: { id: true, campaignId: true },
+      }),
+    );
+
+    await expect(getEvaluatorDetail("hidden-evaluator")).rejects.toThrow("Evaluador no disponible");
+    expect(prismaMock.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "hidden-evaluator",
+          responses: {
+            some: expect.objectContaining({
+              status: "SUBMITTED",
+              OR: expect.any(Array),
+            }),
+          },
+        }),
+        select: { id: true, name: true, email: true, role: true },
+      }),
+    );
+
+    expect(prismaMock.agent.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.team.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.disposition.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.response.findMany).not.toHaveBeenCalled();
+  });
+
   it("returns the effective failed result for a historical fatal response", async () => {
     const createdAt = new Date("2026-07-01T12:00:00Z");
     const updatedAt = new Date("2026-07-02T12:00:00Z");
-    prismaMock.response.findUnique.mockResolvedValue({
-      id: "response-fatal",
-      evaluatorId: "evaluator-1",
-      status: "SUBMITTED",
-      score: 99,
-      result: "PASS",
-      hasFatalFail: true,
-      createdAt,
-      updatedAt,
-      submittedAt: updatedAt,
-      cancelledAt: null,
-      cancellationReason: null,
-      scoringSnapshot: null,
-      settingsSnapshot: null,
-      formSnapshot: null,
-      form: {
-        id: "form-1",
-        title: "QA Form",
-        campaignId: "campaign-low",
-        status: "PUBLISHED",
-        campaign: { active: true },
-      },
-      agent: {
-        id: "agent-1",
-        name: "Ana",
-        agentCode: "A-1",
-        campaignId: "campaign-low",
-        campaign: { name: "Campana Uno" },
-      },
-      evaluator: { id: "evaluator-1", name: "Eva", email: "eva@example.com" },
-      disposition: null,
-      answers: [],
-    });
+    prismaMock.response.findFirst
+      .mockResolvedValueOnce({
+        id: "response-fatal",
+        formId: "form-1",
+        status: "SUBMITTED",
+        form: { campaignId: "campaign-low" },
+      })
+      .mockResolvedValueOnce({
+        id: "response-fatal",
+        evaluatorId: "evaluator-1",
+        status: "SUBMITTED",
+        score: 99,
+        result: "PASS",
+        hasFatalFail: true,
+        createdAt,
+        updatedAt,
+        submittedAt: updatedAt,
+        cancelledAt: null,
+        cancellationReason: null,
+        scoringSnapshot: null,
+        settingsSnapshot: null,
+        formSnapshot: null,
+        form: {
+          id: "form-1",
+          title: "QA Form",
+          campaignId: "campaign-low",
+          status: "PUBLISHED",
+          campaign: { active: true },
+        },
+        agent: {
+          id: "agent-1",
+          name: "Ana",
+          agentCode: "A-1",
+          campaignId: "campaign-low",
+          campaign: { name: "Campana Uno" },
+        },
+        evaluator: { id: "evaluator-1", name: "Eva", email: "eva@example.com" },
+        disposition: null,
+        answers: [],
+      });
 
     const result = await getResponseDetail("response-fatal");
 
@@ -1440,32 +1919,47 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
         updatedAt: updatedAt.toISOString(),
       }),
     );
+    expect(result.evaluator).toEqual({ id: "evaluator-1", name: "Eva" });
     expect(getPassThresholdForCampaignMock).toHaveBeenCalledWith("campaign-low");
+    expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(2);
+    expect(prismaMock.response.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          evaluator: { select: { id: true, name: true } },
+        }),
+      }),
+    );
   });
 
   it("does not expose response detail with an answer from another form", async () => {
-    prismaMock.response.findUnique.mockResolvedValue({
-      id: "response-corrupt",
-      status: "SUBMITTED",
-      form: {
-        id: "form-1",
-        campaignId: "campaign-low",
-        status: "PUBLISHED",
-        campaign: { active: true },
-      },
-      agent: { id: "agent-1", campaignId: "campaign-low" },
-      disposition: null,
-      answers: [
-        {
-          id: "answer-foreign",
-          question: { id: "question-foreign", formId: "form-2", label: "Dato ajeno" },
-        },
-      ],
-    });
+    prismaMock.response.findFirst
+      .mockResolvedValueOnce({
+        id: "response-corrupt",
+        formId: "form-1",
+        status: "SUBMITTED",
+        form: { campaignId: "campaign-low" },
+      })
+      .mockResolvedValueOnce(null);
 
-    await expect(getResponseDetail("response-corrupt")).rejects.toThrow(
-      "La evaluación contiene relaciones de otra campaña",
+    await expect(getResponseDetail("response-corrupt")).rejects.toThrow("Evaluacion no disponible");
+    expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(2);
+    expect(prismaMock.response.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "response-corrupt",
+          formId: "form-1",
+          AND: expect.arrayContaining([{ answers: { every: { question: { formId: "form-1" } } } }]),
+        }),
+      }),
     );
+  });
+
+  it("returns the same unavailable error for a nonexistent response", async () => {
+    prismaMock.response.findFirst.mockResolvedValueOnce(null);
+
+    await expect(getResponseDetail("missing-response")).rejects.toThrow("Evaluacion no disponible");
+    expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(1);
+    expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
   });
 });
 
@@ -1560,13 +2054,25 @@ describe("Filtered responses effective PASS/FAIL", () => {
           status: "SUBMITTED",
           OR: expect.arrayContaining([
             {
-              AND: [
+              AND: expect.arrayContaining([
                 { form: { campaignId: "campaign-low" } },
-                { agent: { campaignId: "campaign-low" } },
                 {
-                  OR: [{ dispositionId: null }, { disposition: { campaignId: "campaign-low" } }],
+                  agent: expect.objectContaining({
+                    campaignId: "campaign-low",
+                    OR: expect.arrayContaining([{ team: { campaignId: "campaign-low" } }]),
+                  }),
                 },
-              ],
+                expect.objectContaining({
+                  OR: expect.arrayContaining([
+                    expect.objectContaining({
+                      disposition: expect.objectContaining({
+                        campaignId: "campaign-low",
+                        OR: expect.arrayContaining([{ category: { campaignId: "campaign-low" } }]),
+                      }),
+                    }),
+                  ]),
+                }),
+              ]),
             },
           ]),
         }),
@@ -1603,7 +2109,12 @@ describe("Filtered responses effective PASS/FAIL", () => {
           {
             AND: expect.arrayContaining([
               { form: { campaignId: "campaign-low" } },
-              { agent: { campaignId: "campaign-low" } },
+              {
+                agent: expect.objectContaining({
+                  campaignId: "campaign-low",
+                  OR: expect.arrayContaining([{ team: { campaignId: "campaign-low" } }]),
+                }),
+              },
               {
                 OR: [
                   { hasFatalFail: true },
@@ -1633,13 +2144,25 @@ describe("Filtered responses effective PASS/FAIL", () => {
     expect(findManyArgs.where.OR).toEqual(
       expect.arrayContaining([
         {
-          AND: [
+          AND: expect.arrayContaining([
             { form: { campaignId: "campaign-low" } },
-            { agent: { campaignId: "campaign-low" } },
             {
-              OR: [{ dispositionId: null }, { disposition: { campaignId: "campaign-low" } }],
+              agent: expect.objectContaining({
+                campaignId: "campaign-low",
+                OR: expect.arrayContaining([{ team: { campaignId: "campaign-low" } }]),
+              }),
             },
-          ],
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                expect.objectContaining({
+                  disposition: expect.objectContaining({
+                    campaignId: "campaign-low",
+                    OR: expect.arrayContaining([{ category: { campaignId: "campaign-low" } }]),
+                  }),
+                }),
+              ]),
+            }),
+          ]),
         },
       ]),
     );

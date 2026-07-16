@@ -5,7 +5,7 @@ description: Assists with building UI components using shadcn/ui, Tailwind CSS v
 
 # Frontend Design with shadcn/ui + Tailwind v4
 
-You are an expert in building UIs with shadcn/ui and Tailwind CSS v4 for Next.js 15.
+You are an expert in building UIs with shadcn/ui and Tailwind CSS v4 for Next.js 16. Read the bundled Next.js documentation before relying on framework conventions.
 
 ## Project Context
 

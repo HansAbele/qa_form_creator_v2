@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Qore — QA Form Creator
 
-## Getting Started
+Qore es una plataforma de evaluacion de calidad para operaciones de contact center. Permite
+crear formularios versionados, capturar evaluaciones con autosave, analizar resultados COPC,
+administrar catalogos operativos y exportar datos con trazabilidad.
 
-First, run the development server:
+## Acceso por rol
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
+| Rol | Alcance esperado |
+| --- | --- |
+| QA | Evalua y consulta exclusivamente las campanas asignadas y las capacidades delegadas. |
+| QA con permisos elevados | Administra recursos de sus campanas cuando el permiso explicito lo autoriza, sin administracion global. |
+| Supervisor | Consulta resultados de sus campanas en modo lectura; no crea ni modifica evaluaciones. |
+| QA Manager (`ADMIN`) | Control global de usuarios, campanas, formularios, reportes, KPIs, auditoria y exportaciones. |
+
+La interfaz oculta funciones no autorizadas, pero la seguridad real se aplica nuevamente en
+Server Actions, consultas y rutas API mediante rol, permiso y alcance de campana.
+
+## Tecnologia
+
+- Next.js 16.2 App Router, React 19 y TypeScript.
+- Auth.js v5 con sesiones persistidas por Prisma.
+- PostgreSQL 16 y Prisma ORM.
+- Tailwind CSS 4, Radix/Base UI y Recharts.
+- Vitest para unidad/integracion y Playwright para E2E/RBAC/WCAG.
+- Docker Compose para el despliegue de produccion.
+
+## Desarrollo local
+
+Requisitos: Node.js 20, pnpm 10.34.5 y PostgreSQL 16.
+
+```powershell
+Copy-Item .env.example .env
+corepack enable
+corepack prepare pnpm@10.34.5 --activate
+pnpm install --frozen-lockfile
+pnpm db:generate
+pnpm db:migrate:deploy
+pnpm db:seed
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Antes del seed, configure en `.env` una base local, `AUTH_SECRET`,
+`RATE_LIMIT_HASH_SECRET` y las cuatro variables `QORE_SEED_*_PASSWORD` con valores fuertes.
+El seed se bloquea en produccion y solo crea identidades/fixtures de desarrollo. La aplicacion
+queda disponible en `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Verificacion
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```powershell
+pnpm lint
+pnpm typecheck
+pnpm test:ci
+pnpm build
+pnpm test:e2e
+```
 
-## Learn More
+Las pruebas de concurrencia y descarga requieren una base PostgreSQL dedicada y dos URLs: un
+owner para crear/limpiar fixtures y el rol runtime restringido para ejecutar la aplicacion. Los
+scripts disponibles estan declarados en `package.json`; el workflow de CI contiene la secuencia
+de referencia completa.
 
-To learn more about Next.js, take a look at the following resources:
+## Produccion y seguridad
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+No use `prisma db push`, el seed ni scripts historicos de reparacion en produccion. No publique
+archivos `.env`, credenciales, backups, `next-env.d.ts` ni bytecode Python. Una entrega requiere
+migraciones reproducibles, escaneo de secretos, pruebas sobre el rol runtime, backup/restauracion
+y health checks HTTPS.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Runbook de seguridad y produccion](docs/production-security-runbook.md)
+- [Plan y evidencia P2](docs/plans/p2-quality-resilience.md)

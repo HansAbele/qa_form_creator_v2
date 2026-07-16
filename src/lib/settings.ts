@@ -202,6 +202,26 @@ export async function getCampaignScoringSettings(
   return mergeCampaignScoring(campaignId, globalSettings, row);
 }
 
+export async function getCampaignScoringSettingsMap(campaignIds: string[]) {
+  const uniqueCampaignIds = [...new Set(campaignIds.filter(Boolean))];
+  if (uniqueCampaignIds.length === 0) return new Map<string, CampaignScoringSettings>();
+
+  const [globalSettings, rows] = await Promise.all([
+    getSettings(),
+    prisma.campaignScoringSettings.findMany({
+      where: { campaignId: { in: uniqueCampaignIds } },
+    }),
+  ]);
+  const rowsByCampaign = new Map(rows.map((row) => [row.campaignId, row]));
+
+  return new Map(
+    uniqueCampaignIds.map((campaignId) => [
+      campaignId,
+      mergeCampaignScoring(campaignId, globalSettings, rowsByCampaign.get(campaignId)),
+    ]),
+  );
+}
+
 export async function getEffectiveSettingsForCampaign(campaignId?: string): Promise<AppSettings> {
   if (!campaignId) return getSettings();
   const settings = await getCampaignScoringSettings(campaignId);

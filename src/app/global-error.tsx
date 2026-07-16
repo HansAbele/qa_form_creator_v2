@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/client-observability";
+import "./globals.css";
 
 export default function GlobalError({
   error,
@@ -10,66 +12,42 @@ export default function GlobalError({
   unstable_retry: () => void;
 }) {
   useEffect(() => {
-    console.error("Application root error", error);
+    reportClientError({
+      source: "client-boundary",
+      name: error.name,
+      message: error.message,
+      digest: error.digest,
+      stack: error.stack,
+    });
   }, [error]);
 
   return (
     <html lang="es">
-      <body
-        style={{
-          margin: 0,
-          minHeight: "100vh",
-          display: "grid",
-          placeItems: "center",
-          padding: "24px",
-          boxSizing: "border-box",
-          background: "#f3f4f7",
-          color: "#0f1a2a",
-          fontFamily: "system-ui, sans-serif",
-        }}
-      >
-        <title>Error de Qore</title>
-        <main
-          role="alert"
-          aria-labelledby="global-error-title"
-          style={{
-            width: "min(100%, 520px)",
-            padding: "32px",
-            border: "1px solid #d8dce5",
-            borderRadius: "16px",
-            background: "white",
-            textAlign: "center",
-            boxShadow: "0 12px 32px rgb(15 26 42 / 10%)",
-          }}
-        >
-          <h1 id="global-error-title" style={{ margin: "0 0 12px", fontSize: "24px" }}>
-            Qore no pudo iniciar
-          </h1>
-          <p style={{ margin: "0 0 20px", color: "#546072", lineHeight: 1.5 }}>
-            Ocurrió un error inesperado al cargar la aplicación. Intenta nuevamente.
-          </p>
-          {error.digest && (
-            <p style={{ margin: "0 0 20px", color: "#546072", fontSize: "12px" }}>
-              Referencia: <code>{error.digest}</code>
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => unstable_retry()}
-            style={{
-              minHeight: "44px",
-              border: 0,
-              borderRadius: "8px",
-              padding: "0 20px",
-              background: "#f2621a",
-              color: "white",
-              fontSize: "15px",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
+      <body>
+        <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+          <section
+            role="alert"
+            aria-labelledby="global-error-title"
+            className="w-full max-w-lg rounded-xl border bg-card p-8 text-center shadow-sm"
           >
-            Reintentar
-          </button>
+            <title>Error de Qore</title>
+            <h1 id="global-error-title" className="text-2xl font-semibold">
+              Qore encontró un problema inesperado
+            </h1>
+            <p className="mt-3 text-sm text-muted-foreground">
+              El incidente fue registrado. Reintenta la operación para recuperar la aplicación.
+            </p>
+            {error.digest ? (
+              <p className="mt-2 text-xs text-muted-foreground">Referencia: {error.digest}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={unstable_retry}
+              className="mt-6 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Reintentar
+            </button>
+          </section>
         </main>
       </body>
     </html>

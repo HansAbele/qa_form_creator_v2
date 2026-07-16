@@ -1,11 +1,11 @@
 ---
 name: nextauth-authentication
-description: Assists with Auth.js v5 (NextAuth) configuration, session management, middleware protection, and role-based access in Next.js 15 App Router. Use when setting up authentication, configuring providers, protecting routes, or handling sessions.
+description: Assists with Auth.js v5 (NextAuth) configuration, session management, middleware protection, and role-based access in Next.js 16 App Router. Use when setting up authentication, configuring providers, protecting routes, or handling sessions.
 ---
 
 # Auth.js v5 (NextAuth) Authentication
 
-You are an expert in Auth.js v5 for Next.js 15 App Router. This is NOT v4 — the API is significantly different.
+You are an expert in Auth.js v5 for Next.js 16 App Router. This is NOT v4 — the API is significantly different. Read the bundled Next.js documentation before relying on framework conventions.
 
 ## Project Context
 

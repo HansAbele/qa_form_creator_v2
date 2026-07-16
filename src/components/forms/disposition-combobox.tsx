@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { AlertTriangle, Check, ChevronsUpDown, FolderOpen, Plus } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getDispositionsForSelector, createDispositionInline } from "@/server/actions/dispositions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { createDispositionInline, getDispositionsForSelector } from "@/server/actions/dispositions";
 
 interface DispositionItem {
   id: string;
@@ -33,6 +33,7 @@ const EMPTY_CATEGORIES: CategoryGroup[] = [];
 const EMPTY_DISPOSITIONS: DispositionItem[] = [];
 
 interface Props {
+  id?: string;
   campaignId: string;
   value: string;
   onChange: (dispositionId: string) => void;
@@ -46,6 +47,7 @@ function getActionErrorMessage(error: unknown, fallback: string) {
 }
 
 export function DispositionCombobox({
+  id,
   campaignId,
   value,
   onChange,
@@ -72,6 +74,11 @@ export function DispositionCombobox({
     message: string;
   } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const generatedControlId = useId();
+  const controlId = id ?? generatedControlId;
+  const labelId = `${controlId}-label`;
+  const errorId = `${controlId}-error`;
+  const actionErrorId = `${controlId}-action-error`;
   const activeCampaignIdRef = useRef(campaignId);
   const loadRequestIdRef = useRef(0);
 
@@ -195,7 +202,10 @@ export function DispositionCombobox({
       )}
       onClick={() => handleSelect(d.id)}
     >
-      <Check className={cn("h-3.5 w-3.5 shrink-0", value === d.id ? "opacity-100" : "opacity-0")} />
+      <Check
+        aria-hidden="true"
+        className={cn("h-3.5 w-3.5 shrink-0", value === d.id ? "opacity-100" : "opacity-0")}
+      />
       <span className="truncate">
         {d.code && <span className="mr-1.5 font-mono text-xs text-muted-foreground">{d.code}</span>}
         {d.name}
@@ -205,16 +215,29 @@ export function DispositionCombobox({
 
   return (
     <div className="space-y-2">
-      <Label>
-        Disposición <span className="text-destructive">*</span>
+      <Label id={labelId} htmlFor={controlId}>
+        Disposición
+        <span aria-hidden="true" className="ml-1 text-destructive">
+          *
+        </span>
+        <span className="sr-only"> (obligatoria)</span>
       </Label>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
             <Button
+              id={controlId}
               variant="outline"
               role="combobox"
               aria-expanded={open}
+              aria-labelledby={labelId}
+              aria-describedby={
+                [error ? errorId : null, currentActionError ? actionErrorId : null]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
+              aria-invalid={Boolean(error || currentActionError)}
+              aria-required="true"
               className={cn(
                 "w-full justify-between font-normal",
                 !value && "text-muted-foreground",
@@ -235,13 +258,14 @@ export function DispositionCombobox({
           ) : (
             "Seleccionar disposición..."
           )}
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronsUpDown aria-hidden="true" className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </PopoverTrigger>
         <PopoverContent className="w-(--anchor-width) p-0" align="start">
           {/* Search input */}
           <div className="border-b p-2">
             <Input
               ref={inputRef}
+              aria-label="Buscar disposición"
               placeholder={
                 canManageDispositions ? "Buscar o crear disposición..." : "Buscar disposición..."
               }
@@ -259,7 +283,7 @@ export function DispositionCombobox({
           {currentSimilarWarning && (
             <div className="border-b bg-amber-50 p-2 dark:bg-amber-950/30">
               <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                <AlertTriangle className="h-3.5 w-3.5" />
+                <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
                 <span>Similar a &ldquo;{currentSimilarWarning.name}&rdquo;</span>
               </div>
               <div className="mt-1.5 flex gap-1.5">
@@ -300,7 +324,7 @@ export function DispositionCombobox({
                 {categories.map((cat) => (
                   <div key={cat.categoryName} className="mb-1">
                     <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <FolderOpen className="h-3 w-3" />
+                      <FolderOpen aria-hidden="true" className="h-3 w-3" />
                       {cat.categoryName}
                     </div>
                     {cat.items.map(renderItem)}
@@ -337,15 +361,23 @@ export function DispositionCombobox({
                 onClick={() => void handleCreate()}
                 disabled={creating}
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus aria-hidden="true" className="h-3.5 w-3.5" />
                 {creating ? "Creando..." : `Crear "${search.trim()}"`}
               </button>
             )}
           </div>
         </PopoverContent>
       </Popover>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      {currentActionError && <p className="text-xs text-destructive">{currentActionError}</p>}
+      {error && (
+        <p id={errorId} role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+      {currentActionError && (
+        <p id={actionErrorId} role="alert" className="text-xs text-destructive">
+          {currentActionError}
+        </p>
+      )}
     </div>
   );
 }

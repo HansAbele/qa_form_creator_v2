@@ -11,3 +11,11 @@ export const E2E_ADMIN_PASSWORD = requireE2eCredential(
   "QORE_SEED_ADMIN_PASSWORD",
 );
 export const E2E_QA_PASSWORD = requireE2eCredential("E2E_QA_PASSWORD", "QORE_SEED_QA_PASSWORD");
+export const E2E_QA_ELEVATED_PASSWORD = requireE2eCredential(
+  "E2E_QA_ELEVATED_PASSWORD",
+  "QORE_SEED_QA_ELEVATED_PASSWORD",
+);
+export const E2E_SUPERVISOR_PASSWORD = requireE2eCredential(
+  "E2E_SUPERVISOR_PASSWORD",
+  "QORE_SEED_SUPERVISOR_PASSWORD",
+);

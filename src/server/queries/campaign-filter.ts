@@ -1,20 +1,27 @@
+import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import {
+  type CampaignPermissionKey,
   isSupervisorBlockedPermission,
   isSupervisorRole,
-  type CampaignPermissionKey,
 } from "@/lib/campaign-permissions";
-import type { Session } from "next-auth";
+import { prisma } from "@/lib/prisma";
 
 type SessionUser = Session["user"];
 type CampaignFilter = { campaignId?: string | { in: string[] } };
+
+export class CampaignAuthorizationError extends Error {
+  constructor(message = "No autorizado para esta accion") {
+    super(message);
+    this.name = "CampaignAuthorizationError";
+  }
+}
 
 export function assertCampaignAccessForUser(user: SessionUser, campaignId: string) {
   if (user.role === "ADMIN") return;
 
   if (!user.campaignIds.includes(campaignId)) {
-    throw new Error("No autorizado para esta campana");
+    throw new CampaignAuthorizationError("No autorizado para esta campana");
   }
 }
 
@@ -54,7 +61,7 @@ export async function assertCampaignPermissionForUser(
 ) {
   if (user.role === "ADMIN") return;
   if (isSupervisorRole(user.role) && isSupervisorBlockedPermission(permission)) {
-    throw new Error("No autorizado para esta accion en esta campana");
+    throw new CampaignAuthorizationError("No autorizado para esta accion en esta campana");
   }
 
   assertCampaignAccessForUser(user, campaignId);
@@ -69,7 +76,7 @@ export async function assertCampaignPermissionForUser(
   });
 
   if (!access?.[permission]) {
-    throw new Error("No autorizado para esta accion en esta campana");
+    throw new CampaignAuthorizationError("No autorizado para esta accion en esta campana");
   }
 }
 

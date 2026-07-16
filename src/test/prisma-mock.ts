@@ -25,10 +25,12 @@ export const prismaMock = {
     update: vi.fn(),
   },
   campaignScoringSettings: {
+    findMany: vi.fn(),
     findUnique: vi.fn(),
   },
   team: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -36,6 +38,7 @@ export const prismaMock = {
   },
   agent: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -51,6 +54,7 @@ export const prismaMock = {
   },
   disposition: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
     createMany: vi.fn(),
@@ -86,6 +90,7 @@ export const prismaMock = {
   },
   response: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     groupBy: vi.fn(),
     count: vi.fn(),
@@ -154,4 +159,5 @@ export function resetPrismaMock() {
     }
     return Promise.all(operation as Promise<unknown>[]);
   });
+  prismaMock.$queryRaw.mockResolvedValue([]);
 }

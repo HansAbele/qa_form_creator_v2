@@ -87,4 +87,21 @@ describe("operational audit RBAC", () => {
 
     await expect(readOperationalAudit()).rejects.toThrow("audit storage unavailable");
   });
+
+  it("uses half-open operational-day bounds across DST", async () => {
+    authMock.mockResolvedValue({ user: adminUser });
+    vi.stubEnv("OPERATIONAL_TIME_ZONE", "America/Havana");
+
+    await readOperationalAudit({ dateFrom: "2026-03-08", dateTo: "2026-03-08" });
+
+    expect(prismaMock.auditLog.count).toHaveBeenCalledWith({
+      where: {
+        createdAt: {
+          gte: new Date("2026-03-08T05:00:00.000Z"),
+          lt: new Date("2026-03-09T04:00:00.000Z"),
+        },
+      },
+    });
+    vi.unstubAllEnvs();
+  });
 });

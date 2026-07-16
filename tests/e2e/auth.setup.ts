@@ -1,8 +1,18 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { test as setup } from "@playwright/test";
-import { ADMIN_AUTH_STATE, QA_AUTH_STATE } from "./auth-state";
-import { E2E_ADMIN_PASSWORD, E2E_QA_PASSWORD } from "./credentials";
+import {
+  ADMIN_AUTH_STATE,
+  QA_AUTH_STATE,
+  QA_ELEVATED_AUTH_STATE,
+  SUPERVISOR_AUTH_STATE,
+} from "./auth-state";
+import {
+  E2E_ADMIN_PASSWORD,
+  E2E_QA_ELEVATED_PASSWORD,
+  E2E_QA_PASSWORD,
+  E2E_SUPERVISOR_PASSWORD,
+} from "./credentials";
 import { loginAs } from "./login";
 
 setup.beforeAll(async () => {
@@ -17,4 +27,14 @@ setup("authenticate QA Manager", async ({ page }) => {
 setup("authenticate QA", async ({ page }) => {
   await loginAs(page, "qa@qa.local", E2E_QA_PASSWORD);
   await page.context().storageState({ path: QA_AUTH_STATE });
+});
+
+setup("authenticate elevated QA", async ({ page }) => {
+  await loginAs(page, "qa.elevated@qa.local", E2E_QA_ELEVATED_PASSWORD);
+  await page.context().storageState({ path: QA_ELEVATED_AUTH_STATE });
+});
+
+setup("authenticate Supervisor", async ({ page }) => {
+  await loginAs(page, "supervisor@qa.local", E2E_SUPERVISOR_PASSWORD);
+  await page.context().storageState({ path: SUPERVISOR_AUTH_STATE });
 });
