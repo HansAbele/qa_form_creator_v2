@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Filter, Sparkles, X } from "lucide-react";
+import { Filter, Megaphone, Sparkles, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import {
   Area,
@@ -15,7 +15,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { DateRangeFilter } from "@/components/dashboard/date-range-filter";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { FilterSelect } from "@/components/filters/filter-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   type ChartConfig,
@@ -23,15 +24,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { Label } from "@/components/ui/label";
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatDateOnlyForDisplay } from "@/lib/date-display";
 
 // ─── Chart configs (theme-aware via CSS vars) ─────────────
@@ -85,6 +78,7 @@ export function ContextBar({
   dateFrom,
   dateTo,
   onApplyDates,
+  showCampaignFilter = true,
 }: {
   title: string;
   subtitle: React.ReactNode;
@@ -95,8 +89,12 @@ export function ContextBar({
   dateFrom: string;
   dateTo: string;
   onApplyDates: (from: string, to: string) => void;
+  showCampaignFilter?: boolean;
 }) {
-  const campaignLabel = campaigns.length > 1 ? "Todas las campañas" : "Mis campañas";
+  const campaignOptions = [
+    { value: "all", label: "Todas" },
+    ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
+  ];
   return (
     <>
       <motion.div
@@ -113,30 +111,26 @@ export function ContextBar({
           <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          {campaigns.length > 1 && (
-            <div className="space-y-1">
-              <Label htmlFor="dashboard-campaign" className="text-xs">
-                Campaña
-              </Label>
-              <Select
-                value={campaignId || "all"}
-                onValueChange={(v) => onCampaignChange(v === "all" || !v ? "" : v)}
-              >
-                <SelectTrigger id="dashboard-campaign" className="h-10 w-44">
-                  <SelectValue placeholder={campaignLabel} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {campaigns.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <DateRangeFilter from={dateFrom} to={dateTo} onApply={onApplyDates} />
+          {showCampaignFilter && campaigns.length > 1 ? (
+            <FilterSelect
+              id="dashboard-campaign"
+              label="Campaña"
+              value={campaignId || "all"}
+              options={campaignOptions}
+              onValueChange={(value) => onCampaignChange(value === "all" ? "" : value)}
+              placeholder="Todas"
+              icon={Megaphone}
+              className="w-full sm:w-44"
+            />
+          ) : null}
+          <DateRangeFilter
+            id="dashboard-period"
+            from={dateFrom}
+            to={dateTo}
+            onApply={onApplyDates}
+            className="w-full sm:w-auto"
+            triggerClassName="sm:w-auto"
+          />
         </div>
       </motion.div>
 

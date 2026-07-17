@@ -92,6 +92,7 @@ export function DashboardEvaluator({
         campaigns={campaigns}
         campaignId=""
         onCampaignChange={() => {}}
+        showCampaignFilter={false}
         dateFrom={dateFrom}
         dateTo={dateTo}
         onApplyDates={(f, t) => {

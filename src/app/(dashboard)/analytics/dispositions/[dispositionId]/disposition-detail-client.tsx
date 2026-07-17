@@ -24,11 +24,8 @@ import {
   RestrictedResourceState,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
-import {
-  addOperationalCalendarDays,
-  formatOperationalDate,
-  useOperationalTimeZone,
-} from "@/components/providers/operational-time-provider";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,11 +35,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Table,
   TableBody,
@@ -51,9 +45,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getDispositionDetail } from "@/server/queries/analytics";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
 import { formatDateOnlyForDisplay, formatOperationalTimestamp } from "@/lib/date-display";
+import { getDispositionDetail } from "@/server/queries/analytics";
 
 interface ScoreTrendPoint {
   date: string;
@@ -210,12 +205,6 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
     };
   }, [loadData]);
 
-  const setQuickRange = (days: number) => {
-    const to = formatOperationalDate(new Date(), operationalTimeZone);
-    setDateFrom(addOperationalCalendarDays(to, -(days - 1)));
-    setDateTo(to);
-  };
-
   if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
   if (loadStatus === "error") {
     return (
@@ -276,51 +265,17 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="flex gap-1">
-                  {[7, 30, 90].map((d) => (
-                    <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
-                      {d}d
-                    </Button>
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setDateFrom("");
-                      setDateTo("");
-                    }}
-                  >
-                    Todo
-                  </Button>
-                </div>
-                <div className="flex items-end gap-2">
-                  <div>
-                    <Label htmlFor="disposition-detail-date-from" className="text-xs">
-                      Desde
-                    </Label>
-                    <Input
-                      id="disposition-detail-date-from"
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      className="h-8 w-36"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="disposition-detail-date-to" className="text-xs">
-                      Hasta
-                    </Label>
-                    <Input
-                      id="disposition-detail-date-to"
-                      type="date"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      className="h-8 w-36"
-                    />
-                  </div>
-                </div>
-              </div>
+              <DateRangeFilter
+                id="disposition-detail-date-range"
+                label="Periodo"
+                from={dateFrom}
+                to={dateTo}
+                onApply={(from, to) => {
+                  setDateFrom(from);
+                  setDateTo(to);
+                }}
+                className="w-full sm:w-56"
+              />
             </div>
           </CardContent>
         </Card>
@@ -503,9 +458,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                 accessibilityDescription={summarizeChartData(
                   data.scoreByQuestion
                     .slice(0, 8)
-                    .map(
-                      (question) => `${question.question}: ${question.avgScore.toFixed(1)}%`,
-                    ),
+                    .map((question) => `${question.question}: ${question.avgScore.toFixed(1)}%`),
                 )}
                 className="h-[320px] w-full"
               >

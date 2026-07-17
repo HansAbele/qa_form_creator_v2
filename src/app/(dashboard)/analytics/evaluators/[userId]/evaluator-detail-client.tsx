@@ -19,11 +19,7 @@ import {
   RestrictedResourceState,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
-import {
-  addOperationalCalendarDays,
-  formatOperationalDate,
-  useOperationalTimeZone,
-} from "@/components/providers/operational-time-provider";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,9 +29,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
@@ -124,7 +118,6 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
 
 export function EvaluatorDetailClient({ userId }: { userId: string }) {
   const chartAnimation = useChartAnimation();
-  const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
   const [data, setData] = useState<EvaluatorDetailData | null>(null);
   const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
@@ -153,12 +146,6 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
       requestGeneration.current += 1;
     };
   }, [loadData]);
-
-  const setQuickRange = (days: number) => {
-    const to = formatOperationalDate(new Date(), operationalTimeZone);
-    setDateFrom(addOperationalCalendarDays(to, -(days - 1)));
-    setDateTo(to);
-  };
 
   if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
   if (loadStatus === "error") {
@@ -209,51 +196,17 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
               </div>
 
               {/* Date range filters */}
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="flex gap-1">
-                  {[7, 30, 90].map((d) => (
-                    <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
-                      {d}d
-                    </Button>
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setDateFrom("");
-                      setDateTo("");
-                    }}
-                  >
-                    Todo
-                  </Button>
-                </div>
-                <div className="flex items-end gap-2">
-                  <div>
-                    <Label htmlFor="evaluator-detail-date-from" className="text-xs">
-                      Desde
-                    </Label>
-                    <Input
-                      id="evaluator-detail-date-from"
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      className="h-8 w-36"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="evaluator-detail-date-to" className="text-xs">
-                      Hasta
-                    </Label>
-                    <Input
-                      id="evaluator-detail-date-to"
-                      type="date"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      className="h-8 w-36"
-                    />
-                  </div>
-                </div>
-              </div>
+              <DateRangeFilter
+                id="evaluator-detail-date-range"
+                label="Periodo"
+                from={dateFrom}
+                to={dateTo}
+                onApply={(from, to) => {
+                  setDateFrom(from);
+                  setDateTo(to);
+                }}
+                className="w-full sm:w-56"
+              />
             </div>
           </CardContent>
         </Card>

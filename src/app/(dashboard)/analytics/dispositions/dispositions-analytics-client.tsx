@@ -8,7 +8,7 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, Award, BarChart3, ClipboardCheck, Tag } from "lucide-react";
+import { ArrowUpDown, Award, BarChart3, ClipboardCheck, Megaphone, Tag } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
@@ -17,11 +17,8 @@ import {
   type DataLoadStatus,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
-import {
-  addOperationalCalendarDays,
-  formatOperationalDate,
-  useOperationalTimeZone,
-} from "@/components/providers/operational-time-provider";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { FilterSelect } from "@/components/filters/filter-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,17 +28,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { Input } from "@/components/ui/input";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { Label } from "@/components/ui/label";
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -120,7 +108,6 @@ function LoadingSkeleton() {
 
 export function DispositionsAnalyticsClient() {
   const chartAnimation = useChartAnimation();
-  const operationalTimeZone = useOperationalTimeZone();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [campaignId, setCampaignId] = useState("all");
@@ -185,12 +172,6 @@ export function DispositionsAnalyticsClient() {
   }, [loadData]);
 
   // ─── Quick range helper ─────────────────────────────────────────────────────
-
-  const setQuickRange = (days: number) => {
-    const to = formatOperationalDate(new Date(), operationalTimeZone);
-    setDateFrom(addOperationalCalendarDays(to, -(days - 1)));
-    setDateTo(to);
-  };
 
   // ─── KPI computations ──────────────────────────────────────────────────────
 
@@ -370,63 +351,31 @@ export function DispositionsAnalyticsClient() {
             Analisis de rendimiento por disposicion
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
-            <SelectTrigger aria-label="Campaña" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las campanas</SelectItem>
-              {campaigns.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex gap-1">
-            {[7, 30, 90].map((d) => (
-              <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
-                {d}d
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-              }}
-            >
-              Todo
-            </Button>
-          </div>
-          <div className="flex items-end gap-2">
-            <div>
-              <Label htmlFor="dispositions-date-from" className="text-xs">
-                Desde
-              </Label>
-              <Input
-                id="dispositions-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-            <div>
-              <Label htmlFor="dispositions-date-to" className="text-xs">
-                Hasta
-              </Label>
-              <Input
-                id="dispositions-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-          </div>
+        <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:grid-cols-2">
+          <FilterSelect
+            id="dispositions-campaign"
+            label="Campaña"
+            value={campaignId}
+            options={[
+              { value: "all", label: "Todas" },
+              ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
+            ]}
+            onValueChange={setCampaignId}
+            icon={Megaphone}
+            disabled={campaignLoadStatus === "loading"}
+            className="sm:w-48"
+          />
+          <DateRangeFilter
+            id="dispositions-period"
+            label="Periodo"
+            from={dateFrom}
+            to={dateTo}
+            onApply={(from, to) => {
+              setDateFrom(from);
+              setDateTo(to);
+            }}
+            triggerClassName="sm:min-w-48"
+          />
         </div>
       </motion.div>
 

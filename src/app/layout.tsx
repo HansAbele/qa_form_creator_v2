@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       data-operational-time-zone={operationalTimeZone}
       suppressHydrationWarning
     >
-      <body className="min-h-screen bg-background font-sans antialiased">
+      <body className="min-h-dvh bg-background font-sans antialiased">
         <NavigationGuardRuntime />
         <Providers operationalTimeZone={operationalTimeZone}>{children}</Providers>
       </body>

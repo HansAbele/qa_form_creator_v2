@@ -229,7 +229,7 @@ export function Sidebar({ access }: { access: UiAccess }) {
   return (
     <aside
       className={cn(
-        "hidden h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 motion-reduce:transition-none md:flex",
+        "sticky top-0 hidden h-dvh shrink-0 self-start flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 motion-reduce:transition-none md:flex",
         sidebarOpen ? "w-64" : "w-16",
       )}
     >

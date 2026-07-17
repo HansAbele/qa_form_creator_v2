@@ -30,7 +30,7 @@ export function Header({ access }: { access: UiAccess }) {
         : "QA";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-3 sm:px-4 md:px-6">
+    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-3 sm:px-4 md:px-6">
       <MobileSidebar access={access} />
 
       <div className="flex min-w-0 items-center gap-1 sm:gap-3">

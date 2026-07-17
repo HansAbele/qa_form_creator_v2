@@ -37,6 +37,7 @@ import {
   PowerOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -288,7 +289,7 @@ export function SettingsClient({
         transition={{ duration: 0.5, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
         className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]"
       >
-        <aside className="h-fit rounded-lg border bg-card p-2 lg:sticky lg:top-6">
+        <aside className="h-fit rounded-lg border bg-card p-2 lg:sticky lg:top-[82px]">
           <div className="px-2 py-2">
             <p className="text-xs font-medium uppercase text-muted-foreground">Secciones</p>
           </div>
@@ -2258,24 +2259,16 @@ function OperationalAuditTab({
               ))}
             </SelectContent>
           </Select>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input
-              type="date"
-              value={filters.dateFrom}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, dateFrom: event.target.value }))
-              }
-              aria-label="Fecha desde"
-            />
-            <Input
-              type="date"
-              value={filters.dateTo}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, dateTo: event.target.value }))
-              }
-              aria-label="Fecha hasta"
-            />
-          </div>
+          <DateRangeFilter
+            id="audit-period"
+            label="Periodo"
+            from={filters.dateFrom}
+            to={filters.dateTo}
+            onApply={(dateFrom, dateTo) =>
+              setFilters((current) => ({ ...current, dateFrom, dateTo }))
+            }
+            align="start"
+          />
           <div className="flex flex-wrap gap-2 lg:col-span-3">
             <Button type="button" onClick={() => loadPage(1)} disabled={loading}>
               {loading ? (

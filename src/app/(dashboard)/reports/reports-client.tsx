@@ -2,19 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getReportData, getReportResponseDetail } from "@/server/queries/analytics";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { FilterCheckbox, FilterSelect } from "@/components/filters/filter-select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Table,
@@ -24,7 +17,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertCircle, ChevronLeft, ChevronRight, Download, Eye, Loader2, Search } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  Download,
+  Eye,
+  FileText,
+  Loader2,
+  Megaphone,
+  ShieldAlert,
+  SlidersHorizontal,
+  Tags,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { OUTCOME_LABELS } from "@/lib/disposition-outcome";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
@@ -66,12 +73,6 @@ export function ReportsClient({
   const [formId, setFormId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [appliedFilters, setAppliedFilters] = useState({
-    campaignId: "",
-    formId: "",
-    dateFrom: "",
-    dateTo: "",
-  });
   const [reportPage, setReportPage] = useState<ReportPage | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -98,10 +99,10 @@ export function ReportsClient({
     setError(null);
     try {
       const data = await getReportData({
-        campaignId: appliedFilters.campaignId || undefined,
-        formId: appliedFilters.formId || undefined,
-        dateFrom: appliedFilters.dateFrom || undefined,
-        dateTo: appliedFilters.dateTo || undefined,
+        campaignId: campaignId || undefined,
+        formId: formId || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
         dispositionId: dispositionFilter === "all" ? undefined : dispositionFilter,
         resultStatus: resultFilter === "all" ? undefined : resultFilter,
         fatalOnly,
@@ -117,7 +118,7 @@ export function ReportsClient({
     } finally {
       if (requestId === reportRequestGeneration.current) setLoading(false);
     }
-  }, [appliedFilters, dispositionFilter, fatalOnly, page, resultFilter]);
+  }, [campaignId, dateFrom, dateTo, dispositionFilter, fatalOnly, formId, page, resultFilter]);
 
   useEffect(() => {
     void loadReports();
@@ -133,9 +134,15 @@ export function ReportsClient({
     [],
   );
 
-  const handleSearch = () => {
+  const resetFilters = () => {
     setPage(1);
-    setAppliedFilters({ campaignId, formId, dateFrom, dateTo });
+    setCampaignId("");
+    setFormId("");
+    setDateFrom("");
+    setDateTo("");
+    setResultFilter("all");
+    setDispositionFilter("all");
+    setFatalOnly(false);
   };
 
   const openDetail = async (responseId: string) => {
@@ -158,6 +165,30 @@ export function ReportsClient({
 
   const responses: ReportResponse[] = reportPage?.items ?? [];
   const summary = reportPage?.summary;
+  const hasActiveFilters = Boolean(
+    campaignId ||
+      formId ||
+      dateFrom ||
+      dateTo ||
+      resultFilter !== "all" ||
+      dispositionFilter !== "all" ||
+      fatalOnly,
+  );
+  const campaignOptions = [
+    { value: "all", label: "Todas" },
+    ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
+  ];
+  const formOptions = [
+    { value: "all", label: "Todos" },
+    ...filteredForms.map((form) => ({ value: form.id, label: form.title })),
+  ];
+  const dispositionSelectOptions = [
+    { value: "all", label: "Todas" },
+    ...dispositionOptions.map((disposition) => ({
+      value: disposition.id,
+      label: `${disposition.name} · ${disposition.campaignName}`,
+    })),
+  ];
 
   return (
     <div className="space-y-6">
@@ -173,159 +204,104 @@ export function ReportsClient({
 
       {/* Filters */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="reports-campaign" className="text-xs">
-                Campaña
-              </Label>
-              <Select
-                value={campaignId || "all"}
-                onValueChange={(v) => {
-                  if (!v) return;
-                  setCampaignId(v === "all" ? "" : v);
-                  setFormId("");
-                  setDispositionFilter("all");
-                }}
-              >
-                <SelectTrigger id="reports-campaign" className="w-44">
-                  <SelectValue placeholder="Todas">
-                    {(value: string | null) => {
-                      if (!value || value === "all") return "Todas";
-                      return campaigns.find((c) => c.id === value)?.name ?? "Todas";
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {campaigns.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+        <CardContent className="space-y-4 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2.5">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <SlidersHorizontal className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Filtros del reporte</p>
+                <p className="text-xs text-muted-foreground">
+                  Los cambios se aplican automáticamente a indicadores y resultados.
+                </p>
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="reports-form" className="text-xs">
-                Formulario
-              </Label>
-              <Select
-                value={formId || "all"}
-                onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}
-              >
-                <SelectTrigger id="reports-form" className="w-52">
-                  <SelectValue placeholder="Todos">
-                    {(value: string | null) => {
-                      if (!value || value === "all") return "Todos";
-                      return filteredForms.find((f) => f.id === value)?.title ?? "Todos";
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {filteredForms.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="reports-date-from" className="text-xs">
-                Desde
-              </Label>
-              <Input
-                id="reports-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-40"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="reports-date-to" className="text-xs">
-                Hasta
-              </Label>
-              <Input
-                id="reports-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-40"
-              />
-            </div>
-            <Button onClick={handleSearch} disabled={loading}>
-              <Search className="mr-1 h-4 w-4" />
-              {loading ? "Buscando..." : "Buscar"}
-            </Button>
+            {hasActiveFilters ? (
+              <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
+                <X className="h-4 w-4" />
+                Limpiar
+              </Button>
+            ) : null}
           </div>
-          {/* Server-side refinements keep totals and pagination coherent. */}
-          <div className="mt-3 flex flex-wrap items-end gap-4 border-t pt-3">
-            <div className="space-y-1">
-              <Label htmlFor="reports-result" className="text-xs">
-                Resultado
-              </Label>
-              <Select
-                value={resultFilter}
-                onValueChange={(v) => {
-                  if (!v) return;
-                  setPage(1);
-                  setResultFilter(v as "all" | "PASS" | "FAIL");
-                }}
-              >
-                <SelectTrigger id="reports-result" className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="PASS">Solo Pass</SelectItem>
-                  <SelectItem value="FAIL">Solo Fail</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="reports-disposition" className="text-xs">
-                Disposición
-              </Label>
-              <Select
-                value={dispositionFilter}
-                onValueChange={(v) => {
-                  if (!v) return;
-                  setPage(1);
-                  setDispositionFilter(v);
-                }}
-              >
-                <SelectTrigger id="reports-disposition" className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {dispositionOptions.map((disposition) => (
-                    <SelectItem key={disposition.id} value={disposition.id}>
-                      {disposition.name} · {disposition.campaignName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Label
-              htmlFor="reports-fatal-only"
-              className="flex cursor-pointer items-center gap-2 pb-2 text-sm"
-            >
-              <input
-                id="reports-fatal-only"
-                type="checkbox"
-                checked={fatalOnly}
-                onChange={(e) => {
-                  setPage(1);
-                  setFatalOnly(e.target.checked);
-                }}
-                className="h-4 w-4 rounded border-input"
-              />
-              Solo fatales
-            </Label>
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+            <FilterSelect
+              id="reports-campaign"
+              label="Campaña"
+              value={campaignId || "all"}
+              options={campaignOptions}
+              onValueChange={(value) => {
+                setPage(1);
+                setCampaignId(value === "all" ? "" : value);
+                setFormId("");
+                setDispositionFilter("all");
+              }}
+              placeholder="Todas"
+              icon={Megaphone}
+            />
+            <FilterSelect
+              id="reports-form"
+              label="Formulario"
+              value={formId || "all"}
+              options={formOptions}
+              onValueChange={(value) => {
+                setPage(1);
+                setFormId(value === "all" ? "" : value);
+              }}
+              placeholder="Todos"
+              icon={FileText}
+            />
+            <DateRangeFilter
+              id="reports-period"
+              label="Periodo"
+              from={dateFrom}
+              to={dateTo}
+              onApply={(from, to) => {
+                setPage(1);
+                setDateFrom(from);
+                setDateTo(to);
+              }}
+              align="start"
+            />
+            <FilterSelect
+              id="reports-result"
+              label="Resultado"
+              value={resultFilter}
+              options={[
+                { value: "all", label: "Todos" },
+                { value: "PASS", label: "Solo PASS" },
+                { value: "FAIL", label: "Solo FAIL" },
+              ]}
+              onValueChange={(value) => {
+                setPage(1);
+                setResultFilter(value as "all" | "PASS" | "FAIL");
+              }}
+              icon={CircleCheck}
+            />
+            <FilterSelect
+              id="reports-disposition"
+              label="Disposición"
+              value={dispositionFilter}
+              options={dispositionSelectOptions}
+              onValueChange={(value) => {
+                setPage(1);
+                setDispositionFilter(value);
+              }}
+              placeholder="Todas"
+              icon={Tags}
+              contentClassName="min-w-64"
+            />
+            <FilterCheckbox
+              id="reports-fatal-only"
+              fieldLabel="Riesgo"
+              label="Solo fatales"
+              checked={fatalOnly}
+              onCheckedChange={(checked) => {
+                setPage(1);
+                setFatalOnly(checked);
+              }}
+              icon={ShieldAlert}
+            />
           </div>
         </CardContent>
       </Card>

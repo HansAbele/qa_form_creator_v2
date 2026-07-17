@@ -1,20 +1,14 @@
 "use client";
 
-import { Download, FileJson, FileSpreadsheet, FileText } from "lucide-react";
+import { Download, FileJson, FileSpreadsheet, FileText, Megaphone } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { FilterSelect } from "@/components/filters/filter-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   ALL_EXPORT_FIELDS,
   DEFAULT_EXPORT_FIELDS,
@@ -103,85 +97,46 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
           <CardTitle className="text-base">Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-1">
-              <Label htmlFor="export-campaign" className="text-xs">
-                Campaña
-              </Label>
-              <Select
-                value={campaignId || "all"}
-                onValueChange={(v) => {
-                  if (!v) return;
-                  setCampaignId(v === "all" ? "" : v);
-                  setFormId("");
-                }}
-              >
-                <SelectTrigger id="export-campaign" className="w-full">
-                  <SelectValue placeholder="Todas">
-                    {(value: string | null) => {
-                      if (!value || value === "all") return "Todas";
-                      return campaigns.find((c) => c.id === value)?.name ?? "Todas";
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {campaigns.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="export-form" className="text-xs">
-                Formulario
-              </Label>
-              <Select
-                value={formId || "all"}
-                onValueChange={(v) => v && setFormId(v === "all" ? "" : v)}
-              >
-                <SelectTrigger id="export-form" className="w-full">
-                  <SelectValue placeholder="Todos">
-                    {(value: string | null) => {
-                      if (!value || value === "all") return "Todos";
-                      return filteredForms.find((f) => f.id === value)?.title ?? "Todos";
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {filteredForms.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="export-date-from" className="text-xs">
-                Desde
-              </Label>
-              <Input
-                id="export-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="export-date-to" className="text-xs">
-                Hasta
-              </Label>
-              <Input
-                id="export-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </div>
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <FilterSelect
+              id="export-campaign"
+              label="Campaña"
+              value={campaignId || "all"}
+              options={[
+                { value: "all", label: "Todas" },
+                ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
+              ]}
+              onValueChange={(value) => {
+                setCampaignId(value === "all" ? "" : value);
+                setFormId("");
+              }}
+              placeholder="Todas"
+              icon={Megaphone}
+            />
+            <FilterSelect
+              id="export-form"
+              label="Formulario"
+              value={formId || "all"}
+              options={[
+                { value: "all", label: "Todos" },
+                ...filteredForms.map((form) => ({ value: form.id, label: form.title })),
+              ]}
+              onValueChange={(value) => setFormId(value === "all" ? "" : value)}
+              placeholder="Todos"
+              icon={FileText}
+            />
+            <DateRangeFilter
+              id="export-period"
+              label="Periodo"
+              from={dateFrom}
+              to={dateTo}
+              onApply={(from, to) => {
+                setDateFrom(from);
+                setDateTo(to);
+              }}
+              align="start"
+              className="sm:col-span-2 lg:col-span-1"
+            />
           </div>
         </CardContent>
       </Card>

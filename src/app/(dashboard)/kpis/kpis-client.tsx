@@ -24,17 +24,10 @@ import {
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
 import { EvaluatorCalibrationTable } from "@/components/dashboard/evaluator-calibration-table";
-import {
-  addOperationalCalendarDays,
-  formatOperationalDate,
-  useOperationalTimeZone,
-} from "@/components/providers/operational-time-provider";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { AccessibleChart } from "@/components/ui/accessible-chart";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Table,
@@ -141,7 +134,6 @@ function RecapItem({
 
 export function KpisClient({ settings }: { settings: AppSettings }) {
   const chartAnimation = useChartAnimation();
-  const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -180,12 +172,6 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
       requestGeneration.current += 1;
     };
   }, [loadData]);
-
-  const setQuickRange = (days: number) => {
-    const to = formatOperationalDate(new Date(), operationalTimeZone);
-    setDateFrom(addOperationalCalendarDays(to, -(days - 1)));
-    setDateTo(to);
-  };
 
   if (loadStatus === "loading" && kpis.length === 0) {
     return (
@@ -319,51 +305,18 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
       {/* Header + Date Filter */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="text-3xl font-bold tracking-tight">KPIs por Campaña</h1>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex gap-1">
-            {[7, 30, 90].map((d) => (
-              <Button key={d} variant="outline" size="sm" onClick={() => setQuickRange(d)}>
-                {d}d
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-              }}
-            >
-              Todo
-            </Button>
-          </div>
-          <div className="flex items-end gap-2">
-            <div>
-              <Label htmlFor="kpi-date-from" className="text-xs">
-                Desde
-              </Label>
-              <Input
-                id="kpi-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-            <div>
-              <Label htmlFor="kpi-date-to" className="text-xs">
-                Hasta
-              </Label>
-              <Input
-                id="kpi-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-8 w-36"
-              />
-            </div>
-          </div>
-        </div>
+        <DateRangeFilter
+          id="kpi-period"
+          label="Periodo"
+          from={dateFrom}
+          to={dateTo}
+          onApply={(from, to) => {
+            setDateFrom(from);
+            setDateTo(to);
+          }}
+          className="w-full sm:w-auto"
+          triggerClassName="sm:min-w-48"
+        />
       </div>
 
       {/* Compact target recap — the hero KPI cards live on the Dashboard; KPIs leads with diagnostics */}

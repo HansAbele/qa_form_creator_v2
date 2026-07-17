@@ -1,7 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 /**
@@ -24,7 +24,6 @@ export function PageTransition({ children }: { children: ReactNode }) {
         duration: 0.35,
         ease: [0.22, 1, 0.36, 1], // ease-out-quint
       }}
-      className="h-full"
     >
       {children}
     </motion.div>

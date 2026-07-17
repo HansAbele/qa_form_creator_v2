@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowLeft, Award, ClipboardCheck, Filter, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  ArrowLeft,
+  Award,
+  CircleCheck,
+  ClipboardCheck,
+  Filter,
+  Megaphone,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,18 +18,13 @@ import {
   type DataLoadStatus,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
+import { DateRangeFilter, dateRangeLabel } from "@/components/filters/date-range-filter";
+import { FilterSelect } from "@/components/filters/filter-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -202,25 +206,25 @@ export function ResponsesListClient({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-end gap-3 border-t pt-4">
-                <div>
-                  <Label htmlFor="responses-status" className="text-xs">
-                    Estado
-                  </Label>
-                  <Select value={status} onValueChange={(v) => handleStatusChange(v as StatusKey)}>
-                    <SelectTrigger id="responses-status" className="h-8 w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      <SelectItem value="pass">Solo PASS</SelectItem>
-                      <SelectItem value="fail">Solo FAIL</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="grid min-w-0 gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <FilterSelect
+                  id="responses-status"
+                  label="Estado"
+                  value={status}
+                  options={[
+                    { value: "all", label: "Todos" },
+                    { value: "pass", label: "Solo PASS" },
+                    { value: "fail", label: "Solo FAIL" },
+                  ]}
+                  onValueChange={(value) => handleStatusChange(value as StatusKey)}
+                  icon={CircleCheck}
+                />
 
-                <div>
-                  <Label htmlFor="responses-score-min" className="text-xs">
+                <div className="min-w-0 space-y-1">
+                  <Label
+                    htmlFor="responses-score-min"
+                    className="text-xs font-medium text-foreground/80"
+                  >
                     Score mín
                   </Label>
                   <Input
@@ -230,11 +234,14 @@ export function ResponsesListClient({
                     max={100}
                     value={minScore ?? ""}
                     onChange={(e) => setMinScore(parseNumber(e.target.value))}
-                    className="h-8 w-24"
+                    className="h-10 w-full rounded-[11px] bg-card shadow-sm hover:border-primary"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="responses-score-max" className="text-xs">
+                <div className="min-w-0 space-y-1">
+                  <Label
+                    htmlFor="responses-score-max"
+                    className="text-xs font-medium text-foreground/80"
+                  >
                     Score máx
                   </Label>
                   <Input
@@ -244,58 +251,39 @@ export function ResponsesListClient({
                     max={100}
                     value={maxScore ?? ""}
                     onChange={(e) => setMaxScore(parseNumber(e.target.value))}
-                    className="h-8 w-24"
+                    className="h-10 w-full rounded-[11px] bg-card shadow-sm hover:border-primary"
                   />
                 </div>
 
                 {campaigns.length > 1 && (
-                  <div>
-                    <Label htmlFor="responses-campaign" className="text-xs">
-                      Campaña
-                    </Label>
-                    <Select
-                      value={campaignId || "all"}
-                      onValueChange={(v) => setCampaignId(v === "all" || !v ? "" : v)}
-                    >
-                      <SelectTrigger id="responses-campaign" className="h-8 w-44">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todas</SelectItem>
-                        {campaigns.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <FilterSelect
+                    id="responses-campaign"
+                    label="Campaña"
+                    value={campaignId || "all"}
+                    options={[
+                      { value: "all", label: "Todas" },
+                      ...campaigns.map((campaign) => ({
+                        value: campaign.id,
+                        label: campaign.name,
+                      })),
+                    ]}
+                    onValueChange={(value) => setCampaignId(value === "all" ? "" : value)}
+                    icon={Megaphone}
+                  />
                 )}
 
-                <div>
-                  <Label htmlFor="responses-date-from" className="text-xs">
-                    Desde
-                  </Label>
-                  <Input
-                    id="responses-date-from"
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    className="h-8 w-36"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="responses-date-to" className="text-xs">
-                    Hasta
-                  </Label>
-                  <Input
-                    id="responses-date-to"
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    className="h-8 w-36"
-                  />
-                </div>
+                <DateRangeFilter
+                  id="responses-period"
+                  label="Periodo"
+                  from={dateFrom}
+                  to={dateTo}
+                  onApply={(from, to) => {
+                    setDateFrom(from);
+                    setDateTo(to);
+                  }}
+                  align="start"
+                  className="sm:col-span-2 lg:col-span-1"
+                />
               </div>
             </div>
           </CardContent>
@@ -337,9 +325,7 @@ export function ResponsesListClient({
             {scoreRangeLabel && <Badge variant="outline">{scoreRangeLabel}</Badge>}
             {activeCampaignName && <Badge variant="secondary">{activeCampaignName}</Badge>}
             {(dateFrom || dateTo) && (
-              <Badge variant="outline">
-                {dateFrom || "…"} → {dateTo || "hoy"}
-              </Badge>
+              <Badge variant="outline">{dateRangeLabel(dateFrom, dateTo)}</Badge>
             )}
             {data && data.shownCount < data.totalCount && (
               <span className="ml-auto text-xs text-muted-foreground">
