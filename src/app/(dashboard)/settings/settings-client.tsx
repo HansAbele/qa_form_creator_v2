@@ -90,6 +90,7 @@ import type { AppSettings, CampaignScoringSettings } from "@/lib/settings";
 import { getPasswordPolicyError, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 import {
   CAMPAIGN_ACCESS_LABELS,
+  CAMPAIGN_PERMISSION_GROUPS,
   CAMPAIGN_PERMISSION_KEYS,
   CAMPAIGN_PERMISSION_LABELS,
   getCampaignAccessPreset,
@@ -190,7 +191,7 @@ const SETTINGS_SECTIONS: {
   {
     id: "forms-config",
     label: "Formularios",
-    description: "Publicación, versionado y reglas QA",
+    description: "Publicación, cambios pendientes y reglas QA",
     icon: ClipboardCheck,
     adminOnly: true,
   },
@@ -221,30 +222,6 @@ const SETTINGS_SECTIONS: {
     description: "Alertas de riesgo QA",
     icon: MessageSquareWarning,
     adminOnly: true,
-  },
-];
-
-const PERMISSION_GROUPS: {
-  title: string;
-  keys: CampaignPermissionKey[];
-}[] = [
-  {
-    title: "Lectura y analítica",
-    keys: ["canViewDashboard", "canViewKPIs", "canViewForms", "canViewReports", "canViewAudit"],
-  },
-  {
-    title: "Formularios y evaluaciones",
-    keys: [
-      "canCreateForms",
-      "canEditForms",
-      "canPublishForms",
-      "canEvaluate",
-      "canEditEvaluations",
-    ],
-  },
-  {
-    title: "Operación y datos",
-    keys: ["canExport", "canManageAgents", "canManageDispositions", "canManageCampaignScoring"],
   },
 ];
 
@@ -749,7 +726,7 @@ function AccessTab({
               </div>
 
               <div className="grid gap-4 lg:grid-cols-3">
-                {PERMISSION_GROUPS.map((group) => (
+              {CAMPAIGN_PERMISSION_GROUPS.map((group) => (
                   <div key={group.title} className="rounded-lg border p-3">
                     <div className="mb-3 text-sm font-medium">{group.title}</div>
                     <div className="space-y-2">
@@ -863,7 +840,7 @@ function AccessTab({
             <PermissionSummary
               icon={<ClipboardCheck className="h-4 w-4" />}
               title="Evaluaciones"
-              text="QA puede evaluar agentes solo dentro de su campaña."
+              text="QA puede evaluar, consultar historial y preparar coaching solo dentro de sus campañas."
             />
             <PermissionSummary
               icon={<FileSpreadsheet className="h-4 w-4" />}
@@ -952,7 +929,7 @@ function getEffectivePermissionsV2(user: AccessUser): string[] {
   }
   if (user.campaigns.length === 0) return ["Sin campaña asignada"];
   if (user.role === "SUPERVISOR") {
-    return ["Dashboard/KPIs", "Formularios lectura", "Reportes", "Solo lectura"];
+    return ["Dashboard/KPIs", "Formularios lectura", "Evaluaciones", "Reportes", "Solo lectura"];
   }
 
   const hasAny = (permission: CampaignPermissionKey) =>
@@ -965,14 +942,16 @@ function getEffectivePermissionsV2(user: AccessUser): string[] {
   if (hasAny("canCreateForms") || hasAny("canEditForms")) {
     permissions.push("Formularios");
   }
-  if (hasAny("canEvaluate")) permissions.push("Evaluaciones");
+  if (hasAny("canEvaluate") || hasAny("canViewEvaluations")) {
+    permissions.push("Evaluaciones");
+  }
   if (hasAny("canViewReports")) permissions.push("Reportes");
   if (hasAny("canExport")) permissions.push("Exportación");
   if (hasAny("canManageAgents") || hasAny("canManageDispositions")) {
     permissions.push("Operación");
   }
 
-  return permissions.length > 0 ? permissions : ["Solo asignaci�n"];
+  return permissions.length > 0 ? permissions : ["Solo asignación"];
 }
 
 function getPermissionStateFromAccess(access: AccessCampaign): CampaignPermissionState {
@@ -1981,7 +1960,7 @@ function FormsConfigTab() {
         {
           key: "formStates",
           label: "Estados de formulario",
-          detail: "La base de datos soporta borrador, publicación, archivo y versión.",
+          detail: "El flujo soporta borrador, publicación, archivo e historial seguro.",
           badge: "Modelo listo",
           locked: true,
         },
@@ -1994,9 +1973,10 @@ function FormsConfigTab() {
           locked: true,
         },
         {
-          key: "publishedRevision",
-          label: "Edición de publicados",
-          detail: "Los formularios publicados conservan historial creando una nueva versión.",
+          key: "publishedChanges",
+          label: "Edición de formularios activos",
+          detail:
+            "Los cambios quedan pendientes hasta su publicación sin alterar evaluaciones anteriores.",
           badge: "Enforced",
         },
         {

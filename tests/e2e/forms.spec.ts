@@ -12,6 +12,7 @@ test.describe("Forms (QA Manager)", () => {
     await page.getByRole("link", { name: "Formularios" }).click();
     await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Nuevo formulario" })).toBeVisible();
+    await expect(page.getByText(/^v\d+(?:\.\d+){0,2}$/)).toHaveCount(0);
   });
 
   test("should open form builder", async ({ page }) => {
@@ -39,9 +40,23 @@ test.describe("Forms (QA)", () => {
     await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 
-  test("should show forms list without create button", async ({ page }) => {
+  test("can create forms but cannot edit or publish the manager form", async ({ page }) => {
     await page.goto("/forms");
     await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Nuevo formulario" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Nuevo formulario" })).toBeVisible();
+    await expect(page.getByText("Customer Service QA Form", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Editar Customer Service QA Form", exact: true }),
+    ).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Publicar", exact: true })).not.toBeVisible();
+  });
+
+  test("can open the form builder for its assigned campaign", async ({ page }) => {
+    await page.goto("/forms/new");
+    await expect(page.getByRole("heading", { name: "Nuevo Formulario" })).toBeVisible();
+    await expect(page.getByLabel("Titulo")).toBeVisible();
+    await expect(page.getByText("Campana", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Agregar pregunta", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Crear formulario", exact: true })).toBeVisible();
   });
 });

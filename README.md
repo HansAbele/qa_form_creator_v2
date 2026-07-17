@@ -1,17 +1,17 @@
 # Qore — QA Form Creator
 
-Qore es una plataforma de evaluacion de calidad para operaciones de contact center. Permite
-crear formularios versionados, capturar evaluaciones con autosave, analizar resultados COPC,
-administrar catalogos operativos y exportar datos con trazabilidad.
+Qore es una plataforma de evaluación de calidad para operaciones de contact center. Permite
+crear formularios con cambios controlados, capturar evaluaciones con autosave, analizar resultados COPC,
+administrar catálogos operativos y exportar datos con trazabilidad.
 
 ## Acceso por rol
 
 | Rol | Alcance esperado |
 | --- | --- |
-| QA | Evalua y consulta exclusivamente las campanas asignadas y las capacidades delegadas. |
-| QA con permisos elevados | Administra recursos de sus campanas cuando el permiso explicito lo autoriza, sin administracion global. |
-| Supervisor | Consulta resultados de sus campanas en modo lectura; no crea ni modifica evaluaciones. |
-| QA Manager (`ADMIN`) | Control global de usuarios, campanas, formularios, reportes, KPIs, auditoria y exportaciones. |
+| QA | Evalúa, crea sus formularios y consulta KPIs, reportes e historial exclusivamente en sus campañas asignadas. |
+| QA con permisos elevados | Administra recursos de sus campañas cuando el permiso explícito lo autoriza, sin administración global. |
+| Supervisor | Consulta resultados de sus campañas en modo lectura; no crea ni modifica evaluaciones. |
+| QA Manager (`ADMIN`) | Control global de usuarios, campañas, formularios, reportes, KPIs, auditoría y exportaciones. |
 
 La interfaz oculta funciones no autorizadas, pero la seguridad real se aplica nuevamente en
 Server Actions, consultas y rutas API mediante rol, permiso y alcance de campana.

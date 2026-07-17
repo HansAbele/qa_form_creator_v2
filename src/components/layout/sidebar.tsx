@@ -54,7 +54,8 @@ const primaryItems: NavigationItem[] = [
     href: "/evaluations",
     label: "Evaluaciones",
     icon: ClipboardCheck,
-    isVisible: (access: UiAccess) => access.canViewDashboard || access.canViewReports,
+    isVisible: (access: UiAccess) =>
+      access.canViewDashboard || access.canViewEvaluations || access.canViewReports,
   },
   {
     href: "/reports",
@@ -73,8 +74,20 @@ const analyticsItems: NavigationItem[] = [
   },
   {
     href: "/analytics/agents",
-    label: "Rendimiento",
+    label: "Rendimiento de agentes",
     icon: Users,
+    isVisible: (access: UiAccess) => access.canViewKPIs,
+  },
+  {
+    href: "/analytics/teams",
+    label: "Rendimiento por equipos",
+    icon: Building2,
+    isVisible: (access: UiAccess) => access.canViewKPIs,
+  },
+  {
+    href: "/analytics/dispositions",
+    label: "Resultados por disposici\u00f3n",
+    icon: Tags,
     isVisible: (access: UiAccess) => access.canViewKPIs,
   },
 ];
@@ -106,19 +119,19 @@ const adminItems: NavigationItem[] = [
 const operationsItems: NavigationItem[] = [
   {
     href: "/operations/agents",
-    label: "Agentes",
+    label: "Gestionar agentes",
     icon: Users,
     isVisible: (access: UiAccess) => access.canManageAgents,
   },
   {
     href: "/operations/teams",
-    label: "Equipos",
+    label: "Gestionar equipos",
     icon: Building2,
     isVisible: (access: UiAccess) => access.canManageAgents,
   },
   {
     href: "/operations/dispositions",
-    label: "Disposiciones",
+    label: "Gestionar disposiciones",
     icon: Tags,
     isVisible: (access: UiAccess) => access.canManageDispositions,
   },

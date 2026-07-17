@@ -22,6 +22,68 @@ const FORM_STATUS = {
   ARCHIVED: "ARCHIVED",
 } as const;
 
+const FORM_UPDATE_SNAPSHOT_SELECT = {
+  id: true,
+  title: true,
+  description: true,
+  campaignId: true,
+  createdById: true,
+  parentFormId: true,
+  parent: { select: { campaignId: true } },
+  status: true,
+  version: true,
+  updatedAt: true,
+  questions: {
+    select: {
+      id: true,
+      type: true,
+      label: true,
+      required: true,
+      weight: true,
+      fatal: true,
+      fatalOptions: true,
+      requiresCommentOnFail: true,
+      order: true,
+      formCategory: {
+        select: { qaCategoryId: true },
+      },
+    },
+    orderBy: { order: "asc" },
+  },
+} satisfies Prisma.FormSelect;
+
+const FORM_PUBLISH_SNAPSHOT_SELECT = {
+  id: true,
+  title: true,
+  campaignId: true,
+  createdById: true,
+  parentFormId: true,
+  parent: { select: { id: true, campaignId: true } },
+  status: true,
+  version: true,
+  updatedAt: true,
+  questions: {
+    select: {
+      id: true,
+      type: true,
+      options: true,
+      weight: true,
+      fatal: true,
+      fatalOptions: true,
+      formCategoryId: true,
+    },
+  },
+} satisfies Prisma.FormSelect;
+
+function assertQaOwnsForm(
+  user: { id: string; role?: string | null },
+  form: { createdById: string },
+) {
+  if (user.role === "QA" && form.createdById !== user.id) {
+    throw new Error("Solo puedes modificar formularios creados por ti");
+  }
+}
+
 export async function getForms() {
   return listFormsForPermissions(["canViewForms"], { restrictOperationalReaders: true });
 }
@@ -57,6 +119,7 @@ async function listFormsForPermissions(
             ...(session.user.role === "QA"
               ? [
                   {
+                    createdById: session.user.id,
                     campaign: {
                       users: {
                         some: {
@@ -184,6 +247,9 @@ async function getFormByIdWithPermission(
   if (!form) throw new Error("Formulario no encontrado");
 
   await assertCampaignPermissionForUser(session.user, form.campaignId, permission);
+  if (permission === "canEditForms") {
+    assertQaOwnsForm(session.user, form);
+  }
   if (options.requirePublished && form.status !== FORM_STATUS.PUBLISHED) {
     throw new Error("Formulario no publicado");
   }
@@ -194,7 +260,9 @@ async function getFormByIdWithPermission(
     throw new Error("La campana del formulario esta inactiva");
   }
 
-  let canManageFormVersions = session.user.role === "ADMIN" || permission === "canEditForms";
+  let canManageFormHistory =
+    session.user.role === "ADMIN" ||
+    (permission === "canEditForms" && form.createdById === session.user.id);
   if (permission === "canViewForms" && session.user.role !== "ADMIN") {
     const access =
       session.user.role === "QA"
@@ -212,12 +280,13 @@ async function getFormByIdWithPermission(
             },
           })
         : null;
-    canManageFormVersions = Boolean(
-      access?.canCreateForms || access?.canEditForms || access?.canPublishForms,
-    );
+    const canManageOwnForm =
+      form.createdById === session.user.id &&
+      Boolean(access?.canCreateForms || access?.canEditForms || access?.canPublishForms);
+    canManageFormHistory = canManageOwnForm;
 
     if (form.status !== FORM_STATUS.PUBLISHED || !form.campaign.active) {
-      if (!access?.canCreateForms && !access?.canEditForms && !access?.canPublishForms) {
+      if (!canManageOwnForm) {
         throw new Error(
           form.status !== FORM_STATUS.PUBLISHED
             ? "Formulario no publicado"
@@ -227,7 +296,7 @@ async function getFormByIdWithPermission(
     }
   }
 
-  if (!canManageFormVersions) return { ...form, parent: null, revisions: [] };
+  if (!canManageFormHistory) return { ...form, parent: null, revisions: [] };
 
   const parent =
     form.parent?.campaignId === form.campaignId
@@ -305,38 +374,12 @@ export async function updateForm(id: string, data: FormMutationInput) {
 
   const existing = await prisma.form.findUnique({
     where: { id },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      campaignId: true,
-      createdById: true,
-      parentFormId: true,
-      parent: { select: { campaignId: true } },
-      status: true,
-      version: true,
-      questions: {
-        select: {
-          id: true,
-          type: true,
-          label: true,
-          required: true,
-          weight: true,
-          fatal: true,
-          fatalOptions: true,
-          requiresCommentOnFail: true,
-          order: true,
-          formCategory: {
-            select: { qaCategoryId: true },
-          },
-        },
-        orderBy: { order: "asc" },
-      },
-    },
+    select: FORM_UPDATE_SNAPSHOT_SELECT,
   });
   if (!existing) throw new Error("Formulario no encontrado");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canEditForms");
   await assertCampaignPermissionForUser(session.user, input.campaignId, "canEditForms");
+  assertQaOwnsForm(session.user, existing);
 
   if (existing.status === FORM_STATUS.ARCHIVED) {
     throw new Error("No se puede editar un formulario archivado");
@@ -353,27 +396,60 @@ export async function updateForm(id: string, data: FormMutationInput) {
     throw new Error("No se puede cambiar la campana de una familia de revisiones");
   }
 
-  const isPublishedRevision = existing.status === FORM_STATUS.PUBLISHED;
+  const rootFormId = existing.parentFormId ?? existing.id;
   const form = await prisma.$transaction(async (tx) => {
-    if (isPublishedRevision) {
-      const rootFormId = existing.parentFormId ?? existing.id;
-      await lockFormFamily(tx, rootFormId);
+    await lockFormFamily(tx, rootFormId);
+    const current = await tx.form.findUnique({
+      where: { id },
+      select: FORM_UPDATE_SNAPSHOT_SELECT,
+    });
+    if (!current) throw new Error("Formulario no encontrado");
+    assertUnchangedFormSnapshot(existing, current);
+    assertQaOwnsForm(session.user, current);
+
+    if (current.status === FORM_STATUS.ARCHIVED) {
+      throw new Error("No se puede editar un formulario archivado");
+    }
+    if (current.parent && current.parent.campaignId !== current.campaignId) {
+      throw new Error("La revision no pertenece a la misma campana que su formulario base");
+    }
+    if (
+      input.campaignId !== current.campaignId &&
+      (current.status === FORM_STATUS.PUBLISHED || current.parentFormId)
+    ) {
+      throw new Error("No se puede cambiar la campana de una familia de revisiones");
+    }
+
+    if (current.status === FORM_STATUS.PUBLISHED) {
+      const pendingDraft = await tx.form.findFirst({
+        where: {
+          campaignId: current.campaignId,
+          parentFormId: rootFormId,
+          status: FORM_STATUS.DRAFT,
+        },
+        select: { id: true },
+      });
+      if (pendingDraft) {
+        throw new Error(
+          "Este formulario ya tiene cambios pendientes. Abre el borrador desde Formularios.",
+        );
+      }
       const familyVersions = await tx.form.findMany({
         where: {
-          campaignId: existing.campaignId,
+          campaignId: current.campaignId,
           OR: [{ id: rootFormId }, { parentFormId: rootFormId }],
         },
         select: { version: true },
       });
       const latestVersion =
-        [existing.version, ...(familyVersions ?? []).map((item) => item.version)]
+        [current.version, ...(familyVersions ?? []).map((item) => item.version)]
           .sort(compareFormVersions)
-          .at(-1) ?? existing.version;
+          .at(-1) ?? current.version;
       const draft = await tx.form.create({
         data: {
           title: input.title,
           description: input.description,
-          campaignId: existing.campaignId,
+          campaignId: current.campaignId,
           createdById: session.user.id,
           parentFormId: rootFormId,
           status: FORM_STATUS.DRAFT,
@@ -391,10 +467,14 @@ export async function updateForm(id: string, data: FormMutationInput) {
       await writeFormMutationAudit(tx, {
         sessionUserId: session.user.id,
         form,
-        existing,
+        existing: current,
         action: "revision_created",
       });
       return form;
+    }
+
+    if (current.status !== FORM_STATUS.DRAFT) {
+      throw new Error("El formulario ya no esta disponible para edicion");
     }
 
     await tx.question.deleteMany({ where: { formId: id } });
@@ -419,7 +499,7 @@ export async function updateForm(id: string, data: FormMutationInput) {
     await writeFormMutationAudit(tx, {
       sessionUserId: session.user.id,
       form,
-      existing,
+      existing: current,
       action: "updated",
     });
     return form;
@@ -437,50 +517,45 @@ export async function publishForm(id: string) {
 
   const form = await prisma.form.findUnique({
     where: { id },
-    select: {
-      id: true,
-      title: true,
-      campaignId: true,
-      parentFormId: true,
-      parent: { select: { id: true, campaignId: true } },
-      status: true,
-      version: true,
-      questions: {
-        select: {
-          id: true,
-          type: true,
-          options: true,
-          weight: true,
-          fatal: true,
-          fatalOptions: true,
-          formCategoryId: true,
-        },
-      },
-    },
+    select: FORM_PUBLISH_SNAPSHOT_SELECT,
   });
   if (!form) throw new Error("Formulario no encontrado");
   await assertCampaignPermissionForUser(session.user, form.campaignId, "canPublishForms");
+  assertQaOwnsForm(session.user, form);
 
   if (form.parent && form.parent.campaignId !== form.campaignId) {
     throw new Error("La revision no pertenece a la misma campana que su formulario base");
   }
 
-  if (form.status === FORM_STATUS.ARCHIVED) {
-    throw new Error("No se puede publicar un formulario archivado");
-  }
-  if (form.status === FORM_STATUS.PUBLISHED) {
-    return form;
-  }
-
-  validatePublishableForm(form.questions);
-
-  const now = new Date();
   const rootFormId = form.parentFormId ?? form.id;
   const published = await prisma.$transaction(async (tx) => {
     await lockFormFamily(tx, rootFormId);
+    const current = await tx.form.findUnique({
+      where: { id },
+      select: FORM_PUBLISH_SNAPSHOT_SELECT,
+    });
+    if (!current) throw new Error("Formulario no encontrado");
+    assertUnchangedFormSnapshot(form, current);
+    assertQaOwnsForm(session.user, current);
+
+    if (current.parent && current.parent.campaignId !== current.campaignId) {
+      throw new Error("La revision no pertenece a la misma campana que su formulario base");
+    }
+    if (current.status === FORM_STATUS.ARCHIVED) {
+      throw new Error("No se puede publicar un formulario archivado");
+    }
+    if (current.status === FORM_STATUS.PUBLISHED) {
+      return current;
+    }
+    if (current.status !== FORM_STATUS.DRAFT) {
+      throw new Error("El formulario ya no esta disponible para publicacion");
+    }
+
+    validatePublishableForm(current.questions);
+    const now = new Date();
     await tx.form.updateMany({
       where: {
-        campaignId: form.campaignId,
+        campaignId: current.campaignId,
         status: FORM_STATUS.PUBLISHED,
         id: { not: id },
         OR: [{ id: rootFormId }, { parentFormId: rootFormId }],
@@ -503,12 +578,12 @@ export async function publishForm(id: string) {
     await writeAuditLog(
       {
         userId: session.user.id,
-        campaignId: form.campaignId,
+        campaignId: current.campaignId,
         module: "forms",
         action: "published",
         entityType: "form",
-        entityId: form.id,
-        beforeValue: { id: form.id, status: form.status, version: form.version },
+        entityId: current.id,
+        beforeValue: { id: current.id, status: current.status, version: current.version },
         afterValue: {
           id: published.id,
           status: published.status,
@@ -516,7 +591,7 @@ export async function publishForm(id: string) {
           parentFormId: published.parentFormId,
         },
         impact:
-          "Formulario publicado para evaluaciones; versiones publicadas previas se archivaron.",
+          "Formulario publicado para evaluaciones; la definicion activa previa se archivo.",
       },
       tx,
     );
@@ -538,18 +613,40 @@ export async function archiveForm(id: string) {
       id: true,
       title: true,
       campaignId: true,
+      createdById: true,
+      parentFormId: true,
       status: true,
       version: true,
+      updatedAt: true,
     },
   });
   if (!form) throw new Error("Formulario no encontrado");
   await assertCampaignPermissionForUser(session.user, form.campaignId, "canPublishForms");
+  assertQaOwnsForm(session.user, form);
 
-  if (form.status !== FORM_STATUS.PUBLISHED) {
-    throw new Error("Solo se pueden archivar formularios publicados");
-  }
-
+  const rootFormId = form.parentFormId ?? form.id;
   const archived = await prisma.$transaction(async (tx) => {
+    await lockFormFamily(tx, rootFormId);
+    const current = await tx.form.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        campaignId: true,
+        createdById: true,
+        parentFormId: true,
+        status: true,
+        version: true,
+        updatedAt: true,
+      },
+    });
+    if (!current) throw new Error("Formulario no encontrado");
+    assertUnchangedFormSnapshot(form, current);
+    assertQaOwnsForm(session.user, current);
+    if (current.status !== FORM_STATUS.PUBLISHED) {
+      throw new Error("Solo se pueden archivar formularios publicados");
+    }
+
     const archived = await tx.form.update({
       where: { id },
       data: {
@@ -560,12 +657,12 @@ export async function archiveForm(id: string) {
     await writeAuditLog(
       {
         userId: session.user.id,
-        campaignId: form.campaignId,
+        campaignId: current.campaignId,
         module: "forms",
         action: "archived",
         entityType: "form",
-        entityId: form.id,
-        beforeValue: form,
+        entityId: current.id,
+        beforeValue: current,
         afterValue: {
           id: archived.id,
           status: archived.status,
@@ -591,31 +688,59 @@ export async function deleteForm(id: string) {
 
   const form = await prisma.form.findUnique({
     where: { id },
-    select: { id: true, title: true, description: true, campaignId: true, status: true },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      campaignId: true,
+      createdById: true,
+      parentFormId: true,
+      status: true,
+      updatedAt: true,
+    },
   });
   if (!form) throw new Error("Formulario no encontrado");
   await assertCampaignPermissionForUser(session.user, form.campaignId, "canEditForms");
+  assertQaOwnsForm(session.user, form);
 
-  if (form.status !== FORM_STATUS.DRAFT) {
-    throw new Error("Solo se pueden eliminar borradores; archiva formularios publicados");
-  }
-
-  const responseCount = await prisma.response.count({ where: { formId: id } });
-  if (responseCount > 0) {
-    throw new Error("No se puede eliminar un formulario que tiene evaluaciones registradas");
-  }
-
+  const rootFormId = form.parentFormId ?? form.id;
   await prisma.$transaction(async (tx) => {
+    await lockFormFamily(tx, rootFormId);
+    const current = await tx.form.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        campaignId: true,
+        createdById: true,
+        parentFormId: true,
+        status: true,
+        updatedAt: true,
+      },
+    });
+    if (!current) throw new Error("Formulario no encontrado");
+    assertUnchangedFormSnapshot(form, current);
+    assertQaOwnsForm(session.user, current);
+    if (current.status !== FORM_STATUS.DRAFT) {
+      throw new Error("Solo se pueden eliminar borradores; archiva formularios publicados");
+    }
+
+    const responseCount = await tx.response.count({ where: { formId: id } });
+    if (responseCount > 0) {
+      throw new Error("No se puede eliminar un formulario que tiene evaluaciones registradas");
+    }
+
     await tx.form.delete({ where: { id } });
     await writeAuditLog(
       {
         userId: session.user.id,
-        campaignId: form.campaignId,
+        campaignId: current.campaignId,
         module: "forms",
         action: "deleted",
         entityType: "form",
         entityId: id,
-        beforeValue: form,
+        beforeValue: current,
         impact: "Formulario eliminado sin evaluaciones registradas.",
       },
       tx,
@@ -657,6 +782,39 @@ function compareFormVersions(left: string, right: string) {
     if (difference !== 0) return difference;
   }
   return 0;
+}
+
+function assertUnchangedFormSnapshot(
+  initial: {
+    campaignId: string;
+    createdById: string;
+    parentFormId: string | null;
+    status: string;
+    updatedAt?: Date;
+  },
+  current: {
+    campaignId: string;
+    createdById: string;
+    parentFormId: string | null;
+    status: string;
+    updatedAt?: Date;
+  },
+) {
+  const timestampChanged =
+    initial.updatedAt instanceof Date &&
+    current.updatedAt instanceof Date &&
+    initial.updatedAt.getTime() !== current.updatedAt.getTime();
+  if (
+    timestampChanged ||
+    initial.campaignId !== current.campaignId ||
+    initial.createdById !== current.createdById ||
+    initial.parentFormId !== current.parentFormId ||
+    initial.status !== current.status
+  ) {
+    throw new Error(
+      "El formulario cambio mientras se procesaba la accion. Recarga la pagina e intenta de nuevo.",
+    );
+  }
 }
 
 async function lockFormFamily(tx: FormWriteTransaction, rootFormId: string) {
@@ -704,7 +862,7 @@ async function writeFormMutationAudit(
       },
       impact:
         input.action === "revision_created"
-          ? "Se creo un borrador de nueva version; el formulario publicado sigue vigente."
+          ? "Se guardaron cambios pendientes; el formulario publicado sigue vigente."
           : "Formulario actualizado; afecta evaluaciones futuras si se publica.",
     },
     tx,

@@ -73,29 +73,53 @@ test.describe("RBAC matrix - QA Manager", () => {
 test.describe("RBAC matrix - standard QA", () => {
   test.use({ storageState: QA_AUTH_STATE });
 
-  test("sees only evaluator capabilities for the assigned campaign", async ({ page }) => {
+  test("has the daily QA workspace only for the assigned campaign", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Formularios" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Reportes" })).not.toBeVisible();
-    await expect(page.getByRole("link", { name: "KPIs" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Reportes" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "KPIs" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Rendimiento de agentes", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Rendimiento por equipos", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Resultados por disposición", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("link", { name: "Exportar" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Usuarios" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Gestionar agentes" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Gestionar equipos" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Gestionar disposiciones" })).not.toBeVisible();
 
     await expectAssignedCampaignOnly(page);
     await expect(page.getByRole("link", { name: "Evaluar" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Nuevo formulario" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Nuevo formulario" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: `Editar ${ASSIGNED_FORM}`, exact: true }),
+    ).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Publicar", exact: true })).not.toBeVisible();
 
     for (const route of [
       "/forms/new",
       "/reports",
       "/kpis",
-      "/analytics/export",
-      "/operations/agents",
+      "/analytics/agents",
+      "/analytics/teams",
+      "/analytics/dispositions",
     ]) {
       await page.goto(route);
-      await expect(page).toHaveURL(route === "/forms/new" ? /\/forms$/ : /\/settings$/);
+      await expect(page).toHaveURL(new RegExp(`${route.replaceAll("/", "\\/")}$`));
     }
+    for (const route of ["/analytics/export", "/operations/agents"]) {
+      await page.goto(route);
+      await expect(page).toHaveURL(/\/settings$/);
+    }
+    await page.goto("/evaluations?scope=managed");
+    await expect(page.getByText("Alcance administrado", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Evaluador")).toBeVisible();
     await page.goto("/admin/users");
     await expect(page).toHaveURL(/\/$/);
     await expectRestrictedFormDenied(page, "error");
@@ -110,6 +134,15 @@ test.describe("RBAC matrix - elevated QA", () => {
     await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Reportes" })).toBeVisible();
     await expect(page.getByRole("link", { name: "KPIs" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Rendimiento de agentes", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Rendimiento por equipos", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Resultados por disposición", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("link", { name: "Exportar" })).not.toBeVisible();
     await expect(page.locator('a[href="/operations/agents"]')).toBeVisible();
     await expect(page.getByRole("link", { name: "Usuarios" })).not.toBeVisible();

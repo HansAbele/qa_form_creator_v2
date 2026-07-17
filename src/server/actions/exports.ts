@@ -406,8 +406,6 @@ function getFieldValue(
       return response.form.campaign.name;
     case "form":
       return response.form.title;
-    case "formVersion":
-      return response.formVersion ?? response.form.version;
     case "agent":
       return response.agent.name;
     case "agentCode":

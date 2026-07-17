@@ -13,7 +13,7 @@ export type QuestionTypeValue = (typeof QUESTION_TYPES)[number];
 /** Single source of truth for question-type display labels (all surfaces). */
 export const QUESTION_TYPE_LABELS: Record<QuestionTypeValue, string> = {
   TEXT: "Texto",
-  RATING: "Calificacion",
+  RATING: "Calificación",
   SELECT: "Lista desplegable",
   RADIO: "Opcion unica",
   BOOLEAN: "Si / No",

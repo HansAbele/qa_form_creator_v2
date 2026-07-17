@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 
 interface AgentData {
-  id: string; name: string; agentCode: string | null; campaignName: string;
+  id: string; name: string; agentCode: string | null; campaignId: string; campaignName: string;
   totalEvaluations: number; avgScore: number; passRate: number;
   lastScore: number | null; minScore: number | null; maxScore: number | null;
   trend: number;
@@ -51,7 +51,7 @@ export function AgentPerformanceClient({
   const [mode, setMode] = useState<"leaderboard" | "comparison">("leaderboard");
 
   const filtered = useMemo(
-    () => campaignFilter === "all" ? agents : agents.filter((a) => a.campaignName === campaignFilter),
+    () => campaignFilter === "all" ? agents : agents.filter((a) => a.campaignId === campaignFilter),
     [agents, campaignFilter],
   );
 
@@ -316,7 +316,7 @@ export function AgentPerformanceClient({
           <SelectTrigger aria-label="Filtrar por campaña" className="w-48"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas las campañas</SelectItem>
-            {campaigns.map((c) => (<SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>))}
+            {campaigns.map((c) => (<SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>))}
           </SelectContent>
         </Select>
         <p className="text-sm text-muted-foreground ml-auto">

@@ -1,21 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
   CAMPAIGN_ACCESS_PRESETS,
+  CAMPAIGN_PERMISSION_GROUPS,
+  CAMPAIGN_PERMISSION_KEYS,
   getDefaultCampaignAccessForUserRole,
 } from "./campaign-permissions";
 
 describe("campaign access presets", () => {
-  it("gives evaluators only the permissions required for their own QA work", () => {
+  it("gives evaluators the campaign-scoped tools required for daily QA work", () => {
     expect(CAMPAIGN_ACCESS_PRESETS.EVALUATOR).toEqual({
       canViewDashboard: true,
-      canViewKPIs: false,
+      canViewKPIs: true,
       canViewForms: true,
-      canCreateForms: false,
-      canEditForms: false,
+      canViewEvaluations: true,
+      canCreateForms: true,
+      canEditForms: true,
       canPublishForms: false,
       canEvaluate: true,
       canEditEvaluations: false,
-      canViewReports: false,
+      canViewReports: true,
       canExport: false,
       canManageAgents: false,
       canManageDispositions: false,
@@ -28,8 +31,10 @@ describe("campaign access presets", () => {
     expect(getDefaultCampaignAccessForUserRole("QA")).toMatchObject({
       roleInCampaign: "EVALUATOR",
       canEvaluate: true,
-      canCreateForms: false,
-      canViewReports: false,
+      canCreateForms: true,
+      canEditForms: true,
+      canViewEvaluations: true,
+      canViewReports: true,
     });
   });
 
@@ -40,5 +45,12 @@ describe("campaign access presets", () => {
 
   it("uses the least-privileged preset for an unknown role", () => {
     expect(getDefaultCampaignAccessForUserRole(undefined).roleInCampaign).toBe("EVALUATOR");
+  });
+
+  it("shows every campaign permission exactly once in the manager editor", () => {
+    const editableKeys = CAMPAIGN_PERMISSION_GROUPS.flatMap((group) => [...group.keys]);
+
+    expect(editableKeys).toHaveLength(CAMPAIGN_PERMISSION_KEYS.length);
+    expect(new Set(editableKeys)).toEqual(new Set(CAMPAIGN_PERMISSION_KEYS));
   });
 });

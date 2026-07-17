@@ -34,7 +34,7 @@ test.describe("Navigation (QA Manager)", () => {
     await expect(
       desktopNavigation
         .getByRole("region", { name: "Operación" })
-        .getByRole("link", { name: "Agentes" }),
+        .getByRole("link", { name: "Gestionar agentes" }),
     ).toHaveAttribute("href", "/operations/agents");
   });
 
@@ -47,7 +47,9 @@ test.describe("Navigation (QA Manager)", () => {
     const analyticsNavigation = page
       .locator("#desktop-primary-navigation")
       .getByRole("region", { name: "Analítica" });
-    await analyticsNavigation.getByRole("link", { name: "Rendimiento" }).click();
+    await analyticsNavigation
+      .getByRole("link", { name: "Rendimiento de agentes", exact: true })
+      .click();
     await expect(page.getByRole("heading", { name: "Rendimiento de Agentes" })).toBeVisible();
   });
 
@@ -62,17 +64,53 @@ test.describe("Navigation (QA Manager)", () => {
   });
 });
 
-test.describe("Navigation (QA - restricted)", () => {
+test.describe("Navigation (QA - campaign scoped)", () => {
   test.use({ storageState: QA_AUTH_STATE });
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 
-  test("should not see QA Manager links in sidebar", async ({ page }) => {
+  test("exposes daily read modules but hides QA Manager controls", async ({ page }) => {
+    const desktopNavigation = page.locator("#desktop-primary-navigation");
+    const analyticsNavigation = desktopNavigation.getByRole("region", { name: "Analítica" });
+
     await expect(page.getByRole("link", { name: "Usuarios" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Campañas" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Reportes" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "KPIs" })).toBeVisible();
+    await expect(
+      analyticsNavigation.getByRole("link", { name: "Rendimiento de agentes", exact: true }),
+    ).toHaveAttribute("href", "/analytics/agents");
+    await expect(
+      analyticsNavigation.getByRole("link", { name: "Rendimiento por equipos", exact: true }),
+    ).toHaveAttribute("href", "/analytics/teams");
+    await expect(
+      analyticsNavigation.getByRole("link", {
+        name: "Resultados por disposición",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", "/analytics/dispositions");
+    await expect(page.getByRole("link", { name: "Gestionar agentes" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Gestionar equipos" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Gestionar disposiciones" })).not.toBeVisible();
+  });
+
+  test("should navigate to the assigned-campaign analytics modules", async ({ page }) => {
+    const destinations = [
+      ["/reports", "Reportes"],
+      ["/kpis", "KPIs por Campaña"],
+      ["/analytics/agents", "Rendimiento de Agentes"],
+      ["/analytics/teams", "Performance por Equipo"],
+      ["/analytics/dispositions", "Disposiciones"],
+    ] as const;
+
+    for (const [route, heading] of destinations) {
+      await page.goto(route);
+      await expect(page).toHaveURL(new RegExp(`${route.replaceAll("/", "\\/")}$`));
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    }
   });
 
   test("should redirect from QA Manager page to home", async ({ page }) => {

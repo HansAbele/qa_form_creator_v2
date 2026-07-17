@@ -61,6 +61,7 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
       canViewDashboard: true,
       canViewKPIs: true,
       canViewForms: true,
+      canViewEvaluations: true,
       canCreateForms: true,
       canEditForms: true,
       canPublishForms: true,

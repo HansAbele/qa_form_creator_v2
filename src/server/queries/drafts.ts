@@ -58,7 +58,6 @@ export async function getAccessibleEvaluationDrafts() {
     select: {
       id: true,
       formId: true,
-      formVersion: true,
       evaluatorId: true,
       updatedAt: true,
       form: {
@@ -81,7 +80,6 @@ export async function getAccessibleEvaluationDrafts() {
       id: draft.id,
       formId: draft.formId,
       formTitle: draft.form.title,
-      formVersion: draft.formVersion,
       campaignName: draft.form.campaign.name,
       agentName: draft.agent.name,
       agentCode: draft.agent.agentCode,

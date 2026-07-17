@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { EvaluationsListClient } from "@/components/evaluations/evaluations-list-client";
 import { auth } from "@/lib/auth";
-import { getOwnEvaluationHistoryCampaigns, getReportCampaigns } from "@/server/actions/campaigns";
+import {
+  getEvaluationHistoryCampaigns,
+  getOwnEvaluationHistoryCampaigns,
+} from "@/server/actions/campaigns";
 import {
   type EvaluationHistoryFilterOptions,
   type EvaluationHistoryScope,
@@ -33,7 +36,7 @@ export default async function EvaluationsPage({
 
   const [access, query] = await Promise.all([getCurrentUserUiAccess(), searchParams]);
   const canViewOwn = access.isAdmin || access.canViewDashboard;
-  const canViewManaged = access.isAdmin || access.canViewReports;
+  const canViewManaged = access.isAdmin || access.canViewEvaluations;
   if (!canViewOwn && !canViewManaged) redirect("/settings");
 
   const requestedScope: EvaluationHistoryScope =
@@ -55,7 +58,7 @@ export default async function EvaluationsPage({
   };
   const [ownCampaigns, managedCampaigns, loadedFilterOptions] = await Promise.all([
     canViewOwn ? getOwnEvaluationHistoryCampaigns() : Promise.resolve([]),
-    canViewManaged ? getReportCampaigns() : Promise.resolve([]),
+    canViewManaged ? getEvaluationHistoryCampaigns() : Promise.resolve([]),
     getEvaluationHistoryFilterOptions(initialScope),
   ]);
   const ownFilterOptions = initialScope === "own" ? loadedFilterOptions : emptyFilterOptions;

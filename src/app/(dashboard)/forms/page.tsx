@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { collapseFormFamilies } from "@/lib/form-family";
 import { redirect } from "next/navigation";
 import { getForms } from "@/server/actions/forms";
 import { getFormCreationCampaigns } from "@/server/actions/campaigns";
@@ -18,29 +19,43 @@ export default async function FormsPage() {
   ]);
   const isAdmin = session.user.role === "ADMIN";
   const isSupervisor = session.user.role === "SUPERVISOR";
+  const logicalForms = collapseFormFamilies(forms);
 
   return (
     <FormsListClient
-      forms={forms.map((f) => ({
+      forms={logicalForms.map((f) => ({
         id: f.id,
+        familyKey: f.familyKey,
+        evaluationFormId: f.evaluationFormId,
         title: f.title,
         description: f.description,
         campaignName: f.campaign.name,
         status: f.status,
-        version: f.version,
-        publishedAt: f.publishedAt?.toISOString() ?? null,
         questionCount: f._count.questions,
-        createdAt: f.createdAt.toISOString(),
         canEvaluate:
+          Boolean(f.evaluationFormId) &&
           f.campaign.active &&
           !isSupervisor &&
           (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
-        canEdit: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEditForms)),
-        canPublish: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canPublishForms)),
+        canEdit:
+          !isSupervisor &&
+          (isAdmin ||
+            (f.createdById === session.user.id && Boolean(f.campaign.users[0]?.canEditForms))),
+        canPublish:
+          !isSupervisor &&
+          (isAdmin ||
+            (f.createdById === session.user.id && Boolean(f.campaign.users[0]?.canPublishForms))),
       }))}
       evaluationDrafts={evaluationDrafts.map((draft) => ({
-        ...draft,
+        id: draft.id,
+        formId: draft.formId,
+        formTitle: draft.formTitle,
+        campaignName: draft.campaignName,
+        agentName: draft.agentName,
+        agentCode: draft.agentCode,
+        evaluatorName: draft.evaluatorName,
         updatedAt: draft.updatedAt.toISOString(),
+        isOwn: draft.isOwn,
       }))}
       canCreate={!isSupervisor && (isAdmin || creatableCampaigns.length > 0)}
     />

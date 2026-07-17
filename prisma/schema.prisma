@@ -144,6 +144,7 @@ model UserCampaign {
   canViewDashboard         Boolean             @default(true)
   canViewKPIs              Boolean             @default(false)
   canViewForms             Boolean             @default(true)
+  canViewEvaluations       Boolean             @default(false)
   canCreateForms           Boolean             @default(false)
   canEditForms             Boolean             @default(false)
   canPublishForms          Boolean             @default(false)

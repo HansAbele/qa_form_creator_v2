@@ -96,7 +96,7 @@ SELECT
        OR actual_trigger.tgconstraint = 0
   )
   AND (
-    SELECT count(*) = 2
+    SELECT count(*) = 3
     FROM pg_index index_state
     JOIN pg_class index_object ON index_object.oid = index_state.indexrelid
     JOIN pg_class table_object ON table_object.oid = index_state.indrelid
@@ -105,7 +105,8 @@ SELECT
       AND table_object.relname = 'Form'
       AND index_object.relname IN (
         'Form_family_version_key',
-        'Form_one_published_per_family_key'
+        'Form_one_published_per_family_key',
+        'Form_one_draft_per_family_key'
       )
       AND index_object.relowner = (
         SELECT role_object.oid FROM pg_roles role_object
@@ -125,6 +126,11 @@ SELECT
           index_object.relname = 'Form_one_published_per_family_key'
           AND pg_get_indexdef(index_state.indexrelid) =
             'CREATE UNIQUE INDEX "Form_one_published_per_family_key" ON public."Form" USING btree (COALESCE("parentFormId", id)) WHERE (status = ''PUBLISHED''::text)'
+        )
+        OR (
+          index_object.relname = 'Form_one_draft_per_family_key'
+          AND pg_get_indexdef(index_state.indexrelid) =
+            'CREATE UNIQUE INDEX "Form_one_draft_per_family_key" ON public."Form" USING btree (COALESCE("parentFormId", id)) WHERE (status = ''DRAFT''::text)'
         )
       )
   )

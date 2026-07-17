@@ -40,8 +40,18 @@ const DASHBOARD_READ_PERMISSION = "canViewKPIs" satisfies CampaignPermissionKey;
 const SELF_DASHBOARD_READ_PERMISSION = "canViewDashboard" satisfies CampaignPermissionKey;
 const KPI_READ_PERMISSION = "canViewKPIs" satisfies CampaignPermissionKey;
 const REPORT_READ_PERMISSION = "canViewReports" satisfies CampaignPermissionKey;
+const EVALUATION_READ_PERMISSION = "canViewEvaluations" satisfies CampaignPermissionKey;
 
 type CampaignFilter = { campaignId?: string | { in?: string[] } };
+
+function campaignFilterAllows(filter: CampaignFilter, campaignId: string) {
+  const value = filter.campaignId;
+  return (
+    value === undefined ||
+    value === campaignId ||
+    (typeof value !== "string" && value.in?.includes(campaignId) === true)
+  );
+}
 
 type TargetSettings = {
   passThreshold: number;
@@ -666,6 +676,7 @@ export async function getAgentPerformance(campaignId?: string) {
       id: agent.id,
       name: agent.name,
       agentCode: agent.agentCode,
+      campaignId: agent.campaignId,
       campaignName: agent.campaign.name,
       totalEvaluations: total,
       avgScore: Math.round(avgScore * 100) / 100,
@@ -752,7 +763,6 @@ export async function getReportData(filters: {
           },
           select: {
             id: true,
-            formVersion: true,
             score: true,
             result: true,
             hasFatalFail: true,
@@ -795,7 +805,6 @@ export async function getReportData(filters: {
       agentName: r.agent.name,
       agentCode: r.agent.agentCode,
       evaluatorName: r.evaluator.name,
-      formVersion: r.formVersion,
       dispositionId: r.disposition?.id ?? null,
       dispositionName: r.disposition?.name ?? null,
       dispositionOutcome: r.disposition?.outcomeType ?? null,
@@ -878,7 +887,6 @@ export async function getReportResponseDetail(responseId: string) {
     select: {
       id: true,
       formId: true,
-      formVersion: true,
       score: true,
       result: true,
       hasFatalFail: true,
@@ -957,7 +965,6 @@ export async function getReportResponseDetail(responseId: string) {
     agentName: response.agent.name,
     agentCode: response.agent.agentCode,
     evaluatorName: response.evaluator.name,
-    formVersion: response.formVersion,
     dispositionId: response.disposition?.id ?? null,
     dispositionName: response.disposition?.name ?? null,
     dispositionOutcome: response.disposition?.outcomeType ?? null,
@@ -1159,6 +1166,7 @@ export async function getTeamPerformance(campaignId?: string, dateFrom?: string,
   const teams = await prisma.team.findMany({
     where: campaignFilter,
     include: {
+      campaign: { select: { name: true } },
       agents: {
         where: { active: true },
         include: {
@@ -1204,14 +1212,15 @@ export async function getTeamPerformance(campaignId?: string, dateFrom?: string,
       return {
         id: team.id,
         name: team.name,
+        campaignId: team.campaignId,
+        campaignName: team.campaign.name,
         agentCount: agents.length,
         evalCount: total,
         avgScore: Math.round(avg * 100) / 100,
         passRate: total > 0 ? Math.round((passCount / total) * 100) : 0,
       };
     })
-    .filter((t) => t.evalCount > 0)
-    .sort((a, b) => b.avgScore - a.avgScore);
+    .sort((a, b) => b.avgScore - a.avgScore || a.name.localeCompare(b.name, "es"));
 }
 
 // ─── Disposition Analytics ────────────────────────
@@ -2519,16 +2528,21 @@ export async function getResponseDetail(responseId: string) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const [draftFilter, reportFilter, ownHistoryFilter, auditFilter] = await Promise.all([
-    getCampaignFilterForPermission("canEditEvaluations"),
-    getCampaignFilterForPermission(REPORT_READ_PERMISSION),
-    getCampaignFilterForPermission(SELF_DASHBOARD_READ_PERMISSION),
-    getCampaignFilterForPermission("canViewAudit"),
-  ]);
+  const [editFilter, evaluationFilter, reportFilter, ownHistoryFilter, auditFilter, kpiFilter] =
+    await Promise.all([
+      getCampaignFilterForPermission("canEditEvaluations"),
+      getCampaignFilterForPermission(EVALUATION_READ_PERMISSION),
+      getCampaignFilterForPermission(REPORT_READ_PERMISSION),
+      getCampaignFilterForPermission(SELF_DASHBOARD_READ_PERMISSION),
+      getCampaignFilterForPermission("canViewAudit"),
+      getCampaignFilterForPermission(KPI_READ_PERMISSION),
+    ]);
   const authorizationScope = {
     OR: [
-      { status: RESPONSE_STATUS.DRAFT, form: draftFilter },
+      { status: RESPONSE_STATUS.DRAFT, form: editFilter },
+      { status: RESPONSE_STATUS.SUBMITTED, form: evaluationFilter },
       { status: RESPONSE_STATUS.SUBMITTED, form: reportFilter },
+      { status: RESPONSE_STATUS.SUBMITTED, form: editFilter },
       {
         status: RESPONSE_STATUS.SUBMITTED,
         evaluatorId: session.user.id,
@@ -2631,13 +2645,9 @@ export async function getResponseDetail(responseId: string) {
       : response.status === RESPONSE_STATUS.DRAFT &&
         response.form.status === "PUBLISHED" &&
         response.form.campaign.active;
-  const editCampaignFilter = draftFilter.campaignId;
-  const canEditCampaign =
-    editCampaignFilter === undefined ||
-    editCampaignFilter === response.form.campaignId ||
-    (typeof editCampaignFilter !== "string" &&
-      editCampaignFilter.in?.includes(response.form.campaignId) === true);
+  const canEditCampaign = campaignFilterAllows(editFilter, response.form.campaignId);
   const canEdit = canEditContext && canEditCampaign;
+  const canOpenAnalytics = campaignFilterAllows(kpiFilter, response.form.campaignId);
   const passThreshold = await getPassThresholdForCampaign(response.form.campaignId);
   const effectiveResult =
     response.status === RESPONSE_STATUS.DRAFT
@@ -2663,6 +2673,7 @@ export async function getResponseDetail(responseId: string) {
     cancelledAt: response.cancelledAt?.toISOString() ?? null,
     cancellationReason: response.cancellationReason,
     canEdit,
+    canOpenAnalytics,
     scoringSnapshot: response.scoringSnapshot,
     settingsSnapshot: response.settingsSnapshot,
     formSnapshot: response.formSnapshot,
@@ -2825,7 +2836,8 @@ export async function getEvaluationHistoryFilterOptions(scopeInput: EvaluationHi
   if (!session?.user) throw new Error("No autorizado");
 
   const scope: EvaluationHistoryScope = scopeInput === "managed" ? "managed" : "own";
-  const permission = scope === "managed" ? REPORT_READ_PERMISSION : SELF_DASHBOARD_READ_PERMISSION;
+  const permission =
+    scope === "managed" ? EVALUATION_READ_PERMISSION : SELF_DASHBOARD_READ_PERMISSION;
   const formFilter = await getCampaignFilterForPermission(permission);
   const campaignIds = await getCampaignIdsForFilter(formFilter);
   const integrityScopes = campaignIds.map(responseRelationScopeWhere);
@@ -2964,7 +2976,8 @@ export async function getEvaluationHistory(params: {
   if (!session?.user) throw new Error("No autorizado");
 
   const scope: EvaluationHistoryScope = params.scope === "managed" ? "managed" : "own";
-  const permission = scope === "managed" ? REPORT_READ_PERMISSION : SELF_DASHBOARD_READ_PERMISSION;
+  const permission =
+    scope === "managed" ? EVALUATION_READ_PERMISSION : SELF_DASHBOARD_READ_PERMISSION;
   const formFilter = await getCampaignFilterForPermission(permission, params.campaignId);
   const campaignIds = await getCampaignIdsForFilter(formFilter);
   const passThresholds = await getPassThresholdMap(campaignIds);

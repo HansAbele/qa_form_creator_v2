@@ -124,6 +124,15 @@ jobs:
             RESPONSE_CONCURRENCY_ADMIN_DATABASE_URL="$admin_database_url" \
             pnpm test:integration:response-concurrency
 
+      - name: Verify form publication concurrency on PostgreSQL 16
+        run: |
+          test -n "$DB_APP_DATABASE_URL"
+          admin_database_url="$DATABASE_URL"
+          DATABASE_URL="$DB_APP_DATABASE_URL" \
+            FORM_PUBLICATION_CONCURRENCY_DATABASE_URL="$DB_APP_DATABASE_URL" \
+            FORM_PUBLICATION_CONCURRENCY_ADMIN_DATABASE_URL="$admin_database_url" \
+            pnpm test:integration:form-publication-concurrency
+
       - name: Verify concurrent export admission on PostgreSQL 16
         run: |
           test -n "$DB_APP_DATABASE_URL"

@@ -15,6 +15,7 @@ export default async function EvaluationDetailPage({
   if (
     !access.isAdmin &&
     !access.canViewDashboard &&
+    !access.canViewEvaluations &&
     !access.canViewReports &&
     !access.canEditEvaluations &&
     !access.canViewAudit

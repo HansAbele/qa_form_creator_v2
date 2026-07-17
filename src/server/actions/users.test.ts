@@ -112,10 +112,11 @@ describe("admin user security controls", () => {
         roleInCampaign: "EVALUATOR",
         canViewDashboard: true,
         canEvaluate: true,
-        canViewKPIs: false,
-        canViewReports: false,
+        canViewKPIs: true,
+        canViewEvaluations: true,
+        canViewReports: true,
         canExport: false,
-        canEditForms: false,
+        canEditForms: true,
       }),
     });
   });

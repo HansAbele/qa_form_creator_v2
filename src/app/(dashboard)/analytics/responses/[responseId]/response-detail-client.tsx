@@ -9,6 +9,7 @@ import {
   Hash,
   Mail,
   Pencil,
+  ShieldAlert,
   Tag,
   User,
   Users,
@@ -69,6 +70,7 @@ interface ResponseDetailData {
   cancelledAt: string | null;
   cancellationReason: string | null;
   canEdit: boolean;
+  canOpenAnalytics: boolean;
   form: { id: string; title: string };
   agent: {
     id: string;
@@ -164,7 +166,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
         expectedUpdatedAt: data.updatedAt,
       });
       if (!result.ok) throw new Error(result.error.message);
-      toast.success("Evaluacion anulada");
+      toast.success("Evaluación anulada");
       await loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al anular evaluacion");
@@ -213,6 +215,12 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                   {data.result && (
                     <Badge variant={data.result === "PASS" ? "default" : "destructive"}>
                       {data.result}
+                    </Badge>
+                  )}
+                  {data.hasFatalFail && (
+                    <Badge variant="destructive" className="gap-1">
+                      <ShieldAlert className="h-3 w-3" />
+                      Falla fatal activada
                     </Badge>
                   )}
                 </div>
@@ -274,22 +282,30 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
           label="Agente"
           title={data.agent.name}
           detail={data.agent.agentCode ? `#${data.agent.agentCode}` : null}
-          onClick={() => router.push(`/analytics/agents/${data.agent.id}`)}
+          onClick={
+            data.canOpenAnalytics
+              ? () => router.push(`/analytics/agents/${data.agent.id}`)
+              : undefined
+          }
         />
         <InfoCard
           icon={<Users className="h-5 w-5 text-violet-600 dark:text-violet-400" />}
           label="Evaluador"
           title={data.evaluator.name}
           detail={null}
-          onClick={() => router.push(`/analytics/evaluators/${data.evaluator.id}`)}
+          onClick={
+            data.canOpenAnalytics
+              ? () => router.push(`/analytics/evaluators/${data.evaluator.id}`)
+              : undefined
+          }
         />
         <InfoCard
           icon={<Tag className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />}
-          label="Disposicion"
+          label="Disposición"
           title={data.disposition?.name ?? "Sin disposicion"}
           detail={data.disposition?.code ? `#${data.disposition.code}` : null}
           onClick={
-            data.disposition
+            data.disposition && data.canOpenAnalytics
               ? () => router.push(`/analytics/dispositions/${data.disposition?.id}`)
               : undefined
           }
@@ -309,7 +325,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[38%]">Pregunta</TableHead>
-                  <TableHead>Categoria QA</TableHead>
+                  <TableHead>Categoría QA</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Respuesta</TableHead>
                   <TableHead className="text-right">Score QA</TableHead>

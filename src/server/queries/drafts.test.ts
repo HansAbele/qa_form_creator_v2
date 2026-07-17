@@ -39,7 +39,6 @@ function createDraft(evaluatorId: string, agentCampaignId = "campaign-1") {
   return {
     id: `draft-${evaluatorId}`,
     formId: "form-1",
-    formVersion: "1.0.0",
     evaluatorId,
     updatedAt: new Date("2026-07-16T15:00:00.000Z"),
     form: {
@@ -82,7 +81,6 @@ describe("evaluation draft discovery RBAC", () => {
         select: {
           id: true,
           formId: true,
-          formVersion: true,
           evaluatorId: true,
           updatedAt: true,
           form: {

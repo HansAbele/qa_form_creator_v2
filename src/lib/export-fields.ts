@@ -2,7 +2,6 @@ export type ExportFieldKey =
   | "date"
   | "campaign"
   | "form"
-  | "formVersion"
   | "agent"
   | "agentCode"
   | "team"
@@ -34,7 +33,6 @@ export const EXPORT_FIELD_GROUPS: ExportFieldGroup[] = [
       { key: "date", label: "Fecha" },
       { key: "campaign", label: "Campana" },
       { key: "form", label: "Formulario" },
-      { key: "formVersion", label: "Version" },
       { key: "agent", label: "Agente" },
       { key: "agentCode", label: "Codigo agente" },
       { key: "team", label: "Equipo" },
@@ -82,7 +80,6 @@ export const DEFAULT_EXPORT_FIELDS: ExportFieldKey[] = [
   "date",
   "campaign",
   "form",
-  "formVersion",
   "agent",
   "agentCode",
   "team",

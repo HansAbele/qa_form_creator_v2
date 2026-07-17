@@ -21,14 +21,13 @@ import { cn } from "@/lib/utils";
 
 interface FormItem {
   id: string;
+  familyKey: string;
+  evaluationFormId: string | null;
   title: string;
   description: string | null;
   campaignName: string;
   status: string;
-  version: string;
-  publishedAt: string | null;
   questionCount: number;
-  createdAt: string;
   canEvaluate: boolean;
   canEdit: boolean;
   canPublish: boolean;
@@ -38,7 +37,6 @@ interface EvaluationDraftItem {
   id: string;
   formId: string;
   formTitle: string;
-  formVersion: string | null;
   campaignName: string;
   agentName: string;
   agentCode: string | null;
@@ -82,7 +80,6 @@ function EvaluationDraftGroup({
                   <p className="truncate font-medium">{draft.agentName}</p>
                   <p className="truncate text-sm text-muted-foreground">
                     {draft.formTitle}
-                    {draft.formVersion && ` · v${draft.formVersion}`}
                   </p>
                 </div>
                 <Badge variant={draft.isOwn ? "secondary" : "outline"}>
@@ -129,6 +126,8 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
         return "Publicado";
       case "ARCHIVED":
         return "Archivado";
+      case "PENDING_CHANGES":
+        return "Cambios pendientes";
       default:
         return "Borrador";
     }
@@ -225,7 +224,7 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {forms.map((form) => (
-            <Card key={form.id} className="group relative">
+            <Card key={form.familyKey} className="group relative">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <CardTitle className="text-base">{form.title}</CardTitle>
@@ -233,7 +232,6 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline">{form.campaignName}</Badge>
-                  <Badge variant="outline">v{form.version}</Badge>
                 </div>
                 {form.description && (
                   <p className="text-sm text-muted-foreground line-clamp-2">{form.description}</p>
@@ -244,15 +242,16 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
                   <span>{form.questionCount} preguntas</span>
                 </div>
                 <div className="mt-4 flex gap-2">
-                  {form.canEvaluate && form.status === "PUBLISHED" && (
+                  {form.canEvaluate && form.evaluationFormId && (
                     <Link
-                      href={`/forms/${form.id}`}
+                      href={`/forms/${form.evaluationFormId}`}
                       className={cn(buttonVariants({ variant: "outline", size: "sm" }), "flex-1")}
                     >
                       Evaluar
                     </Link>
                   )}
-                  {form.canPublish && form.status === "DRAFT" && (
+                  {form.canPublish &&
+                    (form.status === "DRAFT" || form.status === "PENDING_CHANGES") && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -272,11 +271,15 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
                       <Pencil className="h-4 w-4" />
                     </Link>
                   )}
-                  {form.status === "PUBLISHED" && form.canPublish && (
+                  {form.evaluationFormId && form.canPublish && (
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => handleArchive(form.id, form.title)}
+                      onClick={() => {
+                        if (form.evaluationFormId) {
+                          handleArchive(form.evaluationFormId, form.title);
+                        }
+                      }}
                     >
                       <Archive className="h-4 w-4 text-muted-foreground" />
                     </Button>

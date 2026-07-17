@@ -69,6 +69,10 @@ export async function getOwnEvaluationHistoryCampaigns() {
   return getCampaignsForPermissions(["canViewDashboard"]);
 }
 
+export async function getEvaluationHistoryCampaigns() {
+  return getCampaignsForPermissions(["canViewEvaluations"]);
+}
+
 export async function getKpiCampaigns() {
   return getCampaignsForPermissions(["canViewKPIs"]);
 }

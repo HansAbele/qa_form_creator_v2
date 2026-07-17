@@ -5,6 +5,7 @@ import {
   ArrowRight,
   CircleCheck,
   ClipboardCheck,
+  Eye,
   FileText,
   Filter,
   Gauge,
@@ -25,7 +26,7 @@ import { DateRangeFilter, dateRangeLabel } from "@/components/filters/date-range
 import { FilterCheckbox, FilterSelect } from "@/components/filters/filter-select";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { cn } from "@/lib/utils";
 import {
   type EvaluationHistoryFilterOptions,
   type EvaluationHistoryScope,
@@ -623,11 +625,13 @@ export function EvaluationsListClient({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Agente</TableHead>
+                      <TableHead>{"Campa\u00f1a"}</TableHead>
                       {scope === "managed" ? <TableHead>Evaluador</TableHead> : null}
                       <TableHead>Formulario</TableHead>
                       <TableHead>Disposición</TableHead>
                       <TableHead className="text-center">Score / estado</TableHead>
                       <TableHead className="text-right">Enviada</TableHead>
+                      <TableHead className="text-right">{"Acci\u00f3n"}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -640,6 +644,9 @@ export function EvaluationsListClient({
                           >
                             {response.agent.name}
                           </Link>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {response.agent.campaignName}
                         </TableCell>
                         {scope === "managed" ? (
                           <TableCell className="text-muted-foreground">
@@ -665,6 +672,18 @@ export function EvaluationsListClient({
                             dateStyle: "short",
                             timeStyle: "short",
                           })}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Link
+                            href={`/evaluations/${response.id}`}
+                            className={cn(
+                              buttonVariants({ variant: "outline", size: "sm" }),
+                              "gap-1.5",
+                            )}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            {"Ver evaluaci\u00f3n"}
+                          </Link>
                         </TableCell>
                       </TableRow>
                     ))}

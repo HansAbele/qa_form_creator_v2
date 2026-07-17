@@ -21,6 +21,7 @@
     "test": "vitest --passWithNoTests --environment=node --exclude=**/node_modules/** --exclude=**/.next/** --exclude=**/.claude/** --exclude=**/tests/e2e/** --exclude=**/playwright-report/** --exclude=**/test-results/**",
     "test:ci": "vitest run --passWithNoTests --environment=node --exclude=**/node_modules/** --exclude=**/.next/** --exclude=**/.claude/** --exclude=**/tests/e2e/** --exclude=**/playwright-report/** --exclude=**/test-results/**",
     "test:integration:response-concurrency": "vitest run tests/integration/response-concurrency.test.ts --environment=node",
+    "test:integration:form-publication-concurrency": "vitest run tests/integration/form-publication-concurrency.test.ts --environment=node",
     "test:integration:export-admission": "vitest run tests/integration/export-admission-concurrency.test.ts --environment=node",
     "test:integration:export-download": "vitest run tests/integration/export-download.test.ts --environment=node",
     "test:e2e": "playwright test",

@@ -68,7 +68,6 @@ interface FormBuilderProps {
     description: string | null;
     campaignId: string;
     status: string;
-    version: string;
     publishedAt: Date | null;
     parentFormId: string | null;
     questions: {
@@ -321,7 +320,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       if (initialData) {
         const savedForm = await updateForm(initialData.id, formData);
         if (editingPublished && savedForm.id !== initialData.id) {
-          toast.success(`Borrador v${savedForm.version} creado`);
+          toast.success("Cambios guardados como borrador pendiente");
           router.push(`/forms/${savedForm.id}/edit`);
           router.refresh();
           return;
@@ -353,12 +352,11 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={editingPublished ? "default" : "secondary"}>{statusText}</Badge>
-                <Badge variant="outline">v{initialData.version}</Badge>
               </div>
               {editingPublished && (
                 <p className="text-sm text-muted-foreground">
-                  Guardar cambios crea un borrador de nueva version sin alterar la version
-                  publicada.
+                  Los cambios quedaran pendientes de publicacion. Las evaluaciones historicas no
+                  se alteran.
                 </p>
               )}
             </div>

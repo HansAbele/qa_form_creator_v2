@@ -2,6 +2,7 @@ export const CAMPAIGN_PERMISSION_KEYS = [
   "canViewDashboard",
   "canViewKPIs",
   "canViewForms",
+  "canViewEvaluations",
   "canCreateForms",
   "canEditForms",
   "canPublishForms",
@@ -32,6 +33,7 @@ export const CAMPAIGN_PERMISSION_LABELS: Record<CampaignPermissionKey, string> =
   canViewDashboard: "Ver Dashboard",
   canViewKPIs: "Ver KPIs",
   canViewForms: "Ver formularios",
+  canViewEvaluations: "Ver evaluaciones de la campa\u00f1a",
   canCreateForms: "Crear formularios",
   canEditForms: "Editar formularios",
   canPublishForms: "Publicar formularios",
@@ -42,14 +44,40 @@ export const CAMPAIGN_PERMISSION_LABELS: Record<CampaignPermissionKey, string> =
   canManageAgents: "Administrar agentes/equipos",
   canManageDispositions: "Administrar disposiciones",
   canManageCampaignScoring: "Administrar scoring campaña",
-  canViewAudit: "Ver auditoria operativa",
+  canViewAudit: "Ver auditoría operativa",
 };
+
+export const CAMPAIGN_PERMISSION_GROUPS = [
+  {
+    title: "Lectura y analítica",
+    keys: ["canViewDashboard", "canViewKPIs", "canViewForms", "canViewReports", "canViewAudit"],
+  },
+  {
+    title: "Formularios y evaluaciones",
+    keys: [
+      "canCreateForms",
+      "canEditForms",
+      "canPublishForms",
+      "canViewEvaluations",
+      "canEvaluate",
+      "canEditEvaluations",
+    ],
+  },
+  {
+    title: "Operación y datos",
+    keys: ["canExport", "canManageAgents", "canManageDispositions", "canManageCampaignScoring"],
+  },
+] as const satisfies ReadonlyArray<{
+  title: string;
+  keys: readonly CampaignPermissionKey[];
+}>;
 
 export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermissionState> = {
   CAMPAIGN_ADMIN: {
     canViewDashboard: true,
     canViewKPIs: true,
     canViewForms: true,
+    canViewEvaluations: true,
     canCreateForms: true,
     canEditForms: true,
     canPublishForms: true,
@@ -64,14 +92,15 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermis
   },
   EVALUATOR: {
     canViewDashboard: true,
-    canViewKPIs: false,
+    canViewKPIs: true,
     canViewForms: true,
-    canCreateForms: false,
-    canEditForms: false,
+    canViewEvaluations: true,
+    canCreateForms: true,
+    canEditForms: true,
     canPublishForms: false,
     canEvaluate: true,
     canEditEvaluations: false,
-    canViewReports: false,
+    canViewReports: true,
     canExport: false,
     canManageAgents: false,
     canManageDispositions: false,
@@ -82,6 +111,7 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermis
     canViewDashboard: true,
     canViewKPIs: true,
     canViewForms: true,
+    canViewEvaluations: true,
     canCreateForms: false,
     canEditForms: false,
     canPublishForms: false,
@@ -100,6 +130,7 @@ export const SUPERVISOR_READ_ONLY_PERMISSION_KEYS = [
   "canViewDashboard",
   "canViewKPIs",
   "canViewForms",
+  "canViewEvaluations",
   "canViewReports",
   "canViewAudit",
 ] as const satisfies readonly CampaignPermissionKey[];

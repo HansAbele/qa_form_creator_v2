@@ -411,9 +411,6 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
                 <TableCell className="max-w-[150px] truncate">{r.campaignName}</TableCell>
                 <TableCell>
                   {r.formTitle}
-                  {r.formVersion && (
-                    <span className="ml-1 text-xs text-muted-foreground">v{r.formVersion}</span>
-                  )}
                 </TableCell>
                 <TableCell>
                   {r.agentName}

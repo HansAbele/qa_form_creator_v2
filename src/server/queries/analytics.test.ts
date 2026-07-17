@@ -874,31 +874,116 @@ describe("QA category analytics", () => {
     expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
   });
 
-  it("does not expose a peer submission through personal dashboard access", async () => {
+  it("allows a peer submission inside a campaign with evaluation access", async () => {
     prismaMock.userCampaign.findMany.mockResolvedValue([
       {
         campaignId: "campaign-1",
-        canViewDashboard: true,
+        canViewEvaluations: true,
+        canViewKPIs: false,
+        canViewReports: false,
+        canEditEvaluations: false,
+      },
+      {
+        campaignId: "campaign-2",
+        canViewEvaluations: false,
+        canViewKPIs: true,
+        canViewReports: false,
+        canEditEvaluations: false,
+      },
+    ]);
+    const timestamp = new Date("2026-07-10T12:00:00Z");
+    prismaMock.response.findFirst
+      .mockResolvedValueOnce({
+        id: "response-peer",
+        formId: "form-1",
+        status: "SUBMITTED",
+        form: { campaignId: "campaign-1" },
+      })
+      .mockResolvedValueOnce({
+        id: "response-peer",
+        status: "SUBMITTED",
+        score: 90,
+        result: "PASS",
+        hasFatalFail: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        submittedAt: timestamp,
+        cancelledAt: null,
+        cancellationReason: null,
+        scoringSnapshot: null,
+        settingsSnapshot: null,
+        formSnapshot: null,
+        form: {
+          id: "form-1",
+          title: "QA Form",
+          campaignId: "campaign-1",
+          status: "PUBLISHED",
+          campaign: { active: true },
+        },
+        agent: {
+          id: "agent-1",
+          name: "Ana",
+          agentCode: "A-1",
+          campaignId: "campaign-1",
+          campaign: { name: "Campana Uno" },
+        },
+        evaluator: { id: "qa-peer", name: "QA Peer" },
+        disposition: null,
+        answers: [],
+      });
+
+    await expect(getResponseDetail("response-peer")).resolves.toEqual(
+      expect.objectContaining({
+        id: "response-peer",
+        evaluator: { id: "qa-peer", name: "QA Peer" },
+        canEdit: false,
+        canOpenAnalytics: false,
+      }),
+    );
+    expect(prismaMock.response.findFirst.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                {
+                  status: "SUBMITTED",
+                  form: { campaignId: { in: ["campaign-1"] } },
+                },
+              ]),
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("denies a peer submission outside campaigns with evaluation access", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewEvaluations: true,
         canViewReports: false,
         canEditEvaluations: false,
       },
     ]);
     prismaMock.response.findFirst.mockResolvedValueOnce(null);
 
-    await expect(getResponseDetail("response-peer")).rejects.toThrow("Evaluacion no disponible");
-    expect(prismaMock.response.findFirst).toHaveBeenCalledWith(
+    await expect(getResponseDetail("response-peer-campaign-2")).rejects.toThrow(
+      "Evaluacion no disponible",
+    );
+    const authorizationWhere = prismaMock.response.findFirst.mock.calls[0]?.[0].where;
+    expect(authorizationWhere).toEqual(
       expect.objectContaining({
-        where: expect.objectContaining({
-          OR: expect.arrayContaining([
-            {
-              status: "SUBMITTED",
-              evaluatorId: qaUser.id,
-              form: { campaignId: { in: ["campaign-1"] } },
-            },
-          ]),
-        }),
+        OR: expect.arrayContaining([
+          {
+            status: "SUBMITTED",
+            form: { campaignId: { in: ["campaign-1"] } },
+          },
+        ]),
       }),
     );
+    expect(JSON.stringify(authorizationWhere.OR)).not.toContain("campaign-2");
   });
 
   it("allows an evaluator to load their own submitted response without report access", async () => {
@@ -1690,6 +1775,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
         id: "team-1",
         name: "Equipo Uno",
         campaignId: "campaign-low",
+        campaign: { name: "Campana Baja" },
         agents: [
           {
             id: "agent-1",
@@ -2466,12 +2552,13 @@ describe("Evaluation history authorization", () => {
     expect(prismaMock.response.findMany.mock.calls[0]?.[0].where).not.toHaveProperty("createdAt");
   });
 
-  it("rejects managed scope when the campaign lacks report permission", async () => {
+  it("rejects managed scope when the campaign lacks evaluation permission", async () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       userId: evaluatorUser.id,
       campaignId: "campaign-1",
       canViewDashboard: true,
-      canViewReports: false,
+      canViewEvaluations: false,
+      canViewReports: true,
     });
 
     await expect(
@@ -2484,7 +2571,8 @@ describe("Evaluation history authorization", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       userId: evaluatorUser.id,
       campaignId: "campaign-1",
-      canViewReports: true,
+      canViewEvaluations: true,
+      canViewReports: false,
     });
 
     const result = await getEvaluationHistory({
@@ -2506,7 +2594,8 @@ describe("Evaluation history authorization", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       userId: evaluatorUser.id,
       campaignId: "campaign-1",
-      canViewReports: true,
+      canViewEvaluations: true,
+      canViewReports: false,
     });
 
     await getEvaluationHistory({
@@ -2659,17 +2748,19 @@ describe("Evaluation history authorization", () => {
     expect(prismaMock.disposition.findMany).not.toHaveBeenCalled();
   });
 
-  it("derives managed filter options from report-authorized responses without self scope", async () => {
+  it("derives managed filter options from evaluation-authorized responses without self scope", async () => {
     prismaMock.userCampaign.findMany.mockResolvedValue([
       {
         campaignId: "campaign-1",
         canViewDashboard: true,
-        canViewReports: true,
+        canViewEvaluations: true,
+        canViewReports: false,
       },
       {
         campaignId: "campaign-2",
         canViewDashboard: true,
-        canViewReports: false,
+        canViewEvaluations: false,
+        canViewReports: true,
       },
     ]);
     prismaMock.response.findMany

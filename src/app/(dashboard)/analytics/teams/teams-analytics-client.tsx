@@ -90,7 +90,17 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
     return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar los equipos" />;
   }
 
-  const avgAll = teams.length > 0 ? teams.reduce((s, t) => s + t.avgScore, 0) / teams.length : 0;
+  const evaluatedTeams = teams.filter((team) => team.evalCount > 0);
+  const evaluationCount = evaluatedTeams.reduce((sum, team) => sum + team.evalCount, 0);
+  const avgAll =
+    evaluationCount > 0
+      ? evaluatedTeams.reduce((sum, team) => sum + team.avgScore * team.evalCount, 0) /
+        evaluationCount
+      : 0;
+  const chartTeams = evaluatedTeams.map((team) => ({
+    ...team,
+    displayName: `${team.name} \u00b7 ${team.campaignName}`,
+  }));
 
   return (
     <div className="space-y-6">
@@ -140,19 +150,19 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {teams.length > 0 ? (
+            {chartTeams.length > 0 ? (
               <ChartContainer
                 config={scoreConfig}
                 accessibilityLabel="Comparación de equipos por score promedio"
                 accessibilityDescription={summarizeChartData(
-                  teams.map(
+                  chartTeams.map(
                     (team) =>
-                      `${team.name}: score ${team.avgScore.toFixed(1)}%, ${team.evalCount} evaluaciones`,
+                      `${team.displayName}: score ${team.avgScore.toFixed(1)}%, ${team.evalCount} evaluaciones`,
                   ),
                 )}
                 className="h-[400px] w-full"
               >
-                <BarChart data={teams} layout="vertical" margin={{ left: 20, right: 12 }}>
+                <BarChart data={chartTeams} layout="vertical" margin={{ left: 20, right: 12 }}>
                   <CartesianGrid
                     horizontal={false}
                     strokeDasharray="3 3"
@@ -167,7 +177,7 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
                   />
                   <YAxis
                     type="category"
-                    dataKey="name"
+                    dataKey="displayName"
                     tickLine={false}
                     axisLine={false}
                     width={120}
@@ -192,7 +202,7 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
                       if (entry?.payload?.id) router.push(`/analytics/teams/${entry.payload.id}`);
                     }}
                   >
-                    {teams.map((team, i) => (
+                    {chartTeams.map((team, i) => (
                       <Cell key={team.id} fill={BAR_COLORS[i % BAR_COLORS.length]} />
                     ))}
                   </Bar>
@@ -221,10 +231,13 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.04, duration: 0.3 }}
-                  className="grid w-full cursor-pointer grid-cols-4 items-center rounded-lg border border-border/60 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40"
+                  className="grid w-full cursor-pointer grid-cols-2 items-center gap-2 rounded-lg border border-border/60 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40 sm:grid-cols-5"
                   onClick={() => router.push(`/analytics/teams/${t.id}`)}
                 >
                   <span className="font-medium">{t.name}</span>
+                  <Badge variant="outline" className="w-fit">
+                    {t.campaignName}
+                  </Badge>
                   <span className="text-center">{t.agentCount} agentes</span>
                   <div className="flex justify-center">
                     <Badge
