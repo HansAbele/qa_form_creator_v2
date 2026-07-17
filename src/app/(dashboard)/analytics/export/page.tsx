@@ -1,19 +1,18 @@
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
 import { getExportCampaigns } from "@/server/actions/campaigns";
 import { getFormsForExport } from "@/server/actions/forms";
-import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
+import { hasAnyCampaignPermissions } from "@/server/queries/ui-access";
 import { ExportClient } from "./export-client";
 
 export default async function ExportDataPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (!(await hasAnyCampaignPermission("canExport"))) redirect("/settings");
+  if (!(await hasAnyCampaignPermissions(["canExport", "canViewReports"]))) {
+    redirect("/settings");
+  }
 
-  const [campaigns, forms] = await Promise.all([
-    getExportCampaigns(),
-    getFormsForExport(),
-  ]);
+  const [campaigns, forms] = await Promise.all([getExportCampaigns(), getFormsForExport()]);
 
   return (
     <ExportClient

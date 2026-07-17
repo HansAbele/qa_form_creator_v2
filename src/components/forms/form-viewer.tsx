@@ -16,13 +16,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatOperationalTimestamp } from "@/lib/date-display";
 import {
   APP_NAVIGATION_REQUEST_EVENT,
   type AppNavigationRequestEvent,
   consumeDocumentUnloadPermission,
   requestAppNavigation,
 } from "@/lib/navigation-guard";
-import { formatOperationalTimestamp } from "@/lib/date-display";
 import {
   computeScore,
   type ScoringAnswer,
@@ -414,14 +414,7 @@ export function FormViewer({
 
       return operation;
     },
-    [
-      agentId,
-      buildPayload,
-      dispositionId,
-      form.id,
-      isEditingSubmitted,
-      operationalTimeZone,
-    ],
+    [agentId, buildPayload, dispositionId, form.id, isEditingSubmitted, operationalTimeZone],
   );
 
   useEffect(() => {
@@ -615,7 +608,7 @@ export function FormViewer({
       responseVersionRef.current = response.updatedAt;
       setLastSavedPayload(JSON.stringify(buildPayload(response.id)));
       toast.success(isEditingSubmitted ? "Evaluacion actualizada" : "Evaluacion enviada");
-      router.push(isEditingSubmitted ? `/analytics/responses/${initialResponse?.id}` : "/forms");
+      router.push(isEditingSubmitted ? `/evaluations/${initialResponse?.id}` : "/forms");
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al enviar");

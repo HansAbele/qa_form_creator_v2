@@ -55,6 +55,11 @@ test("mobile navigation is keyboard reachable, labelled, and usable without hori
 
   const mobileNavigation = page.getByRole("navigation", { name: /Navegaci.*principal/ });
   await expect(mobileNavigation).toBeVisible();
+  await expect(
+    mobileNavigation
+      .getByRole("region", { name: "Principal" })
+      .getByRole("link", { name: "Evaluaciones" }),
+  ).toHaveAttribute("href", "/evaluations");
   await mobileNavigation.getByRole("link", { name: "Formularios" }).click();
   await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
 

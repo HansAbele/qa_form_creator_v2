@@ -197,10 +197,14 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <Badge variant="secondary" className="gap-1">
                     <Calendar className="h-3 w-3" />
-                    {formatOperationalTimestamp(data.createdAt, operationalTimeZone, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
+                    {formatOperationalTimestamp(
+                      data.submittedAt ?? data.createdAt,
+                      operationalTimeZone,
+                      {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      },
+                    )}
                   </Badge>
                   <Badge variant="secondary">{data.agent.campaignName}</Badge>
                   <Badge variant={data.status === "CANCELLED" ? "destructive" : "outline"}>

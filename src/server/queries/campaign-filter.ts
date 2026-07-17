@@ -59,8 +59,19 @@ export async function assertCampaignPermissionForUser(
   campaignId: string,
   permission: CampaignPermissionKey,
 ) {
+  return assertCampaignPermissionsForUser(user, campaignId, [permission]);
+}
+
+export async function assertCampaignPermissionsForUser(
+  user: SessionUser,
+  campaignId: string,
+  permissions: readonly [CampaignPermissionKey, ...CampaignPermissionKey[]],
+) {
   if (user.role === "ADMIN") return;
-  if (isSupervisorRole(user.role) && isSupervisorBlockedPermission(permission)) {
+  if (
+    isSupervisorRole(user.role) &&
+    permissions.some((permission) => isSupervisorBlockedPermission(permission))
+  ) {
     throw new CampaignAuthorizationError("No autorizado para esta accion en esta campana");
   }
 
@@ -75,7 +86,7 @@ export async function assertCampaignPermissionForUser(
     },
   });
 
-  if (!access?.[permission]) {
+  if (!access || permissions.some((permission) => !access[permission])) {
     throw new CampaignAuthorizationError("No autorizado para esta accion en esta campana");
   }
 }
@@ -111,21 +122,31 @@ export async function getCampaignFilterForPermission(
   permission: CampaignPermissionKey,
   campaignId?: string,
 ): Promise<CampaignFilter> {
+  return getCampaignFilterForPermissions([permission], campaignId);
+}
+
+export async function getCampaignFilterForPermissions(
+  permissions: readonly [CampaignPermissionKey, ...CampaignPermissionKey[]],
+  campaignId?: string,
+): Promise<CampaignFilter> {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
 
   if (session.user.role === "ADMIN") {
     return campaignId ? { campaignId } : {};
   }
-  if (isSupervisorRole(session.user.role) && isSupervisorBlockedPermission(permission)) {
+  if (
+    isSupervisorRole(session.user.role) &&
+    permissions.some((permission) => isSupervisorBlockedPermission(permission))
+  ) {
     if (campaignId) {
-      await assertCampaignPermissionForUser(session.user, campaignId, permission);
+      await assertCampaignPermissionsForUser(session.user, campaignId, permissions);
     }
     return { campaignId: { in: [] } };
   }
 
   if (campaignId) {
-    await assertCampaignPermissionForUser(session.user, campaignId, permission);
+    await assertCampaignPermissionsForUser(session.user, campaignId, permissions);
     return { campaignId };
   }
 
@@ -133,7 +154,7 @@ export async function getCampaignFilterForPermission(
     where: { userId: session.user.id },
   });
   const permittedCampaignIds = access
-    .filter((item) => item[permission])
+    .filter((item) => permissions.every((permission) => item[permission]))
     .map((item) => item.campaignId);
 
   return { campaignId: { in: permittedCampaignIds } };

@@ -68,4 +68,5 @@ migraciones reproducibles, escaneo de secretos, pruebas sobre el rol runtime, ba
 y health checks HTTPS.
 
 - [Runbook de seguridad y produccion](docs/production-security-runbook.md)
+- [Arquitectura de informacion y acceso](docs/information-architecture-and-access.md)
 - [Plan y evidencia P2](docs/plans/p2-quality-resilience.md)

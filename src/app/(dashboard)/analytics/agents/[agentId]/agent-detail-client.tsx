@@ -69,7 +69,7 @@ interface RecentResponse {
   dispositionName: string | null;
   score: number;
   result: "PASS" | "FAIL";
-  createdAt: string;
+  submittedAt: string;
 }
 
 interface AgentDetailData {
@@ -656,7 +656,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                           )}
                         </TableCell>
                         <TableCell className="text-right text-sm text-muted-foreground">
-                          {formatOperationalTimestamp(r.createdAt, operationalTimeZone, {
+                          {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
                             day: "2-digit",
                             month: "short",
                             year: "numeric",

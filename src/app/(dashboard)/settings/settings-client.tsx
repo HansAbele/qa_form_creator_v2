@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { toast } from "sonner";
@@ -109,6 +109,7 @@ interface SettingsClientProps {
   campaignScoring: CampaignScoringSettings[];
   auditPage: OperationalAuditPage;
   qaCategories: QACategorySummary[];
+  initialSection?: SettingsSectionId;
 }
 
 interface AccessUser {
@@ -125,7 +126,7 @@ type AccessCampaign = {
   roleInCampaign: CampaignAccessLevel;
 } & CampaignPermissionState;
 
-type SettingsSectionId =
+export type SettingsSectionId =
   | "account"
   | "access"
   | "scoring"
@@ -257,11 +258,13 @@ export function SettingsClient({
   campaignScoring,
   auditPage,
   qaCategories,
+  initialSection = "account",
 }: SettingsClientProps) {
   const visibleSections = SETTINGS_SECTIONS.filter(
     (section) => !section.adminOnly || isAdmin || (section.id === "audit" && canViewAudit),
   );
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>("account");
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection);
+  useEffect(() => setActiveSection(initialSection), [initialSection]);
   const currentSection =
     visibleSections.find((section) => section.id === activeSection) ?? visibleSections[0];
 

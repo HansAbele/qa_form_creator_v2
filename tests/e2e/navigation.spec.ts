@@ -14,8 +14,28 @@ test.describe("Navigation (QA Manager)", () => {
   });
 
   test("should navigate to reports page", async ({ page }) => {
-    await page.getByRole("link", { name: "Reports" }).click();
+    await page.getByRole("link", { name: "Reportes" }).click();
     await expect(page.getByRole("heading", { name: "Reportes" })).toBeVisible();
+  });
+
+  test("should expose evaluations from the primary navigation", async ({ page }) => {
+    const desktopNavigation = page.locator("#desktop-primary-navigation");
+    const primaryNavigation = desktopNavigation.getByRole("region", { name: "Principal" });
+
+    await expect(primaryNavigation.getByRole("link", { name: "Evaluaciones" })).toHaveAttribute(
+      "href",
+      "/evaluations",
+    );
+    await expect(
+      desktopNavigation
+        .getByRole("region", { name: "Configuración" })
+        .getByRole("link", { name: "Configuración de calidad" }),
+    ).toHaveAttribute("href", "/settings");
+    await expect(
+      desktopNavigation
+        .getByRole("region", { name: "Operación" })
+        .getByRole("link", { name: "Agentes" }),
+    ).toHaveAttribute("href", "/operations/agents");
   });
 
   test("should navigate to KPIs page", async ({ page }) => {
@@ -24,7 +44,10 @@ test.describe("Navigation (QA Manager)", () => {
   });
 
   test("should navigate to agent performance page", async ({ page }) => {
-    await page.locator('a[href="/analytics/agents"]').click();
+    const analyticsNavigation = page
+      .locator("#desktop-primary-navigation")
+      .getByRole("region", { name: "Analítica" });
+    await analyticsNavigation.getByRole("link", { name: "Rendimiento" }).click();
     await expect(page.getByRole("heading", { name: "Rendimiento de Agentes" })).toBeVisible();
   });
 
@@ -34,7 +57,7 @@ test.describe("Navigation (QA Manager)", () => {
   });
 
   test("should navigate to QA Manager campaigns page", async ({ page }) => {
-    await page.getByRole("link", { name: "Campanas" }).click();
+    await page.getByRole("link", { name: "Campañas" }).click();
     await expect(page.getByRole("heading", { name: "Gestión de Campañas" })).toBeVisible();
   });
 });
@@ -48,7 +71,8 @@ test.describe("Navigation (QA - restricted)", () => {
 
   test("should not see QA Manager links in sidebar", async ({ page }) => {
     await expect(page.getByRole("link", { name: "Usuarios" })).not.toBeVisible();
-    await expect(page.getByRole("link", { name: "Campanas" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Campañas" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
   });
 
   test("should redirect from QA Manager page to home", async ({ page }) => {

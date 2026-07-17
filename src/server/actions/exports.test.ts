@@ -63,6 +63,20 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: false,
+      canViewReports: true,
+    });
+
+    await expect(exportToCsv({ campaignId: "campaign-1" })).rejects.toThrow(
+      "No autorizado para esta accion en esta campana",
+    );
+    expect(prismaMock.response.findMany).not.toHaveBeenCalled();
+  });
+
+  it("does not allow a QA export without report access in the same campaign", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canExport: true,
+      canViewReports: false,
     });
 
     await expect(exportToCsv({ campaignId: "campaign-1" })).rejects.toThrow(
@@ -75,6 +89,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
 
     await exportToJson({ campaignId: "campaign-1" });
@@ -88,10 +103,50 @@ describe("exports RBAC", () => {
     );
   });
 
+  it("filters and orders submitted exports exclusively by submittedAt", async () => {
+    vi.stubEnv("OPERATIONAL_TIME_ZONE", "UTC");
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canExport: true,
+      canViewReports: true,
+    });
+    mockExportResponses([buildResponseFixture()]);
+
+    await exportToJson({
+      campaignId: "campaign-1",
+      formId: "form-1",
+      agentId: "agent-1",
+      dateFrom: "2026-05-01",
+      dateTo: "2026-05-31",
+    });
+
+    expect(prismaMock.response.findMany).toHaveBeenCalledTimes(2);
+    for (const [query] of prismaMock.response.findMany.mock.calls) {
+      expect(query).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            form: { campaignId: "campaign-1" },
+            status: "SUBMITTED",
+            submittedAt: {
+              not: null,
+              gte: new Date("2026-05-01T00:00:00.000Z"),
+              lt: new Date("2026-06-01T00:00:00.000Z"),
+            },
+            formId: "form-1",
+            agentId: "agent-1",
+          }),
+          orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+        }),
+      );
+      expect(query.where).not.toHaveProperty("createdAt");
+    }
+  });
+
   it("drops imported rows whose related metadata belongs to another campaign", async () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     const valid = buildResponseFixture();
     mockExportResponses([
@@ -169,6 +224,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([buildResponseFixture()]);
 
@@ -195,6 +251,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([{ ...buildResponseFixture(), result: "PASS", hasFatalFail: true }]);
 
@@ -210,6 +267,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     const dangerous = buildResponseFixture();
     dangerous.agent.name = '=HYPERLINK("https://example.invalid")';
@@ -250,6 +308,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     const response = buildResponseFixture();
     Object.defineProperty(response.form, "title", {
@@ -269,6 +328,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     const response = buildResponseFixture();
     response.agent.name = BigInt(1) as unknown as string;
@@ -282,6 +342,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([buildResponseFixture()]);
 
@@ -325,6 +386,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([buildResponseFixture()]);
 
@@ -350,6 +412,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([buildResponseFixture()]);
 
@@ -378,6 +441,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([buildResponseFixture()]);
 
@@ -403,6 +467,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([buildResponseFixture()]);
 
@@ -431,8 +496,8 @@ describe("exports RBAC", () => {
       user: { ...qaUser, campaignIds: ["campaign-1", "campaign-2"] },
     });
     prismaMock.userCampaign.findMany.mockResolvedValue([
-      { campaignId: "campaign-1", canExport: true },
-      { campaignId: "campaign-2", canExport: true },
+      { campaignId: "campaign-1", canExport: true, canViewReports: true },
+      { campaignId: "campaign-2", canExport: true, canViewReports: true },
     ]);
     const second = buildResponseFixture();
     second.id = "response-2";
@@ -467,6 +532,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     mockExportResponses([
       { ...buildResponseFixture(), id: "fatal", score: 95, result: "PASS", hasFatalFail: true },
@@ -495,6 +561,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     const first = buildResponseFixture();
     const second = buildResponseFixture();
@@ -521,6 +588,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     vi.stubEnv("EXPORT_MAX_EVALUATIONS", "1");
     prismaMock.response.findMany.mockResolvedValueOnce([
@@ -541,6 +609,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     const response = buildResponseFixture();
     response.answers.push({
@@ -581,6 +650,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     vi.stubEnv("EXPORT_MAX_ANSWER_ROWS", "1");
     prismaMock.response.findMany.mockResolvedValueOnce([{ id: "response-1" }]);
@@ -597,6 +667,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     vi.stubEnv("EXPORT_MAX_TEXT_BYTES", "10");
     prismaMock.response.findMany.mockResolvedValueOnce([{ id: "response-1" }]);
@@ -612,6 +683,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     vi.stubEnv("EXPORT_MAX_TEXT_BYTES", "10");
     prismaMock.response.findMany.mockResolvedValueOnce([{ id: "response-1" }]);
@@ -632,6 +704,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     vi.stubEnv("EXPORT_MAX_TEXT_BYTES", "500");
     const response = buildResponseFixture();
@@ -654,6 +727,7 @@ describe("exports RBAC", () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canExport: true,
+      canViewReports: true,
     });
     vi.stubEnv("EXPORT_MAX_CELLS", "50");
     const response = buildResponseFixture();

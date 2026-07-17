@@ -1080,7 +1080,7 @@ async function saveEvaluation(
       body: `${agent.name ?? "Agente"}${agent.agentCode ? ` (${agent.agentCode})` : ""} obtuvo ${score.toFixed(
         1,
       )}% en ${form.title}.`,
-      href: `/analytics/responses/${response.id}`,
+      href: `/evaluations/${response.id}`,
       entityType: "response",
       entityId: response.id,
       metadata: {
@@ -1189,7 +1189,7 @@ export async function cancelResponse(data: unknown) {
     permission: "canViewReports",
     title: "Evaluacion anulada",
     body: `Una evaluacion fue anulada: ${input.reason}`,
-    href: `/analytics/responses/${existing.id}`,
+    href: `/evaluations/${existing.id}`,
     entityType: "response",
     entityId: existing.id,
     metadata: {
@@ -1211,7 +1211,7 @@ function revalidateEvaluationPaths() {
   revalidatePath("/forms");
   revalidatePath("/reports");
   revalidatePath("/kpis");
-  revalidatePath("/analytics/responses");
+  revalidatePath("/evaluations");
   revalidatePath("/analytics/agents");
   revalidatePath("/analytics/dispositions");
   revalidatePath("/");

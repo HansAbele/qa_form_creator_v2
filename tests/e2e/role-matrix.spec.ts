@@ -20,10 +20,7 @@ async function expectAssignedCampaignOnly(page: Page) {
   await expect(page.getByText(RESTRICTED_CAMPAIGN, { exact: true })).not.toBeVisible();
 }
 
-async function expectRestrictedFormDenied(
-  page: Page,
-  fallback: "/forms" | "error",
-) {
+async function expectRestrictedFormDenied(page: Page, fallback: "/forms" | "error") {
   await page.goto("/forms/restricted-campaign-form");
   await expect(page.getByText(RESTRICTED_FORM, { exact: true })).not.toBeVisible();
   await expect(page.getByText("Restricted quality score", { exact: true })).not.toBeVisible();
@@ -55,10 +52,11 @@ test.describe("RBAC matrix - QA Manager", () => {
   test("has global controls and can see both campaigns", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Usuarios" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Campanas" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Reports" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Campañas" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Reportes" })).toBeVisible();
     await expect(page.getByRole("link", { name: "KPIs" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Exportar" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Exportar" })).not.toBeVisible();
 
     await page.goto("/forms");
     await expect(page.getByText(ASSIGNED_FORM, { exact: true }).first()).toBeVisible();
@@ -78,7 +76,8 @@ test.describe("RBAC matrix - standard QA", () => {
   test("sees only evaluator capabilities for the assigned campaign", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Formularios" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Reports" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Reportes" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "KPIs" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Exportar" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Usuarios" })).not.toBeVisible();
@@ -108,12 +107,13 @@ test.describe("RBAC matrix - elevated QA", () => {
 
   test("has campaign-manager controls without global administration", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Reports" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Reportes" })).toBeVisible();
     await expect(page.getByRole("link", { name: "KPIs" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Exportar" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Exportar" })).not.toBeVisible();
     await expect(page.locator('a[href="/operations/agents"]')).toBeVisible();
     await expect(page.getByRole("link", { name: "Usuarios" })).not.toBeVisible();
-    await expect(page.getByRole("link", { name: "Campanas" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Campañas" })).not.toBeVisible();
 
     await expectAssignedCampaignOnly(page);
     await expect(page.getByRole("link", { name: "Nuevo formulario" })).toBeVisible();
@@ -136,7 +136,8 @@ test.describe("RBAC matrix - Supervisor", () => {
 
   test("is read-only and remains scoped to the assigned campaign", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Reports" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Reportes" })).toBeVisible();
     await expect(page.getByRole("link", { name: "KPIs" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Exportar" })).not.toBeVisible();
     await expect(page.locator('a[href="/operations/agents"]')).not.toBeVisible();

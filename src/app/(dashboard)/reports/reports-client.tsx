@@ -1,14 +1,29 @@
 "use client";
 
+import {
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  ClipboardCheck,
+  Download,
+  Eye,
+  FileText,
+  Megaphone,
+  ShieldAlert,
+  SlidersHorizontal,
+  Tags,
+  X,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getReportData, getReportResponseDetail } from "@/server/queries/analytics";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { FilterCheckbox, FilterSelect } from "@/components/filters/filter-select";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -17,29 +32,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-  CircleCheck,
-  Download,
-  Eye,
-  FileText,
-  Loader2,
-  Megaphone,
-  ShieldAlert,
-  SlidersHorizontal,
-  Tags,
-  X,
-} from "lucide-react";
-import { useRouter } from "next/navigation";
-import { OUTCOME_LABELS } from "@/lib/disposition-outcome";
-import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { OUTCOME_LABELS } from "@/lib/disposition-outcome";
+import { getReportData } from "@/server/queries/analytics";
 
 type ReportPage = Awaited<ReturnType<typeof getReportData>>;
 type ReportResponse = ReportPage["items"][number];
-type ReportDetail = Awaited<ReturnType<typeof getReportResponseDetail>>;
 
 interface ReportsClientProps {
   campaigns: { id: string; name: string }[];
@@ -47,12 +45,6 @@ interface ReportsClientProps {
   dispositions: { id: string; name: string; campaignId: string; campaignName: string }[];
   canExport: boolean;
 }
-
-const CRITICAL_LABEL: Record<string, string> = {
-  CUSTOMER: "Customer",
-  BUSINESS: "Business",
-  COMPLIANCE: "Compliance",
-};
 
 const REPORT_SUMMARY_SKELETONS = [
   "evaluations",
@@ -62,12 +54,7 @@ const REPORT_SUMMARY_SKELETONS = [
   "fatal-failures",
 ] as const;
 
-export function ReportsClient({
-  campaigns,
-  forms,
-  dispositions,
-  canExport,
-}: ReportsClientProps) {
+export function ReportsClient({ campaigns, forms, dispositions, canExport }: ReportsClientProps) {
   const operationalTimeZone = useOperationalTimeZone();
   const [campaignId, setCampaignId] = useState("");
   const [formId, setFormId] = useState("");
@@ -77,15 +64,10 @@ export function ReportsClient({
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [selectedResponse, setSelectedResponse] = useState<ReportDetail | null>(null);
   const [resultFilter, setResultFilter] = useState<"all" | "PASS" | "FAIL">("all");
   const [fatalOnly, setFatalOnly] = useState(false);
   const [dispositionFilter, setDispositionFilter] = useState("all");
   const reportRequestGeneration = useRef(0);
-  const detailRequestGeneration = useRef(0);
   const router = useRouter();
 
   const filteredForms = campaignId ? forms.filter((f) => f.campaignId === campaignId) : forms;
@@ -127,13 +109,6 @@ export function ReportsClient({
     };
   }, [loadReports]);
 
-  useEffect(
-    () => () => {
-      detailRequestGeneration.current += 1;
-    },
-    [],
-  );
-
   const resetFilters = () => {
     setPage(1);
     setCampaignId("");
@@ -145,22 +120,16 @@ export function ReportsClient({
     setFatalOnly(false);
   };
 
-  const openDetail = async (responseId: string) => {
-    const requestId = ++detailRequestGeneration.current;
-    setDetailOpen(true);
-    setDetailLoading(true);
-    setDetailError(null);
-    setSelectedResponse(null);
-    try {
-      const result = await getReportResponseDetail(responseId);
-      if (requestId !== detailRequestGeneration.current) return;
-      setSelectedResponse(result);
-    } catch {
-      if (requestId !== detailRequestGeneration.current) return;
-      setDetailError("No fue posible cargar el detalle de la evaluacion.");
-    } finally {
-      if (requestId === detailRequestGeneration.current) setDetailLoading(false);
-    }
+  const openHistory = () => {
+    const params = new URLSearchParams({ scope: "managed" });
+    if (campaignId) params.set("campaignId", campaignId);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    if (resultFilter !== "all") params.set("status", resultFilter.toLowerCase());
+    if (formId) params.set("formId", formId);
+    if (dispositionFilter !== "all") params.set("dispositionId", dispositionFilter);
+    if (fatalOnly) params.set("fatalOnly", "true");
+    router.push(`/evaluations?${params.toString()}`);
   };
 
   const responses: ReportResponse[] = reportPage?.items ?? [];
@@ -192,14 +161,25 @@ export function ReportsClient({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
-        {canExport && (
-          <Button variant="outline" onClick={() => router.push("/analytics/export")}>
-            <Download className="mr-1 h-4 w-4" />
-            Exportar
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Indicadores consolidados para las campañas bajo tu responsabilidad.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={openHistory}>
+            <ClipboardCheck className="h-4 w-4" />
+            Ver evaluaciones
           </Button>
-        )}
+          {canExport && (
+            <Button variant="outline" onClick={() => router.push("/analytics/export")}>
+              <Download className="h-4 w-4" />
+              Exportar
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -307,7 +287,10 @@ export function ReportsClient({
       </Card>
 
       {error && (
-        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm"
+        >
           <AlertCircle className="h-5 w-5 text-destructive" />
           <span className="flex-1">{error}</span>
           <Button variant="outline" size="sm" onClick={() => void loadReports()}>
@@ -364,17 +347,13 @@ export function ReportsClient({
           </Card>
           <Card
             className={
-              summary.dailyRate >= summary.targetDailyRate
-                ? "border-green-200"
-                : "border-amber-200"
+              summary.dailyRate >= summary.targetDailyRate ? "border-green-200" : "border-amber-200"
             }
           >
             <CardContent className="p-4 text-center">
               <p className="text-sm text-muted-foreground">Tasa Diaria</p>
               <p className="text-2xl font-bold">{summary.dailyRate.toFixed(1)}</p>
-              <p className="text-xs text-muted-foreground">
-                Target: {summary.targetDailyRate}/día
-              </p>
+              <p className="text-xs text-muted-foreground">Target: {summary.targetDailyRate}/día</p>
             </CardContent>
           </Card>
           <Card
@@ -397,8 +376,12 @@ export function ReportsClient({
 
       {reportPage && reportPage.totalCount > 0 && (
         <p className="text-sm text-muted-foreground">
-          Mostrando <span className="font-medium text-foreground">{(reportPage.page - 1) * reportPage.pageSize + 1}–{Math.min(reportPage.page * reportPage.pageSize, reportPage.totalCount)}</span> de{" "}
-          {reportPage.totalCount} evaluaciones
+          Mostrando{" "}
+          <span className="font-medium text-foreground">
+            {(reportPage.page - 1) * reportPage.pageSize + 1}–
+            {Math.min(reportPage.page * reportPage.pageSize, reportPage.totalCount)}
+          </span>{" "}
+          de {reportPage.totalCount} evaluaciones
         </p>
       )}
 
@@ -421,7 +404,7 @@ export function ReportsClient({
             {responses.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="whitespace-nowrap text-muted-foreground">
-                  {formatOperationalTimestamp(r.createdAt, operationalTimeZone, {
+                  {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
                     dateStyle: "short",
                   })}
                 </TableCell>
@@ -476,7 +459,7 @@ export function ReportsClient({
                     variant="ghost"
                     size="icon-xs"
                     aria-label={`Ver detalle de ${r.agentName}`}
-                    onClick={() => void openDetail(r.id)}
+                    onClick={() => router.push(`/evaluations/${r.id}`)}
                   >
                     <Eye className="h-3.5 w-3.5" />
                   </Button>
@@ -486,7 +469,11 @@ export function ReportsClient({
             {responses.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground">
-                  {loading ? "Cargando..." : error ? "No se pudieron cargar los datos" : "Sin resultados"}
+                  {loading
+                    ? "Cargando..."
+                    : error
+                      ? "No se pudieron cargar los datos"
+                      : "Sin resultados"}
                 </TableCell>
               </TableRow>
             )}
@@ -495,7 +482,10 @@ export function ReportsClient({
       </div>
 
       {reportPage && reportPage.totalPages > 1 && (
-        <nav aria-label="Paginacion de reportes" className="flex items-center justify-between gap-3">
+        <nav
+          aria-label="Paginacion de reportes"
+          className="flex items-center justify-between gap-3"
+        >
           <p className="text-sm text-muted-foreground">
             Pagina {reportPage.page} de {reportPage.totalPages}
           </p>
@@ -521,154 +511,6 @@ export function ReportsClient({
           </div>
         </nav>
       )}
-
-      {/* Detail Dialog */}
-      <Dialog
-        open={detailOpen}
-        onOpenChange={(open) => {
-          setDetailOpen(open);
-          if (!open) {
-            detailRequestGeneration.current += 1;
-            setDetailLoading(false);
-            setDetailError(null);
-            setSelectedResponse(null);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Detalle de Evaluación</DialogTitle>
-          </DialogHeader>
-          {detailLoading && (
-            <div role="status" className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Cargando detalle...
-            </div>
-          )}
-          {detailError && (
-            <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-              {detailError}
-            </div>
-          )}
-          {selectedResponse && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Formulario: </span>
-                  {selectedResponse.formTitle}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Score: </span>
-                  <Badge variant={selectedResponse.passesThreshold ? "default" : "destructive"}>
-                    {selectedResponse.score.toFixed(1)}%
-                  </Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Resultado: </span>
-                  <Badge variant={selectedResponse.passesThreshold ? "default" : "destructive"}>
-                    {selectedResponse.passesThreshold ? "PASS" : "FAIL"}
-                  </Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Target score: </span>
-                  {selectedResponse.targetAvgScore}%
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Umbral pass: </span>
-                  {selectedResponse.passThreshold}%
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Falla fatal: </span>
-                  {selectedResponse.hasFatalFail ? "Si" : "No"}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Agente: </span>
-                  {selectedResponse.agentName}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Evaluador: </span>
-                  {selectedResponse.evaluatorName}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Versión formulario: </span>
-                  {selectedResponse.formVersion ? `v${selectedResponse.formVersion}` : "—"}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Disposición: </span>
-                  {selectedResponse.dispositionName ?? "—"}
-                  {selectedResponse.dispositionOutcome && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      ·{" "}
-                      {OUTCOME_LABELS[
-                        selectedResponse.dispositionOutcome as keyof typeof OUTCOME_LABELS
-                      ] ?? selectedResponse.dispositionOutcome}
-                    </span>
-                  )}
-                </div>
-                <div className="col-span-2">
-                  <span className="text-muted-foreground">Fecha: </span>
-                  {formatOperationalTimestamp(selectedResponse.createdAt, operationalTimeZone)}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Respuestas</p>
-                {selectedResponse.answers.map((a) => (
-                  <div key={a.questionId} className="rounded-lg border p-3 text-sm">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap gap-1">
-                        {a.category && (
-                          <Badge variant="outline" className="gap-1.5 text-xs">
-                            <span
-                              className="h-2 w-2 rounded-full"
-                              style={{ backgroundColor: a.category.color ?? "#ff6600" }}
-                            />
-                            {a.category.name}
-                          </Badge>
-                        )}
-                        {a.questionWeight > 0 && (
-                          <Badge variant="outline" className="text-xs">
-                            Peso {a.questionWeight}%
-                          </Badge>
-                        )}
-                        {a.fatal && (
-                          <Badge variant="destructive" className="text-xs">
-                            Fatal
-                          </Badge>
-                        )}
-                        {a.criticalType && (
-                          <Badge variant="outline" className="text-xs">
-                            {CRITICAL_LABEL[a.criticalType] ?? a.criticalType}
-                          </Badge>
-                        )}
-                      </div>
-                      {a.score !== null && (
-                        <Badge
-                          variant={
-                            a.isFatalFail ? "destructive" : a.score >= 70 ? "default" : "secondary"
-                          }
-                          className="tabular-nums"
-                        >
-                          {a.score.toFixed(1)}%
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="font-medium">{a.question}</p>
-                    <p className="text-muted-foreground">
-                      {a.questionType === "RATING" ? `${a.value} ★` : a.value}
-                    </p>
-                    {a.comment && (
-                      <p className="mt-2 whitespace-pre-wrap border-l-2 border-orange-500/50 pl-2 text-xs text-muted-foreground">
-                        {a.comment}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

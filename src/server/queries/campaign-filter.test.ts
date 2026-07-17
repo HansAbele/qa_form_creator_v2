@@ -19,6 +19,7 @@ import {
   assertCampaignPermissionForUser,
   getCampaignFilter,
   getCampaignFilterForPermission,
+  getCampaignFilterForPermissions,
   hasCampaignPermissionForUser,
 } from "./campaign-filter";
 
@@ -53,6 +54,12 @@ describe("campaign RBAC filters", () => {
     await expect(getCampaignFilter("campaign-9")).resolves.toEqual({
       campaignId: "campaign-9",
     });
+    await expect(getCampaignFilterForPermissions(["canExport", "canViewReports"])).resolves.toEqual(
+      {},
+    );
+    await expect(
+      getCampaignFilterForPermissions(["canExport", "canViewReports"], "campaign-9"),
+    ).resolves.toEqual({ campaignId: "campaign-9" });
   });
 
   it("intersects QA filters with assigned campaigns", async () => {
@@ -84,6 +91,33 @@ describe("campaign RBAC filters", () => {
     await expect(getCampaignFilterForPermission("canExport")).resolves.toEqual({
       campaignId: { in: ["campaign-1"] },
     });
+  });
+
+  it("requires every requested permission on the same campaign", async () => {
+    authMock.mockResolvedValue({ user: qaUser });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canExport: true, canViewReports: true },
+      { campaignId: "campaign-2", canExport: true, canViewReports: false },
+    ]);
+
+    await expect(getCampaignFilterForPermissions(["canExport", "canViewReports"])).resolves.toEqual(
+      {
+        campaignId: { in: ["campaign-1"] },
+      },
+    );
+  });
+
+  it("rejects an explicit campaign when one required permission is missing", async () => {
+    authMock.mockResolvedValue({ user: qaUser });
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      canExport: true,
+      canViewReports: false,
+    });
+
+    await expect(
+      getCampaignFilterForPermissions(["canExport", "canViewReports"], "campaign-1"),
+    ).rejects.toThrow("No autorizado para esta accion en esta campana");
   });
 
   it("rejects permission assertions when the campaign assignment lacks the permission", async () => {

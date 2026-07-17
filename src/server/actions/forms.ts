@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/server/audit-log";
 import {
   assertCampaignPermissionForUser,
-  getCampaignFilterForPermission,
+  getCampaignFilterForPermissions,
 } from "@/server/queries/campaign-filter";
 import {
   type FormMutationInput,
@@ -23,29 +23,29 @@ const FORM_STATUS = {
 } as const;
 
 export async function getForms() {
-  return listFormsForPermission("canViewForms", { restrictOperationalReaders: true });
+  return listFormsForPermissions(["canViewForms"], { restrictOperationalReaders: true });
 }
 
 export async function getFormsForReports() {
-  return listFormsForPermission("canViewReports", {
+  return listFormsForPermissions(["canViewReports"], {
     statuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
   });
 }
 
 export async function getFormsForExport() {
-  return listFormsForPermission("canExport", {
+  return listFormsForPermissions(["canExport", "canViewReports"], {
     statuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
   });
 }
 
-async function listFormsForPermission(
-  permission: CampaignPermissionKey,
+async function listFormsForPermissions(
+  permissions: readonly [CampaignPermissionKey, ...CampaignPermissionKey[]],
   options: { restrictOperationalReaders?: boolean; statuses?: string[] } = {},
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission(permission);
+  const campaignFilter = await getCampaignFilterForPermissions(permissions);
   const formVisibility: Prisma.FormWhereInput =
     options.restrictOperationalReaders && session.user.role !== "ADMIN"
       ? {

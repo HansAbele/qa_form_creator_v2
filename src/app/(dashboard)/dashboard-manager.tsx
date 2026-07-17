@@ -136,11 +136,11 @@ export function DashboardManager({
   const totalDispositionEvaluations = dispAnalytics.reduce((sum, e) => sum + e.totalEvaluations, 0);
 
   function viewComplianceIncidents() {
-    const params = new URLSearchParams({ status: "fail" });
+    const params = new URLSearchParams({ status: "fail", scope: "managed" });
     if (campaignId) params.set("campaignId", campaignId);
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
-    router.push(`/analytics/responses?${params}`);
+    router.push(`/evaluations?${params}`);
   }
 
   const rootCauseCategories = (insights?.categoryOpportunities ?? []).slice(0, 5);

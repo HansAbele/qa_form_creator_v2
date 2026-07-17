@@ -1,12 +1,13 @@
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import {
   CAMPAIGN_PERMISSION_KEYS,
-  isSupervisorRole,
-  normalizeCampaignPermissionsForRole,
   type CampaignPermissionKey,
   type CampaignPermissionState,
+  isSupervisorRole,
+  normalizeCampaignPermissionsForRole,
 } from "@/lib/campaign-permissions";
+import { prisma } from "@/lib/prisma";
+import { getCampaignFilterForPermissions } from "@/server/queries/campaign-filter";
 
 export type UiAccess = CampaignPermissionState & {
   isAdmin: boolean;
@@ -81,6 +82,13 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
     }
   }
 
+  // Export is an effective capability only when both grants coexist on one
+  // campaign. Independent OR aggregation could otherwise combine permissions
+  // from different campaigns and expose an unusable export entry point.
+  permissions.canExport = campaignAccess.some(
+    (access) => access.canExport && access.canViewReports,
+  );
+
   const normalizedPermissions = normalizeCampaignPermissionsForRole(user.role, permissions);
   return toUiAccess(false, isSupervisorRole(user.role), normalizedPermissions);
 }
@@ -88,4 +96,12 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
 export async function hasAnyCampaignPermission(permission: CampaignPermissionKey) {
   const access = await getCurrentUserUiAccess();
   return access.isAdmin || access[permission];
+}
+
+export async function hasAnyCampaignPermissions(
+  permissions: readonly [CampaignPermissionKey, ...CampaignPermissionKey[]],
+) {
+  const filter = await getCampaignFilterForPermissions(permissions);
+  if (!filter.campaignId || typeof filter.campaignId === "string") return true;
+  return filter.campaignId.in.length > 0;
 }

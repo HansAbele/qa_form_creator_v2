@@ -11,6 +11,7 @@ export type AuthorizedCampaignThreshold = {
 
 export type ScopedResponseFilters = {
   campaigns: AuthorizedCampaignThreshold[];
+  dateField?: "createdAt" | "submittedAt";
   dateFrom?: string;
   dateTo?: string;
   formId?: string;
@@ -20,6 +21,12 @@ export type ScopedResponseFilters = {
   resultStatus?: EffectiveResultFilter;
   fatalOnly?: boolean;
 };
+
+function responseDateColumn(filters: ScopedResponseFilters) {
+  return filters.dateField === "createdAt"
+    ? Prisma.sql`r."createdAt"`
+    : Prisma.sql`r."submittedAt"`;
+}
 
 export type CampaignResponseAggregate = {
   campaignId: string;
@@ -222,9 +229,13 @@ function scopedConditions(filters: ScopedResponseFilters) {
     Prisma.sql`(d."categoryId" IS NULL OR dc."campaignId" = f."campaignId")`,
   ];
 
+  const dateColumn = responseDateColumn(filters);
+  if (filters.dateField !== "createdAt") {
+    conditions.push(Prisma.sql`${dateColumn} IS NOT NULL`);
+  }
   const dateBounds = getOperationalDateBounds(filters.dateFrom, filters.dateTo);
-  if (dateBounds.gte) conditions.push(Prisma.sql`r."createdAt" >= ${dateBounds.gte}`);
-  if (dateBounds.lt) conditions.push(Prisma.sql`r."createdAt" < ${dateBounds.lt}`);
+  if (dateBounds.gte) conditions.push(Prisma.sql`${dateColumn} >= ${dateBounds.gte}`);
+  if (dateBounds.lt) conditions.push(Prisma.sql`${dateColumn} < ${dateBounds.lt}`);
   if (filters.formId) conditions.push(Prisma.sql`r."formId" = ${filters.formId}`);
   if (filters.agentId) conditions.push(Prisma.sql`r."agentId" = ${filters.agentId}`);
   if (filters.evaluatorId) {
@@ -256,7 +267,7 @@ function scopedResponseFrom() {
   `;
 }
 
-function operationalDateExpression(column: Prisma.Sql = Prisma.sql`r."createdAt"`) {
+function operationalDateExpression(column: Prisma.Sql = Prisma.sql`r."submittedAt"`) {
   return Prisma.sql`TO_CHAR(${column} AT TIME ZONE ${getOperationalTimeZone()}, 'YYYY-MM-DD')`;
 }
 
@@ -274,7 +285,7 @@ function scopedResponseCte(
         r."id" AS "responseId",
         r."formId" AS "formId",
         r."agentId" AS "agentId",
-        r."createdAt" AS "createdAt",
+        ${responseDateColumn(filters)} AS "eventAt",
         f."campaignId" AS "campaignId",
         ac."passThreshold" AS "passThreshold",
         ag."name" AS "agentName",
@@ -300,7 +311,7 @@ export async function getResponseTrendAggregates(filters: ScopedResponseFilters)
 export function buildResponseTrendQuery(filters: ScopedResponseFilters) {
   const campaigns = uniqueCampaigns(filters.campaigns);
   if (campaigns.length === 0) return null;
-  const day = operationalDateExpression();
+  const day = operationalDateExpression(responseDateColumn(filters));
   return Prisma.sql`
     WITH ${authorizedCampaignCte(campaigns)}
     SELECT
@@ -498,7 +509,7 @@ export function buildCriticalErrorAccuracyQuery(
 ) {
   const campaigns = uniqueCampaigns(filters.campaigns);
   if (campaigns.length === 0) return null;
-  const day = operationalDateExpression(Prisma.sql`sr."createdAt"`);
+  const day = operationalDateExpression(Prisma.sql`sr."eventAt"`);
   const detailSelects = includeDetail
     ? Prisma.sql`
       UNION ALL
@@ -536,7 +547,7 @@ export function buildCriticalErrorAccuracyQuery(
       WHERE a."notApplicable" = false
         AND q."fatal" = true
         AND q."criticalType" IS NOT NULL
-      GROUP BY sr."responseId", sr."createdAt", sr."campaignId", c."name",
+      GROUP BY sr."responseId", sr."eventAt", sr."campaignId", c."name",
                sr."agentId", sr."agentName", sr."agentCode", q."criticalType"
     )
     SELECT
@@ -587,7 +598,7 @@ export function buildCoachingAgentQuery(filters: ScopedResponseFilters) {
         (${effectivePassCondition()}) AS "isPassing",
         ROW_NUMBER() OVER (
           PARTITION BY ag."id"
-          ORDER BY r."createdAt" DESC, r."id" DESC
+          ORDER BY ${responseDateColumn(filters)} DESC, r."id" DESC
         ) AS "position"
       ${scopedResponseFrom()}
       JOIN "Campaign" c ON c."id" = f."campaignId"
@@ -720,6 +731,7 @@ export async function getSelfDashboardSummary(filters: ScopedResponseFilters) {
 export function buildSelfDashboardSummaryQuery(filters: ScopedResponseFilters) {
   const campaigns = uniqueCampaigns(filters.campaigns);
   if (campaigns.length === 0) return null;
+  const dateColumn = responseDateColumn(filters);
   return Prisma.sql`
     WITH ${authorizedCampaignCte(campaigns)}
     SELECT
@@ -727,8 +739,8 @@ export function buildSelfDashboardSummaryQuery(filters: ScopedResponseFilters) {
       COALESCE(AVG(r."score"), 0)::double precision AS "avgScore",
       COUNT(*) FILTER (WHERE r."hasFatalFail")::bigint AS "fatalCount",
       COALESCE(STDDEV_POP(r."score"), 0)::double precision AS "stdDev",
-      MIN(r."createdAt") AS "minCreatedAt",
-      MAX(r."createdAt") AS "maxCreatedAt"
+      MIN(${dateColumn}) AS "minCreatedAt",
+      MAX(${dateColumn}) AS "maxCreatedAt"
     ${scopedResponseFrom()}
     WHERE ${scopedConditions({ ...filters, campaigns })}
   `;
@@ -788,6 +800,7 @@ export async function getCampaignResponseAggregates(
 export function buildCampaignResponseAggregateQuery(filters: ScopedResponseFilters) {
   const campaigns = uniqueCampaigns(filters.campaigns);
   if (campaigns.length === 0) return null;
+  const dateColumn = responseDateColumn(filters);
 
   return Prisma.sql`
     WITH ${authorizedCampaignCte(campaigns)}
@@ -797,8 +810,8 @@ export function buildCampaignResponseAggregateQuery(filters: ScopedResponseFilte
       COALESCE(AVG(r."score")::double precision, 0) AS "avgScore",
       COUNT(*) FILTER (WHERE ${effectivePassCondition()})::bigint AS "passCount",
       COUNT(*) FILTER (WHERE r."hasFatalFail" = true)::bigint AS "fatalFailCount",
-      MIN(r."createdAt") AS "minCreatedAt",
-      MAX(r."createdAt") AS "maxCreatedAt"
+      MIN(${dateColumn}) AS "minCreatedAt",
+      MAX(${dateColumn}) AS "maxCreatedAt"
     ${scopedResponseFrom()}
     WHERE ${scopedConditions({ ...filters, campaigns })}
     GROUP BY f."campaignId"
@@ -821,13 +834,14 @@ export function buildScopedResponsePageIdsQuery(
   const campaigns = uniqueCampaigns(filters.campaigns);
   if (campaigns.length === 0) return null;
   const offset = (filters.page - 1) * filters.pageSize;
+  const dateColumn = responseDateColumn(filters);
 
   return Prisma.sql`
     WITH ${authorizedCampaignCte(campaigns)}
     SELECT r."id"
     ${scopedResponseFrom()}
     WHERE ${scopedConditions({ ...filters, campaigns })}
-    ORDER BY r."createdAt" DESC, r."id" DESC
+    ORDER BY ${dateColumn} DESC, r."id" DESC
     LIMIT ${filters.pageSize}
     OFFSET ${offset}
   `;

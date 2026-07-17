@@ -163,10 +163,70 @@ describe("analytics SQL scope", () => {
     expect(sql).toContain("r.\"status\" = 'SUBMITTED'");
     expect(sql).toContain('ag."campaignId" = f."campaignId"');
     expect(sql).toContain('q."formId" = sr."formId"');
-    expect(sql).toContain('r."createdAt" >=');
-    expect(sql).toContain('r."createdAt" <');
+    expect(sql).toContain('r."submittedAt" IS NOT NULL');
+    expect(sql).toContain('r."submittedAt" >=');
+    expect(sql).toContain('r."submittedAt" <');
+    expect(sql).toContain('r."submittedAt" AS "eventAt"');
+    expect(sql).not.toContain('r."createdAt" >=');
+    expect(sql).not.toContain('r."createdAt" <');
     expect(sql).not.toContain("campaign-sensitive");
     expect(query.values).toContain("campaign-sensitive");
+  });
+
+  it("uses submittedAt by default for bounds, aggregates and stable pagination", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([]);
+    const filters = {
+      campaigns: [{ campaignId: "campaign-1", passThreshold: 70 }],
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-31",
+    };
+
+    await getCampaignResponseAggregates(filters);
+    await getScopedResponsePageIds({ ...filters, page: 1, pageSize: 50 });
+
+    const aggregateQuery = prismaMock.$queryRaw.mock.calls[0]?.[0] as {
+      strings?: readonly string[];
+    };
+    const pageQuery = prismaMock.$queryRaw.mock.calls[1]?.[0] as {
+      strings?: readonly string[];
+    };
+    const aggregateSql = aggregateQuery.strings?.join(" ") ?? "";
+    const pageSql = pageQuery.strings?.join(" ") ?? "";
+
+    for (const sql of [aggregateSql, pageSql]) {
+      expect(sql).toContain('r."submittedAt" IS NOT NULL');
+      expect(sql).toContain('r."submittedAt" >=');
+      expect(sql).toContain('r."submittedAt" <');
+      expect(sql).not.toContain('r."createdAt" >=');
+      expect(sql).not.toContain('r."createdAt" <');
+    }
+    expect(aggregateSql).toContain('MIN(r."submittedAt")');
+    expect(aggregateSql).toContain('MAX(r."submittedAt")');
+    expect(pageSql).toContain('ORDER BY r."submittedAt" DESC, r."id" DESC');
+  });
+
+  it("groups daily trends and orders recent coaching samples by submittedAt", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([]);
+    const filters = {
+      campaigns: [{ campaignId: "campaign-1", passThreshold: 70 }],
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-31",
+    };
+
+    await getResponseTrendAggregates(filters);
+    await getCoachingAgentAggregates(filters);
+    await getCriticalErrorAccuracyAggregates(filters, true);
+
+    const queries = prismaMock.$queryRaw.mock.calls.map(
+      ([query]) => (query as { strings?: readonly string[] }).strings?.join(" ") ?? "",
+    );
+    const [trendSql, coachingSql, criticalSql] = queries;
+
+    expect(trendSql).toContain('TO_CHAR(r."submittedAt" AT TIME ZONE');
+    expect(trendSql).not.toContain('TO_CHAR(r."createdAt" AT TIME ZONE');
+    expect(coachingSql).toContain('ORDER BY r."submittedAt" DESC, r."id" DESC');
+    expect(criticalSql).toContain('r."submittedAt" AS "eventAt"');
+    expect(criticalSql).toContain('GROUP BY sr."responseId", sr."eventAt"');
   });
 
   it("returns all CEA dimensions from a single normalized aggregate query", async () => {

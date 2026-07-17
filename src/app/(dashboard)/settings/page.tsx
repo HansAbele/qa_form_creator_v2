@@ -8,7 +8,21 @@ import { readQACategories } from "@/server/actions/qa-categories";
 import { getAuditCampaigns, getCampaigns } from "@/server/actions/campaigns";
 import { getUsers } from "@/server/actions/users";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
-import { SettingsClient } from "./settings-client";
+import { SettingsClient, type SettingsSectionId } from "./settings-client";
+
+const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
+  "account",
+  "access",
+  "scoring",
+  "campaign-scoring",
+  "categories",
+  "evaluations",
+  "forms-config",
+  "dashboard-kpis",
+  "reports-export",
+  "audit",
+  "notifications",
+]);
 
 async function getProfileOrLogin() {
   try {
@@ -24,11 +38,15 @@ async function getProfileOrLogin() {
   }
 }
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ section?: string }>;
+}) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const profile = await getProfileOrLogin();
+  const [profile, query] = await Promise.all([getProfileOrLogin(), searchParams]);
   const isAdmin = profile.role === "ADMIN";
   const canViewAudit = isAdmin || (await hasAnyCampaignPermission("canViewAudit"));
   const [settings, users, campaigns] = await Promise.all([
@@ -72,6 +90,11 @@ export default async function SettingsPage() {
       campaignScoring={campaignScoring}
       auditPage={auditEvents}
       qaCategories={qaCategories}
+      initialSection={
+        query.section && SETTINGS_SECTION_IDS.has(query.section as SettingsSectionId)
+          ? (query.section as SettingsSectionId)
+          : "account"
+      }
     />
   );
 }

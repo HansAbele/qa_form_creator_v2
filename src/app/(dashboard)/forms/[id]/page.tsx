@@ -1,7 +1,8 @@
-import { auth } from "@/lib/auth";
-import { getCampaignScoringSettings } from "@/lib/settings";
-import { resolveResponseScoringPolicy } from "@/lib/response-scoring-policy";
 import { redirect } from "next/navigation";
+import { FormViewer } from "@/components/forms/form-viewer";
+import { auth } from "@/lib/auth";
+import { resolveResponseScoringPolicy } from "@/lib/response-scoring-policy";
+import { getCampaignScoringSettings } from "@/lib/settings";
 import {
   getFormForDraftCorrection,
   getFormForEvaluation,
@@ -10,7 +11,6 @@ import {
 import { getResponseById } from "@/server/actions/responses";
 import { hasCampaignPermissionForUser } from "@/server/queries/campaign-filter";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
-import { FormViewer } from "@/components/forms/form-viewer";
 
 export default async function FormEvaluatePage({
   params,
@@ -32,7 +32,7 @@ export default async function FormEvaluatePage({
 
   if (initialResponse && initialResponse.formId !== id) redirect(`/forms/${id}`);
   if (initialResponse?.status === "CANCELLED") {
-    redirect(`/analytics/responses/${initialResponse.id}`);
+    redirect(`/evaluations/${initialResponse.id}`);
   }
 
   const requiresCorrection = Boolean(

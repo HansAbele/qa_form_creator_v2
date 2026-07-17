@@ -17,7 +17,7 @@ import { reserveExportCapacity } from "@/server/export-admission";
 import { emitNotificationToUser } from "@/server/notifications";
 import {
   CampaignAuthorizationError,
-  getCampaignFilterForPermission,
+  getCampaignFilterForPermissions,
 } from "@/server/queries/campaign-filter";
 import { questionTypeLabel } from "@/types/form-builder";
 
@@ -54,27 +54,30 @@ async function getExportData(filters: ExportFilters, selectedFields: ExportField
   const session = await auth();
   if (!session?.user) throw new CampaignAuthorizationError("No autorizado");
 
-  const campaignFilter = await getCampaignFilterForPermission("canExport", filters.campaignId);
+  const campaignFilter = await getCampaignFilterForPermissions(
+    ["canExport", "canViewReports"],
+    filters.campaignId,
+  );
   const limits = getExportLimits();
   const includeAnswers = isExportFieldSelected(selectedFields, "answers");
 
   const where: Record<string, unknown> = {
     form: campaignFilter,
     ...submittedResponseWhere(),
+    submittedAt: {
+      not: null,
+      ...getOperationalDateBounds(filters.dateFrom, filters.dateTo),
+    },
     ...(filters.formId ? { formId: filters.formId } : {}),
     ...(filters.agentId ? { agentId: filters.agentId } : {}),
   };
-
-  if (filters.dateFrom || filters.dateTo) {
-    where.createdAt = getOperationalDateBounds(filters.dateFrom, filters.dateTo);
-  }
 
   const responses = await prisma.$transaction(
     async (tx) => {
       const responseIds = await tx.response.findMany({
         where,
         select: { id: true },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
         take: limits.maxEvaluations + 1,
       });
 
@@ -304,7 +307,7 @@ async function getResponseBatch(
         ...(includeAnswers ? {} : { take: 0 }),
       },
     },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
   });
 }
 
@@ -398,7 +401,7 @@ function getFieldValue(
 
   switch (field) {
     case "date":
-      return response.createdAt;
+      return response.submittedAt ?? response.createdAt;
     case "campaign":
       return response.form.campaign.name;
     case "form":
@@ -992,7 +995,7 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
       for (const answer of response.answers) {
         detailSheet.addRow([
           response.id,
-          response.createdAt,
+          response.submittedAt ?? response.createdAt,
           response.form.campaign.name,
           response.form.title,
           response.agent.name,
@@ -1375,7 +1378,7 @@ async function createXlsxDownload(
           for (const answer of response.answers) {
             const row = detailSheet.addRow([
               response.id,
-              response.createdAt,
+              response.submittedAt ?? response.createdAt,
               response.form.campaign.name,
               response.form.title,
               response.agent.name,

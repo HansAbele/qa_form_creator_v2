@@ -83,7 +83,7 @@ interface RecentResponse {
   formTitle: string;
   score: number;
   result: "PASS" | "FAIL";
-  createdAt: string;
+  submittedAt: string;
 }
 
 interface DispositionDetailData {
@@ -626,7 +626,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                     <TableRow
                       key={r.id}
                       className="cursor-pointer"
-                      onClick={() => router.push(`/analytics/responses/${r.id}`)}
+                      onClick={() => router.push(`/evaluations/${r.id}`)}
                     >
                       <TableCell className="font-medium">{r.agentName}</TableCell>
                       <TableCell className="text-muted-foreground">{r.evaluatorName}</TableCell>
@@ -636,7 +636,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground">
-                        {formatOperationalTimestamp(r.createdAt, operationalTimeZone, {
+                        {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
                           dateStyle: "short",
                         })}
                       </TableCell>

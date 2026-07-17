@@ -335,7 +335,7 @@ model Response {
   score              Decimal   @db.Decimal(5, 2)
   result             String?
   hasFatalFail       Boolean   @default(false)
-  status             String    @default("SUBMITTED")
+  status             String    @default("DRAFT")
   scoringSnapshot    Json?
   settingsSnapshot   Json?
   formSnapshot       Json?
@@ -358,6 +358,11 @@ model Response {
   @@index([dispositionId])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@index([status, submittedAt, id])
+  @@index([agentId, status, submittedAt, id])
+  @@index([evaluatorId, status, submittedAt, id])
+  @@index([formId, status, submittedAt, id])
+  @@index([dispositionId, status, submittedAt, id])
   @@index([cancelledById])
 }
 

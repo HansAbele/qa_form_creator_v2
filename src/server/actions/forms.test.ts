@@ -92,6 +92,7 @@ describe("form revision workflow", () => {
   it("does not export client-selectable form permission helpers", async () => {
     const formActions = await import("./forms");
     expect(formActions).not.toHaveProperty("getFormsForPermission");
+    expect(formActions).not.toHaveProperty("getFormsForPermissions");
     expect(formActions).not.toHaveProperty("getFormByIdForPermission");
   });
 
@@ -444,6 +445,27 @@ describe("form revision workflow", () => {
         }),
       );
     }
+  });
+
+  it("lists export forms only for campaigns with report and export access", async () => {
+    authMock.mockResolvedValue({
+      user: { ...qaUser, campaignIds: ["campaign-1", "campaign-2"] },
+    });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewReports: true, canExport: true },
+      { campaignId: "campaign-2", canViewReports: false, canExport: true },
+    ]);
+    prismaMock.form.findMany.mockResolvedValue([]);
+
+    await getFormsForExport();
+
+    expect(prismaMock.form.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          campaignId: { in: ["campaign-1"] },
+        }),
+      }),
+    );
   });
 
   it("lists only active published forms for a read-only supervisor", async () => {

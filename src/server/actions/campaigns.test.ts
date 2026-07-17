@@ -33,6 +33,7 @@ describe("fixed-purpose campaign readers", () => {
 
   it("does not export a client-selectable permission helper", () => {
     expect(campaignActions).not.toHaveProperty("getCampaignsForPermission");
+    expect(campaignActions).not.toHaveProperty("getCampaignsForPermissions");
     expect(campaignActions).not.toHaveProperty("getCampaignById");
   });
 
@@ -50,6 +51,24 @@ describe("fixed-purpose campaign readers", () => {
           active: true,
           users: {
             some: { userId: "qa-1", canViewDashboard: true },
+          },
+        },
+      }),
+    );
+  });
+
+  it("lists export campaigns only when reports and export are both allowed", async () => {
+    await campaignActions.getExportCampaigns();
+
+    expect(prismaMock.campaign.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          users: {
+            some: {
+              userId: "qa-1",
+              canExport: true,
+              canViewReports: true,
+            },
           },
         },
       }),

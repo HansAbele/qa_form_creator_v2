@@ -5,7 +5,7 @@ import {
   Building2,
   ChevronLeft,
   ChevronRight,
-  Download,
+  ClipboardCheck,
   FileText,
   LayoutDashboard,
   Menu,
@@ -25,7 +25,19 @@ import { cn } from "@/lib/utils";
 import type { UiAccess } from "@/server/queries/ui-access";
 import { useAppStore } from "@/stores/app-store";
 
-const navItems = [
+type NavigationItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  isVisible: (access: UiAccess) => boolean;
+};
+
+type NavigationSection = {
+  label: string;
+  items: NavigationItem[];
+};
+
+const primaryItems: NavigationItem[] = [
   {
     href: "/",
     label: "Dashboard",
@@ -39,11 +51,20 @@ const navItems = [
     isVisible: (access: UiAccess) => access.canViewForms,
   },
   {
+    href: "/evaluations",
+    label: "Evaluaciones",
+    icon: ClipboardCheck,
+    isVisible: (access: UiAccess) => access.canViewDashboard || access.canViewReports,
+  },
+  {
     href: "/reports",
-    label: "Reports",
+    label: "Reportes",
     icon: BarChart3,
     isVisible: (access: UiAccess) => access.canViewReports,
   },
+];
+
+const analyticsItems: NavigationItem[] = [
   {
     href: "/kpis",
     label: "KPIs",
@@ -52,30 +73,37 @@ const navItems = [
   },
   {
     href: "/analytics/agents",
-    label: "Agentes",
+    label: "Rendimiento",
     icon: Users,
     isVisible: (access: UiAccess) => access.canViewKPIs,
   },
-  {
-    href: "/analytics/export",
-    label: "Exportar",
-    icon: Download,
-    isVisible: (access: UiAccess) => access.canExport,
-  },
+];
+
+const configurationItems: NavigationItem[] = [
   {
     href: "/settings",
-    label: "Configuracion",
+    label: "Configuración de calidad",
     icon: Settings,
     isVisible: (access: UiAccess) => access.canOpenSettings,
   },
 ];
 
-const adminItems = [
-  { href: "/admin/users", label: "Usuarios", icon: UserCog },
-  { href: "/admin/campaigns", label: "Campanas", icon: Building2 },
+const adminItems: NavigationItem[] = [
+  {
+    href: "/admin/users",
+    label: "Usuarios",
+    icon: UserCog,
+    isVisible: (access: UiAccess) => access.isAdmin,
+  },
+  {
+    href: "/admin/campaigns",
+    label: "Campañas",
+    icon: Building2,
+    isVisible: (access: UiAccess) => access.isAdmin,
+  },
 ];
 
-const operationsItems = [
+const operationsItems: NavigationItem[] = [
   {
     href: "/operations/agents",
     label: "Agentes",
@@ -96,11 +124,13 @@ const operationsItems = [
   },
 ];
 
-type NavigationItem = {
-  href: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-};
+const navigationSections: NavigationSection[] = [
+  { label: "Principal", items: primaryItems },
+  { label: "Analítica", items: analyticsItems },
+  { label: "Operación", items: operationsItems },
+  { label: "Administración", items: adminItems },
+  { label: "Configuración", items: configurationItems },
+];
 
 function isPathActive(pathname: string, href: string) {
   return href === "/" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
@@ -144,16 +174,25 @@ function NavigationLink({
   );
 }
 
-function NavigationSectionLabel({ children, expanded }: { children: string; expanded: boolean }) {
+function NavigationSectionLabel({
+  children,
+  expanded,
+  id,
+}: {
+  children: string;
+  expanded: boolean;
+  id: string;
+}) {
   return (
-    <p
+    <h2
+      id={id}
       className={cn(
         "px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50",
         !expanded && "sr-only",
       )}
     >
       {children}
-    </p>
+    </h2>
   );
 }
 
@@ -169,56 +208,40 @@ function SidebarNavigation({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const visibleNavItems = navItems.filter((item) => item.isVisible(access));
-  const visibleOperationsItems = operationsItems.filter((item) => item.isVisible(access));
+  const visibleSections = navigationSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => item.isVisible(access)),
+    }))
+    .filter((section) => section.items.length > 0);
 
   return (
     <nav id={id} aria-label="Navegación principal" className="flex-1 space-y-1 overflow-y-auto p-3">
-      {visibleNavItems.map((item) => (
-        <NavigationLink
-          key={item.href}
-          item={item}
-          expanded={expanded}
-          pathname={pathname}
-          onNavigate={onNavigate}
-        />
-      ))}
+      {visibleSections.map((section, index) => {
+        const sectionLabelId = `${id ?? "mobile-primary-navigation"}-section-${index}`;
 
-      {visibleOperationsItems.length > 0 && (
-        <div>
-          <div aria-hidden="true" className="my-3 border-t border-sidebar-border" />
-          <NavigationSectionLabel expanded={expanded}>Operación</NavigationSectionLabel>
-          <div className="space-y-1">
-            {visibleOperationsItems.map((item) => (
-              <NavigationLink
-                key={item.href}
-                item={item}
-                expanded={expanded}
-                pathname={pathname}
-                onNavigate={onNavigate}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {access.isAdmin && (
-        <div>
-          <div aria-hidden="true" className="my-3 border-t border-sidebar-border" />
-          <NavigationSectionLabel expanded={expanded}>Administración</NavigationSectionLabel>
-          <div className="space-y-1">
-            {adminItems.map((item) => (
-              <NavigationLink
-                key={item.href}
-                item={item}
-                expanded={expanded}
-                pathname={pathname}
-                onNavigate={onNavigate}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+        return (
+          <section key={section.label} aria-labelledby={sectionLabelId}>
+            {index > 0 && (
+              <div aria-hidden="true" className="my-3 border-t border-sidebar-border" />
+            )}
+            <NavigationSectionLabel id={sectionLabelId} expanded={expanded}>
+              {section.label}
+            </NavigationSectionLabel>
+            <div className="space-y-1">
+              {section.items.map((item) => (
+                <NavigationLink
+                  key={item.href}
+                  item={item}
+                  expanded={expanded}
+                  pathname={pathname}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </nav>
   );
 }

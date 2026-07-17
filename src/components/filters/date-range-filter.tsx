@@ -1,6 +1,15 @@
 "use client";
 
-import { format, isBefore, isSameDay, isValid, parseISO } from "date-fns";
+import {
+  endOfMonth,
+  format,
+  isBefore,
+  isSameDay,
+  isValid,
+  parseISO,
+  startOfMonth,
+  subMonths,
+} from "date-fns";
 import { es } from "date-fns/locale";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { useState } from "react";
@@ -15,7 +24,14 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-type Preset = "hoy" | "7" | "30" | "90" | "todo";
+export type DateRangePreset =
+  | "hoy"
+  | "este_mes"
+  | "mes_anterior"
+  | "7"
+  | "30"
+  | "90"
+  | "todo";
 
 interface DateRangeFilterProps {
   /** Committed range, ISO `yyyy-MM-dd` or empty for all available history. */
@@ -31,8 +47,10 @@ interface DateRangeFilterProps {
   disabled?: boolean;
 }
 
-const SHORTCUTS: { key: Preset; label: string }[] = [
+const SHORTCUTS: { key: DateRangePreset; label: string }[] = [
   { key: "hoy", label: "Hoy" },
+  { key: "este_mes", label: "Este mes" },
+  { key: "mes_anterior", label: "Mes anterior" },
   { key: "7", label: "Últimos 7 días" },
   { key: "30", label: "Últimos 30 días" },
   { key: "90", label: "Últimos 90 días" },
@@ -47,16 +65,30 @@ function parseDate(value: string): Date | null {
   return isValid(date) ? date : null;
 }
 
-function resolvePreset(key: Preset, timeZone: string): { from: string; to: string } {
+export function resolveDateRangePreset(
+  key: DateRangePreset,
+  timeZone: string,
+): { from: string; to: string } {
   const today = formatOperationalDate(new Date(), timeZone);
   if (key === "todo") return { from: "", to: "" };
   if (key === "hoy") return { from: today, to: today };
+  const operationalDate = parseISO(today);
+  if (key === "este_mes") {
+    return { from: isoOf(startOfMonth(operationalDate)), to: today };
+  }
+  if (key === "mes_anterior") {
+    const previousMonth = subMonths(operationalDate, 1);
+    return {
+      from: isoOf(startOfMonth(previousMonth)),
+      to: isoOf(endOfMonth(previousMonth)),
+    };
+  }
   return { from: addOperationalCalendarDays(today, -(Number(key) - 1)), to: today };
 }
 
-function activePreset(from: string, to: string, timeZone: string): Preset | null {
+function activePreset(from: string, to: string, timeZone: string): DateRangePreset | null {
   for (const shortcut of SHORTCUTS) {
-    const range = resolvePreset(shortcut.key, timeZone);
+    const range = resolveDateRangePreset(shortcut.key, timeZone);
     if (range.from === from && range.to === to) return shortcut.key;
   }
   return null;
@@ -121,8 +153,8 @@ export function DateRangeFilter({
     }
   };
 
-  const applyShortcut = (key: Preset) => {
-    const range = resolvePreset(key, operationalTimeZone);
+  const applyShortcut = (key: DateRangePreset) => {
+    const range = resolveDateRangePreset(key, operationalTimeZone);
     onApply(range.from, range.to);
     setOpen(false);
   };
@@ -139,7 +171,10 @@ export function DateRangeFilter({
     draftTo ? isoOf(draftTo) : "",
     operationalTimeZone,
   );
-  const currentLabel = dateRangeLabel(from, to, operationalToday);
+  const committedPreset = activePreset(from, to, operationalTimeZone);
+  const currentLabel =
+    SHORTCUTS.find((shortcut) => shortcut.key === committedPreset)?.label ??
+    dateRangeLabel(from, to, operationalToday);
 
   return (
     <div className={cn("min-w-0 space-y-1", className)}>

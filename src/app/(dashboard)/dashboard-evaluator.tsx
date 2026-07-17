@@ -1,11 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Calendar, ClipboardCheck, Scale, ShieldAlert, Target, TrendingUp } from "lucide-react";
-import { KpiCard } from "@/components/ui/kpi-card";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ContextBar,
   DashboardSpinner,
@@ -18,11 +15,14 @@ import {
   type DataLoadStatus,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { formatOperationalTimestamp } from "@/lib/date-display";
+import { cn } from "@/lib/utils";
 import { getMyDashboard } from "@/server/queries/analytics";
 import type { UiAccess } from "@/server/queries/ui-access";
-import { cn } from "@/lib/utils";
-import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
-import { formatOperationalTimestamp } from "@/lib/date-display";
 
 type MyDashboard = Awaited<ReturnType<typeof getMyDashboard>>;
 
@@ -74,7 +74,7 @@ export function DashboardEvaluator({
   }
 
   const countTrend = data.trend.map((t) => ({ value: t.count }));
-  const canOpenReports = access.canViewReports;
+  const canOpenEvaluations = access.canViewDashboard;
 
   const consistencyOk = data.stdDev <= data.calibrationTolerance;
 
@@ -84,8 +84,7 @@ export function DashboardEvaluator({
         title="Mi trabajo"
         subtitle={
           <>
-            Bienvenido de vuelta,{" "}
-            <span className="font-medium text-foreground">{userName}</span>
+            Bienvenido de vuelta, <span className="font-medium text-foreground">{userName}</span>
           </>
         }
         icon={ClipboardCheck}
@@ -103,10 +102,32 @@ export function DashboardEvaluator({
 
       {/* Self-scoped KPI row (neutral labels — descriptive, not a judgment) */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Evaluaciones" value={data.evaluations} icon={ClipboardCheck} tone="orange" trend={countTrend} index={0} />
-        <KpiCard label="Tasa diaria" value={data.dailyRate} decimals={1} icon={Calendar} tone="navy" index={1} />
+        <KpiCard
+          label="Evaluaciones"
+          value={data.evaluations}
+          icon={ClipboardCheck}
+          tone="orange"
+          trend={countTrend}
+          index={0}
+        />
+        <KpiCard
+          label="Tasa diaria"
+          value={data.dailyRate}
+          decimals={1}
+          icon={Calendar}
+          tone="navy"
+          index={1}
+        />
         <KpiCard label="Fatales" value={data.fatalCount} icon={ShieldAlert} tone="navy" index={2} />
-        <KpiCard label="Score promedio" value={data.avgScore} decimals={1} suffix="%" icon={TrendingUp} tone="navy" index={3} />
+        <KpiCard
+          label="Score promedio"
+          value={data.avgScore}
+          decimals={1}
+          suffix="%"
+          icon={TrendingUp}
+          tone="navy"
+          index={3}
+        />
       </div>
 
       {/* Distribution + personal consistency */}
@@ -125,34 +146,40 @@ export function DashboardEvaluator({
                 <EmptyState label="Sin datos para calibrar" />
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border bg-card p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Muestra personal
-                  </p>
-                  <p className="mt-1 font-heading text-3xl font-bold tabular-nums">
-                    {data.evaluations}
-                  </p>
-                  <p className="text-sm font-semibold text-foreground">evaluaciones</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Calculado únicamente con tu actividad
-                  </p>
+                  <div className="rounded-xl border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Muestra personal
+                    </p>
+                    <p className="mt-1 font-heading text-3xl font-bold tabular-nums">
+                      {data.evaluations}
+                    </p>
+                    <p className="text-sm font-semibold text-foreground">evaluaciones</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Calculado únicamente con tu actividad
+                    </p>
+                  </div>
+                  <div className="rounded-xl border bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Consistencia
+                    </p>
+                    <p className="mt-1 font-heading text-3xl font-bold tabular-nums">
+                      {data.stdDev.toFixed(1)}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-sm font-semibold",
+                        consistencyOk
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-amber-600 dark:text-amber-400",
+                      )}
+                    >
+                      {consistencyOk ? "Dentro de tolerancia" : "Fuera de tolerancia"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      StdDev · tolerancia &lt; {data.calibrationTolerance}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-xl border bg-card p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Consistencia</p>
-                  <p className="mt-1 font-heading text-3xl font-bold tabular-nums">{data.stdDev.toFixed(1)}</p>
-                  <p
-                    className={cn(
-                      "text-sm font-semibold",
-                      consistencyOk ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400",
-                    )}
-                  >
-                    {consistencyOk ? "Dentro de tolerancia" : "Fuera de tolerancia"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    StdDev · tolerancia &lt; {data.calibrationTolerance}
-                  </p>
-                </div>
-              </div>
               )}
             </CardContent>
           </Card>
@@ -173,11 +200,15 @@ export function DashboardEvaluator({
                     <button
                       type="button"
                       key={r.id}
-                      disabled={!canOpenReports}
-                      onClick={canOpenReports ? () => router.push(`/analytics/responses/${r.id}`) : undefined}
+                      disabled={!canOpenEvaluations}
+                      onClick={
+                        canOpenEvaluations ? () => router.push(`/evaluations/${r.id}`) : undefined
+                      }
                       className={cn(
                         "flex w-full items-center justify-between gap-3 rounded-lg border border-border/60 p-3 text-left",
-                        canOpenReports ? "cursor-pointer transition-colors hover:bg-muted/40" : "cursor-default",
+                        canOpenEvaluations
+                          ? "cursor-pointer transition-colors hover:bg-muted/40"
+                          : "cursor-default",
                       )}
                     >
                       <div className="min-w-0 flex-1">
@@ -185,11 +216,14 @@ export function DashboardEvaluator({
                         <p className="truncate text-xs text-muted-foreground">{r.formTitle}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <Badge variant={r.result === "PASS" ? "default" : "destructive"} className="tabular-nums">
+                        <Badge
+                          variant={r.result === "PASS" ? "default" : "destructive"}
+                          className="tabular-nums"
+                        >
                           {r.score.toFixed(1)}%
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          {formatOperationalTimestamp(r.createdAt, operationalTimeZone, {
+                          {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
                             dateStyle: "short",
                           })}
                         </span>

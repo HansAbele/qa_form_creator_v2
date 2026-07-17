@@ -23,21 +23,24 @@ export async function getCampaigns() {
   });
 }
 
-async function getCampaignsForPermission(
-  permission: CampaignPermissionKey,
+async function getCampaignsForPermissions(
+  permissions: readonly [CampaignPermissionKey, ...CampaignPermissionKey[]],
   options: { activeOnly?: boolean } = {},
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
 
-  if (isSupervisorRole(session.user.role) && isSupervisorBlockedPermission(permission)) {
+  if (
+    isSupervisorRole(session.user.role) &&
+    permissions.some((permission) => isSupervisorBlockedPermission(permission))
+  ) {
     return [];
   }
 
-  const userCampaignWhere: Prisma.UserCampaignWhereInput = {
+  const userCampaignWhere = {
     userId: session.user.id,
-    [permission]: true,
-  };
+    ...Object.fromEntries(permissions.map((permission) => [permission, true])),
+  } as Prisma.UserCampaignWhereInput;
 
   const where: Prisma.CampaignWhereInput =
     session.user.role === "ADMIN"
@@ -57,39 +60,45 @@ async function getCampaignsForPermission(
 }
 
 export async function getDashboardCampaigns() {
-  return getCampaignsForPermission("canViewDashboard", { activeOnly: true });
+  return getCampaignsForPermissions(["canViewDashboard"], { activeOnly: true });
+}
+
+// Evaluation history must keep inactive campaigns visible so prior months do
+// not disappear when a campaign is closed.
+export async function getOwnEvaluationHistoryCampaigns() {
+  return getCampaignsForPermissions(["canViewDashboard"]);
 }
 
 export async function getKpiCampaigns() {
-  return getCampaignsForPermission("canViewKPIs");
+  return getCampaignsForPermissions(["canViewKPIs"]);
 }
 
 export async function getFormCreationCampaigns() {
-  return getCampaignsForPermission("canCreateForms");
+  return getCampaignsForPermissions(["canCreateForms"]);
 }
 
 export async function getFormEditingCampaigns() {
-  return getCampaignsForPermission("canEditForms");
+  return getCampaignsForPermissions(["canEditForms"]);
 }
 
 export async function getReportCampaigns() {
-  return getCampaignsForPermission("canViewReports");
+  return getCampaignsForPermissions(["canViewReports"]);
 }
 
 export async function getExportCampaigns() {
-  return getCampaignsForPermission("canExport");
+  return getCampaignsForPermissions(["canExport", "canViewReports"]);
 }
 
 export async function getAgentManagementCampaigns() {
-  return getCampaignsForPermission("canManageAgents");
+  return getCampaignsForPermissions(["canManageAgents"]);
 }
 
 export async function getDispositionManagementCampaigns() {
-  return getCampaignsForPermission("canManageDispositions");
+  return getCampaignsForPermissions(["canManageDispositions"]);
 }
 
 export async function getAuditCampaigns() {
-  return getCampaignsForPermission("canViewAudit");
+  return getCampaignsForPermissions(["canViewAudit"]);
 }
 
 export async function createCampaign(data: { name: string; description?: string }) {

@@ -61,6 +61,8 @@ import {
   getDashboardStats,
   getDispositionAnalytics,
   getDispositionDetail,
+  getEvaluationHistory,
+  getEvaluationHistoryFilterOptions,
   getEvaluatorDetail,
   getFilteredResponses,
   getMyDashboard,
@@ -443,7 +445,7 @@ describe("QA category analytics", () => {
         score: 74,
         result: null,
         hasFatalFail: false,
-        createdAt: new Date("2026-05-03T12:00:00Z"),
+        submittedAt: new Date("2026-05-03T12:00:00Z"),
         form: {
           id: "form-1",
           title: "QA Retencion",
@@ -498,6 +500,7 @@ describe("QA category analytics", () => {
             fatalFailuresAllowed: 1,
             passesThreshold: false,
             scoreTargetDelta: -11,
+            submittedAt: "2026-05-03T12:00:00.000Z",
           }),
         ],
         page: 1,
@@ -525,7 +528,7 @@ describe("QA category analytics", () => {
       score: 90,
       result: "PASS",
       hasFatalFail: false,
-      createdAt: new Date("2026-05-03T12:00:00Z"),
+      submittedAt: new Date("2026-05-03T12:00:00Z"),
       form: {
         id: "form-1",
         title: "QA Retencion",
@@ -563,8 +566,8 @@ describe("QA category analytics", () => {
         avgScore: "90",
         passCount: BigInt(1),
         fatalFailCount: BigInt(0),
-        minCreatedAt: base.createdAt,
-        maxCreatedAt: base.createdAt,
+        minCreatedAt: base.submittedAt,
+        maxCreatedAt: base.submittedAt,
       },
     ]);
 
@@ -578,6 +581,7 @@ describe("QA category analytics", () => {
           id: { in: ["response-valid"] },
           form: { campaignId: "campaign-1" },
           status: "SUBMITTED",
+          submittedAt: { not: null },
           OR: [
             expect.objectContaining({
               AND: expect.arrayContaining([
@@ -700,7 +704,7 @@ describe("QA category analytics", () => {
             score: 50,
             result: "FAIL",
             hasFatalFail: true,
-            createdAt: new Date("2026-05-05T12:00:00Z"),
+            submittedAt: new Date("2026-05-05T12:00:00Z"),
             form: { campaignId: "campaign-1" },
             disposition: null,
           },
@@ -708,7 +712,7 @@ describe("QA category analytics", () => {
             score: 58,
             result: "FAIL",
             hasFatalFail: false,
-            createdAt: new Date("2026-05-04T12:00:00Z"),
+            submittedAt: new Date("2026-05-04T12:00:00Z"),
             form: { campaignId: "campaign-1" },
             disposition: null,
           },
@@ -716,7 +720,7 @@ describe("QA category analytics", () => {
             score: 65,
             result: "FAIL",
             hasFatalFail: false,
-            createdAt: new Date("2026-05-03T12:00:00Z"),
+            submittedAt: new Date("2026-05-03T12:00:00Z"),
             form: { campaignId: "campaign-1" },
             disposition: null,
           },
@@ -724,7 +728,7 @@ describe("QA category analytics", () => {
             score: 100,
             result: "PASS",
             hasFatalFail: false,
-            createdAt: new Date("2026-05-06T12:00:00Z"),
+            submittedAt: new Date("2026-05-06T12:00:00Z"),
             form: { campaignId: "foreign-campaign" },
             disposition: null,
           },
@@ -845,8 +849,17 @@ describe("QA category analytics", () => {
               form: { campaignId: { in: [] } },
             },
             {
-              NOT: { status: "DRAFT" },
+              status: "SUBMITTED",
               form: { campaignId: { in: ["campaign-1"] } },
+            },
+            {
+              status: "SUBMITTED",
+              evaluatorId: qaUser.id,
+              form: { campaignId: { in: [] } },
+            },
+            {
+              status: "CANCELLED",
+              form: { campaignId: { in: [] } },
             },
           ]),
         }),
@@ -859,6 +872,105 @@ describe("QA category analytics", () => {
       }),
     );
     expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a peer submission through personal dashboard access", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewDashboard: true,
+        canViewReports: false,
+        canEditEvaluations: false,
+      },
+    ]);
+    prismaMock.response.findFirst.mockResolvedValueOnce(null);
+
+    await expect(getResponseDetail("response-peer")).rejects.toThrow("Evaluacion no disponible");
+    expect(prismaMock.response.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            {
+              status: "SUBMITTED",
+              evaluatorId: qaUser.id,
+              form: { campaignId: { in: ["campaign-1"] } },
+            },
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("allows an evaluator to load their own submitted response without report access", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewDashboard: true,
+        canViewReports: false,
+        canEditEvaluations: false,
+      },
+    ]);
+    const timestamp = new Date("2026-07-10T12:00:00Z");
+    prismaMock.response.findFirst
+      .mockResolvedValueOnce({
+        id: "response-own",
+        formId: "form-1",
+        status: "SUBMITTED",
+        form: { campaignId: "campaign-1" },
+      })
+      .mockResolvedValueOnce({
+        id: "response-own",
+        status: "SUBMITTED",
+        score: 90,
+        result: "PASS",
+        hasFatalFail: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        submittedAt: timestamp,
+        cancelledAt: null,
+        cancellationReason: null,
+        scoringSnapshot: null,
+        settingsSnapshot: null,
+        formSnapshot: null,
+        form: {
+          id: "form-1",
+          title: "QA Form",
+          campaignId: "campaign-1",
+          status: "PUBLISHED",
+          campaign: { active: true },
+        },
+        agent: {
+          id: "agent-1",
+          name: "Ana",
+          agentCode: "A-1",
+          campaignId: "campaign-1",
+          campaign: { name: "Campana Uno" },
+        },
+        evaluator: { id: qaUser.id, name: "QA Uno" },
+        disposition: null,
+        answers: [],
+      });
+
+    await expect(getResponseDetail("response-own")).resolves.toEqual(
+      expect.objectContaining({ id: "response-own", status: "SUBMITTED", canEdit: false }),
+    );
+    expect(prismaMock.response.findFirst.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                {
+                  status: "SUBMITTED",
+                  evaluatorId: qaUser.id,
+                  form: { campaignId: { in: ["campaign-1"] } },
+                },
+              ]),
+            }),
+          ]),
+        }),
+      }),
+    );
   });
 
   it("allows a submitted response through report scope without granting edit access", async () => {
@@ -914,6 +1026,99 @@ describe("QA category analytics", () => {
       expect.objectContaining({ id: "response-submitted", canEdit: false }),
     );
     expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(2);
+    expect(prismaMock.response.findFirst.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                {
+                  status: "SUBMITTED",
+                  form: { campaignId: { in: ["campaign-1"] } },
+                },
+              ]),
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("allows a cancelled response only through audit scope", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewAudit: true,
+        canViewReports: false,
+        canEditEvaluations: false,
+      },
+    ]);
+    const createdAt = new Date("2026-07-10T12:00:00Z");
+    const cancelledAt = new Date("2026-07-11T12:00:00Z");
+    prismaMock.response.findFirst
+      .mockResolvedValueOnce({
+        id: "response-cancelled",
+        formId: "form-1",
+        status: "CANCELLED",
+        form: { campaignId: "campaign-1" },
+      })
+      .mockResolvedValueOnce({
+        id: "response-cancelled",
+        status: "CANCELLED",
+        score: 40,
+        result: "FAIL",
+        hasFatalFail: false,
+        createdAt,
+        updatedAt: cancelledAt,
+        submittedAt: createdAt,
+        cancelledAt,
+        cancellationReason: "Duplicada",
+        scoringSnapshot: null,
+        settingsSnapshot: null,
+        formSnapshot: null,
+        form: {
+          id: "form-1",
+          title: "QA Form",
+          campaignId: "campaign-1",
+          status: "ARCHIVED",
+          campaign: { active: true },
+        },
+        agent: {
+          id: "agent-1",
+          name: "Ana",
+          agentCode: "A-1",
+          campaignId: "campaign-1",
+          campaign: { name: "Campana Uno" },
+        },
+        evaluator: { id: "qa-2", name: "Eva" },
+        disposition: null,
+        answers: [],
+      });
+
+    await expect(getResponseDetail("response-cancelled")).resolves.toEqual(
+      expect.objectContaining({
+        id: "response-cancelled",
+        status: "CANCELLED",
+        canEdit: false,
+        cancellationReason: "Duplicada",
+      }),
+    );
+    expect(prismaMock.response.findFirst.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                {
+                  status: "CANCELLED",
+                  form: { campaignId: { in: ["campaign-1"] } },
+                },
+              ]),
+            }),
+          ]),
+        }),
+      }),
+    );
   });
 
   it("rejects a report detail whose agent team belongs to another campaign", async () => {
@@ -1071,7 +1276,7 @@ describe("Critical Error Accuracy (CEA)", () => {
       question: { criticalType: "CUSTOMER", formId: "form-1" },
       response: {
         agentId: "a1",
-        createdAt: new Date("2026-06-30T00:00:00Z"),
+        submittedAt: new Date("2026-06-30T00:00:00Z"),
         agent: { name: "Agent 1", agentCode: "A1", campaignId: "campaign-1" },
         disposition: null,
         form: {
@@ -1226,7 +1431,7 @@ describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
         score: 80,
         result: "PASS",
         hasFatalFail: false,
-        createdAt: new Date("2026-06-30T10:00:00Z"),
+        submittedAt: new Date("2026-06-30T10:00:00Z"),
         agent: {
           id: "a1",
           name: "Agent 1",
@@ -1244,7 +1449,7 @@ describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
         score: 60,
         result: "FAIL",
         hasFatalFail: true,
-        createdAt: new Date("2026-06-29T10:00:00Z"),
+        submittedAt: new Date("2026-06-29T10:00:00Z"),
         agent: {
           id: "a1",
           name: "Agent 1",
@@ -1342,7 +1547,7 @@ describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
         score: 80,
         result: null,
         hasFatalFail: false,
-        createdAt: new Date("2026-06-30T10:00:00Z"),
+        submittedAt: new Date("2026-06-30T10:00:00Z"),
         agent: {
           id: "agent-low",
           name: "Agent Low",
@@ -1360,7 +1565,7 @@ describe("Evaluator self-scoped dashboard (getMyDashboard)", () => {
         score: 80,
         result: null,
         hasFatalFail: false,
-        createdAt: new Date("2026-06-29T10:00:00Z"),
+        submittedAt: new Date("2026-06-29T10:00:00Z"),
         agent: {
           id: "agent-high",
           name: "Agent High",
@@ -1419,7 +1624,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
             score: 80,
             result: null,
             hasFatalFail: false,
-            createdAt: new Date("2026-07-03T12:00:00Z"),
+            submittedAt: new Date("2026-07-03T12:00:00Z"),
             form: { campaignId: "campaign-low" },
             disposition: null,
           },
@@ -1427,7 +1632,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
             score: 99,
             result: "FAIL",
             hasFatalFail: false,
-            createdAt: new Date("2026-07-02T12:00:00Z"),
+            submittedAt: new Date("2026-07-02T12:00:00Z"),
             form: { campaignId: "campaign-low" },
             disposition: null,
           },
@@ -1435,7 +1640,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
             score: 99,
             result: "PASS",
             hasFatalFail: true,
-            createdAt: new Date("2026-07-01T12:00:00Z"),
+            submittedAt: new Date("2026-07-01T12:00:00Z"),
             form: { campaignId: "campaign-low" },
             disposition: null,
           },
@@ -1452,7 +1657,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
             score: 80,
             result: null,
             hasFatalFail: false,
-            createdAt: new Date("2026-07-03T12:00:00Z"),
+            submittedAt: new Date("2026-07-03T12:00:00Z"),
             form: { campaignId: "campaign-high" },
             disposition: null,
           },
@@ -1593,7 +1798,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
                 score: 97,
                 result: "FAIL",
                 hasFatalFail: false,
-                createdAt: new Date("2026-07-02T12:00:00Z"),
+                submittedAt: new Date("2026-07-02T12:00:00Z"),
                 form: { campaignId: "campaign-low" },
                 disposition: null,
               },
@@ -1601,7 +1806,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
                 score: 97,
                 result: null,
                 hasFatalFail: true,
-                createdAt: new Date("2026-07-01T12:00:00Z"),
+                submittedAt: new Date("2026-07-01T12:00:00Z"),
                 form: { campaignId: "campaign-low" },
                 disposition: null,
               },
@@ -1609,7 +1814,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
                 score: 100,
                 result: "PASS",
                 hasFatalFail: false,
-                createdAt: new Date("2026-07-03T12:00:00Z"),
+                submittedAt: new Date("2026-07-03T12:00:00Z"),
                 form: { campaignId: "campaign-high" },
                 disposition: null,
               },
@@ -1617,7 +1822,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
                 score: 100,
                 result: "PASS",
                 hasFatalFail: false,
-                createdAt: new Date("2026-07-04T12:00:00Z"),
+                submittedAt: new Date("2026-07-04T12:00:00Z"),
                 form: { campaignId: "campaign-low" },
                 disposition: { campaignId: "campaign-high" },
               },
@@ -1633,7 +1838,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
                 score: 100,
                 result: "PASS",
                 hasFatalFail: false,
-                createdAt: new Date("2026-07-03T12:00:00Z"),
+                submittedAt: new Date("2026-07-03T12:00:00Z"),
                 form: { campaignId: "campaign-low" },
                 disposition: null,
               },
@@ -1683,7 +1888,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
         score: 96,
         result: "FAIL",
         hasFatalFail: false,
-        createdAt: new Date("2026-07-02T12:00:00Z"),
+        submittedAt: new Date("2026-07-02T12:00:00Z"),
         agent: { id: "agent-1", name: "Ana" },
         evaluator: { id: "evaluator-1", name: "Eva" },
         form: { title: "Formulario Uno" },
@@ -1694,7 +1899,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
         score: 96,
         result: null,
         hasFatalFail: true,
-        createdAt: new Date("2026-07-01T12:00:00Z"),
+        submittedAt: new Date("2026-07-01T12:00:00Z"),
         agent: { id: "agent-1", name: "Ana" },
         evaluator: { id: "evaluator-1", name: "Eva" },
         form: { title: "Formulario Uno" },
@@ -1743,7 +1948,8 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       score: 88,
       result: "PASS",
       hasFatalFail: false,
-      createdAt: new Date("2026-07-02T12:00:00Z"),
+      createdAt: new Date("2026-06-30T12:00:00Z"),
+      submittedAt: new Date("2026-07-01T12:00:00Z"),
       evaluator: { id: "evaluator-1", name: "Eva" },
       answers: [],
     };
@@ -1791,6 +1997,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
         avgScore: 88,
         passThreshold: 75,
         teamName: "Equipo Uno",
+        scoreTrend: [{ date: "2026-07-01", avgScore: 88 }],
         recentResponses: [expect.objectContaining({ id: "response-valid", result: "PASS" })],
       }),
     );
@@ -1979,7 +2186,7 @@ describe("Filtered responses effective PASS/FAIL", () => {
   }) {
     return {
       ...args,
-      createdAt: new Date("2026-07-10T12:00:00Z"),
+      submittedAt: new Date("2026-07-10T12:00:00Z"),
       agent: {
         id: `agent-${args.campaignId}`,
         name: `Agente ${args.campaignId}`,
@@ -2165,6 +2372,404 @@ describe("Filtered responses effective PASS/FAIL", () => {
           ]),
         },
       ]),
+    );
+  });
+});
+
+describe("Evaluation history authorization", () => {
+  const evaluatorUser = {
+    id: "qa-history",
+    role: "QA",
+    campaignIds: ["campaign-1"],
+  };
+
+  function historyRow() {
+    const submittedAt = new Date("2026-07-10T12:00:00Z");
+    return {
+      id: "response-own",
+      score: 88,
+      result: "PASS",
+      hasFatalFail: false,
+      createdAt: new Date("2026-07-09T12:00:00Z"),
+      submittedAt,
+      agent: {
+        id: "agent-1",
+        name: "Ana",
+        campaign: { name: "Campana Uno" },
+      },
+      evaluator: { id: evaluatorUser.id, name: "QA Uno" },
+      form: {
+        id: "form-1",
+        title: "Formulario QA",
+        campaignId: "campaign-1",
+      },
+      disposition: null,
+    };
+  }
+
+  beforeEach(() => {
+    resetPrismaMock();
+    authMock.mockReset();
+    getPassThresholdForCampaignMock.mockReset();
+    authMock.mockResolvedValue({ user: evaluatorUser });
+    getPassThresholdForCampaignMock.mockResolvedValue(70);
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      userId: evaluatorUser.id,
+      campaignId: "campaign-1",
+      canViewDashboard: true,
+    });
+    prismaMock.response.findMany.mockResolvedValue([historyRow()]);
+    prismaMock.response.count.mockResolvedValue(1);
+    prismaMock.response.aggregate.mockResolvedValue({ _avg: { score: 88 } });
+  });
+
+  it("forces the current evaluator in own scope and filters by submission date", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      userId: evaluatorUser.id,
+      campaignId: "campaign-1",
+      canViewDashboard: true,
+    });
+
+    const result = await getEvaluationHistory({
+      scope: "own",
+      campaignId: "campaign-1",
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-31",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        scope: "own",
+        totalCount: 1,
+        page: 1,
+        pageSize: 25,
+        summary: { totalEvaluations: 1, avgScore: 88, passRate: 100 },
+      }),
+    );
+    expect(prismaMock.response.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          evaluatorId: evaluatorUser.id,
+          form: { campaignId: "campaign-1" },
+          status: "SUBMITTED",
+          submittedAt: expect.objectContaining({
+            not: null,
+            gte: expect.any(Date),
+            lt: expect.any(Date),
+          }),
+        }),
+        orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+        skip: 0,
+        take: 25,
+      }),
+    );
+    expect(prismaMock.response.findMany.mock.calls[0]?.[0].where).not.toHaveProperty("createdAt");
+  });
+
+  it("rejects managed scope when the campaign lacks report permission", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      userId: evaluatorUser.id,
+      campaignId: "campaign-1",
+      canViewDashboard: true,
+      canViewReports: false,
+    });
+
+    await expect(
+      getEvaluationHistory({ scope: "managed", campaignId: "campaign-1" }),
+    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    expect(prismaMock.response.findMany).not.toHaveBeenCalled();
+  });
+
+  it("does not force evaluator ownership in an authorized managed scope", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      userId: evaluatorUser.id,
+      campaignId: "campaign-1",
+      canViewReports: true,
+    });
+
+    const result = await getEvaluationHistory({
+      scope: "managed",
+      campaignId: "campaign-1",
+      page: 2,
+      pageSize: 10,
+    });
+
+    expect(result.scope).toBe("managed");
+    const where = prismaMock.response.findMany.mock.calls[0]?.[0].where;
+    expect(where).not.toHaveProperty("evaluatorId");
+    expect(prismaMock.response.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 10, take: 10 }),
+    );
+  });
+
+  it("applies all monthly drill-down filters in managed scope", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      userId: evaluatorUser.id,
+      campaignId: "campaign-1",
+      canViewReports: true,
+    });
+
+    await getEvaluationHistory({
+      scope: "managed",
+      campaignId: "campaign-1",
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-31",
+      agentId: "agent-filter",
+      evaluatorId: "qa-filter",
+      formId: "form-filter",
+      dispositionId: "disposition-filter",
+      fatalOnly: true,
+    });
+
+    const historyWhere = prismaMock.response.findMany.mock.calls[0]?.[0].where;
+    expect(historyWhere).toEqual(
+      expect.objectContaining({
+        form: { campaignId: "campaign-1" },
+        agentId: "agent-filter",
+        evaluatorId: "qa-filter",
+        formId: "form-filter",
+        dispositionId: "disposition-filter",
+        hasFatalFail: true,
+        status: "SUBMITTED",
+        submittedAt: expect.objectContaining({
+          not: null,
+          gte: expect.any(Date),
+          lt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(prismaMock.response.count.mock.calls[0]?.[0]).toEqual({ where: historyWhere });
+    expect(prismaMock.response.aggregate).toHaveBeenCalledWith({
+      where: historyWhere,
+      _avg: { score: true },
+    });
+  });
+
+  it("ignores a manipulated evaluatorId in own scope and forces the session evaluator", async () => {
+    await getEvaluationHistory({
+      scope: "own",
+      campaignId: "campaign-1",
+      evaluatorId: "qa-peer",
+      agentId: "agent-1",
+    });
+
+    const historyWhere = prismaMock.response.findMany.mock.calls[0]?.[0].where;
+    expect(historyWhere).toEqual(
+      expect.objectContaining({
+        evaluatorId: evaluatorUser.id,
+        agentId: "agent-1",
+      }),
+    );
+    expect(JSON.stringify(historyWhere)).not.toContain("qa-peer");
+  });
+
+  it("derives own filter options only from authorized submitted responses", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewDashboard: true,
+        canViewReports: false,
+      },
+      {
+        campaignId: "campaign-2",
+        canViewDashboard: false,
+        canViewReports: true,
+      },
+    ]);
+    prismaMock.response.findMany
+      .mockReset()
+      .mockResolvedValueOnce([
+        {
+          agent: {
+            id: "agent-own",
+            name: "Ana",
+            campaignId: "campaign-1",
+            campaign: { name: "Campana Uno" },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          evaluator: { id: evaluatorUser.id, name: "QA Propio" },
+          form: { campaignId: "campaign-1" },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          form: {
+            id: "form-own",
+            title: "Formulario Propio",
+            campaignId: "campaign-1",
+            campaign: { name: "Campana Uno" },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          disposition: {
+            id: "disposition-own",
+            name: "Venta",
+            campaignId: "campaign-1",
+            campaign: { name: "Campana Uno" },
+          },
+        },
+      ]);
+
+    await expect(getEvaluationHistoryFilterOptions("own")).resolves.toEqual({
+      agents: [
+        {
+          id: "agent-own",
+          name: "Ana",
+          campaignId: "campaign-1",
+          campaignName: "Campana Uno",
+        },
+      ],
+      evaluators: [{ id: evaluatorUser.id, name: "QA Propio", campaignIds: ["campaign-1"] }],
+      forms: [
+        {
+          id: "form-own",
+          name: "Formulario Propio",
+          campaignId: "campaign-1",
+          campaignName: "Campana Uno",
+        },
+      ],
+      dispositions: [
+        {
+          id: "disposition-own",
+          name: "Venta",
+          campaignId: "campaign-1",
+          campaignName: "Campana Uno",
+        },
+      ],
+    });
+
+    const ownScope = prismaMock.response.findMany.mock.calls[0]?.[0].where;
+    expect(ownScope).toEqual(
+      expect.objectContaining({
+        form: { campaignId: { in: ["campaign-1"] } },
+        evaluatorId: evaluatorUser.id,
+        status: "SUBMITTED",
+        submittedAt: { not: null },
+      }),
+    );
+    expect(JSON.stringify(ownScope)).not.toContain("campaign-2");
+    expect(prismaMock.agent.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.user.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.form.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.disposition.findMany).not.toHaveBeenCalled();
+  });
+
+  it("derives managed filter options from report-authorized responses without self scope", async () => {
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      {
+        campaignId: "campaign-1",
+        canViewDashboard: true,
+        canViewReports: true,
+      },
+      {
+        campaignId: "campaign-2",
+        canViewDashboard: true,
+        canViewReports: false,
+      },
+    ]);
+    prismaMock.response.findMany
+      .mockReset()
+      .mockResolvedValueOnce([
+        {
+          agent: {
+            id: "agent-managed",
+            name: "Bruno",
+            campaignId: "campaign-1",
+            campaign: { name: "Campana Uno" },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          evaluator: { id: "qa-managed", name: "QA Gestionado" },
+          form: { campaignId: "campaign-1" },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          form: {
+            id: "form-managed",
+            title: "Formulario Gestionado",
+            campaignId: "campaign-1",
+            campaign: { name: "Campana Uno" },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const options = await getEvaluationHistoryFilterOptions("managed");
+
+    expect(options).toEqual(
+      expect.objectContaining({
+        agents: [expect.objectContaining({ id: "agent-managed" })],
+        evaluators: [{ id: "qa-managed", name: "QA Gestionado", campaignIds: ["campaign-1"] }],
+        forms: [expect.objectContaining({ id: "form-managed" })],
+        dispositions: [],
+      }),
+    );
+    const managedScope = prismaMock.response.findMany.mock.calls[0]?.[0].where;
+    expect(managedScope).toEqual(
+      expect.objectContaining({
+        form: { campaignId: { in: ["campaign-1"] } },
+        status: "SUBMITTED",
+        submittedAt: { not: null },
+      }),
+    );
+    expect(managedScope).not.toHaveProperty("evaluatorId");
+    expect(JSON.stringify(managedScope)).not.toContain("campaign-2");
+    expect(prismaMock.response.findMany).toHaveBeenCalledTimes(4);
+    expect(prismaMock.response.findMany.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        distinct: ["evaluatorId", "formId"],
+        select: {
+          evaluator: { select: { id: true, name: true } },
+          form: { select: { campaignId: true } },
+        },
+      }),
+    );
+  });
+
+  it.each([
+    "PENDING",
+    "PASSED",
+    "",
+    "CANCELLED",
+  ])("rejects the unsupported result status %j before querying responses", async (resultStatus) => {
+    await expect(
+      getEvaluationHistory({ scope: "own", campaignId: "campaign-1", resultStatus }),
+    ).rejects.toThrow("resultStatus debe ser PASS o FAIL");
+    expect(prismaMock.response.findMany).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 1.5, 10_001])("rejects the invalid page %s", async (page) => {
+    await expect(
+      getEvaluationHistory({ scope: "own", campaignId: "campaign-1", page }),
+    ).rejects.toThrow("page debe ser un entero entre 1 y 10000");
+    expect(prismaMock.response.findMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ minScore: -1 }, "minScore debe ser un numero entre 0 y 100"],
+    [{ maxScore: 101 }, "maxScore debe ser un numero entre 0 y 100"],
+    [{ minScore: Number.NaN }, "minScore debe ser un numero entre 0 y 100"],
+    [{ minScore: 80, maxScore: 70 }, "minScore no puede ser mayor que maxScore"],
+  ] as const)("rejects invalid score boundaries", async (scoreParams, message) => {
+    await expect(
+      getEvaluationHistory({ scope: "own", campaignId: "campaign-1", ...scoreParams }),
+    ).rejects.toThrow(message);
+    expect(prismaMock.response.findMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a submitted history row without submittedAt instead of falling back to createdAt", async () => {
+    prismaMock.response.findMany.mockResolvedValue([{ ...historyRow(), submittedAt: null }]);
+
+    await expect(getEvaluationHistory({ scope: "own", campaignId: "campaign-1" })).rejects.toThrow(
+      "Evaluacion enviada sin fecha de envio",
     );
   });
 });
