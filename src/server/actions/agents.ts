@@ -49,7 +49,7 @@ async function attachSafeAgentRelations<
 
 export async function getAgents(campaignId?: string) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const where = campaignId ? { campaignId } : {};
 
@@ -67,7 +67,7 @@ export async function getAgents(campaignId?: string) {
 
 export async function getAgentsForEvaluation(campaignId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   try {
     await assertCampaignPermissionForUser(session.user, campaignId, "canEvaluate");
   } catch {
@@ -83,7 +83,7 @@ export async function getAgentsForEvaluation(campaignId: string) {
 
 export async function getAgentsForManagement(campaignId?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const where = await getCampaignFilterForPermission("canManageAgents", campaignId);
 
@@ -106,7 +106,7 @@ export async function createAgent(data: {
   teamId?: string;
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageAgents");
 
@@ -116,7 +116,7 @@ export async function createAgent(data: {
       select: { campaignId: true },
     });
     if (!team || team.campaignId !== data.campaignId) {
-      throw new Error("Equipo invalido para esta campana");
+      throw new Error("Invalid team for this campaign");
     }
   }
 
@@ -138,7 +138,7 @@ export async function createAgent(data: {
         entityType: "agent",
         entityId: agent.id,
         afterValue: agent,
-        impact: "Agente disponible para evaluaciones y reportes de la campana.",
+        impact: "Agent available for campaign evaluations and reports.",
       },
       tx,
     );
@@ -155,7 +155,7 @@ export async function updateAgent(
   data: { name: string; agentCode?: string; teamId?: string; active: boolean },
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const existing = await prisma.agent.findUnique({
     where: { id },
@@ -168,7 +168,7 @@ export async function updateAgent(
       active: true,
     },
   });
-  if (!existing) throw new Error("Agente no encontrado");
+  if (!existing) throw new Error("Agent not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageAgents");
 
   if (data.teamId) {
@@ -177,7 +177,7 @@ export async function updateAgent(
       select: { campaignId: true },
     });
     if (!team || team.campaignId !== existing.campaignId) {
-      throw new Error("Equipo invalido para este agente");
+      throw new Error("Invalid team for this agent");
     }
   }
 
@@ -201,7 +201,7 @@ export async function updateAgent(
         entityId: id,
         beforeValue: existing,
         afterValue: agent,
-        impact: "Cambio operativo en datos del agente.",
+        impact: "Operational change to agent data.",
       },
       tx,
     );
@@ -215,13 +215,13 @@ export async function updateAgent(
 
 export async function deleteAgent(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const agent = await prisma.agent.findUnique({
     where: { id },
     select: { id: true, name: true, agentCode: true, campaignId: true, active: true },
   });
-  if (!agent) throw new Error("Agente no encontrado");
+  if (!agent) throw new Error("Agent not found");
   await assertCampaignPermissionForUser(session.user, agent.campaignId, "canManageAgents");
 
   await prisma.$transaction(async (tx) => {
@@ -239,7 +239,7 @@ export async function deleteAgent(id: string) {
         entityId: id,
         beforeValue: agent,
         afterValue: updated,
-        impact: "Agente desactivado para futuras evaluaciones.",
+        impact: "Agent deactivated for future evaluations.",
       },
       tx,
     );

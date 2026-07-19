@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { FilterCheckbox, FilterSelect } from "@/components/filters/filter-select";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
-import { OUTCOME_LABELS } from "@/lib/disposition-outcome";
+import { OUTCOME_LABELS_EN } from "@/lib/disposition-outcome";
+import { getMetricDisplay, type MetricDisplay } from "@/lib/metric-display";
 import { getReportData } from "@/server/queries/analytics";
 
 type ReportPage = Awaited<ReturnType<typeof getReportData>>;
@@ -46,16 +48,10 @@ interface ReportsClientProps {
   canExport: boolean;
 }
 
-const REPORT_SUMMARY_SKELETONS = [
-  "evaluations",
-  "average-score",
-  "pass-rate",
-  "daily-rate",
-  "fatal-failures",
-] as const;
-
 export function ReportsClient({ campaigns, forms, dispositions, canExport }: ReportsClientProps) {
+  const { locale, t } = useI18n();
   const operationalTimeZone = useOperationalTimeZone();
+  const displayLocale = locale === "es" ? "es" : "en";
   const [campaignId, setCampaignId] = useState("");
   const [formId, setFormId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -96,7 +92,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
     } catch {
       if (requestId !== reportRequestGeneration.current) return;
       setReportPage(null);
-      setError("No fue posible cargar los reportes. Intenta nuevamente.");
+      setError("Unable to load reports. Please try again.");
     } finally {
       if (requestId === reportRequestGeneration.current) setLoading(false);
     }
@@ -144,39 +140,105 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
       fatalOnly,
   );
   const campaignOptions = [
-    { value: "all", label: "Todas" },
+    { value: "all", label: t("All campaigns") },
     ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
   ];
   const formOptions = [
-    { value: "all", label: "Todos" },
+    { value: "all", label: t("All forms") },
     ...filteredForms.map((form) => ({ value: form.id, label: form.title })),
   ];
   const dispositionSelectOptions = [
-    { value: "all", label: "Todas" },
+    { value: "all", label: t("All dispositions") },
     ...dispositionOptions.map((disposition) => ({
       value: disposition.id,
       label: `${disposition.name} · ${disposition.campaignName}`,
     })),
   ];
+  const metricStatus = loading
+    ? "loading"
+    : error
+      ? "error"
+      : summary && summary.totalEvaluations > 0
+        ? "success"
+        : "empty";
+  const hasSummaryData = (summary?.totalEvaluations ?? 0) > 0;
+  const totalEvaluationsMetric = getMetricDisplay({
+    kind: "count",
+    value: summary?.totalEvaluations,
+    hasData: hasSummaryData,
+    status: metricStatus,
+  });
+  const averageScoreMetric = getMetricDisplay({
+    kind: "measure",
+    value: summary?.avgScore,
+    hasData: hasSummaryData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const passRateMetric = getMetricDisplay({
+    kind: "measure",
+    value: summary?.passRate,
+    hasData: hasSummaryData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const dailyRateMetric = getMetricDisplay({
+    kind: "measure",
+    value: summary?.dailyRate,
+    hasData: hasSummaryData,
+    status: metricStatus,
+    decimals: 1,
+  });
+  const fatalFailuresMetric = getMetricDisplay({
+    kind: "count",
+    value: summary?.fatalFailCount,
+    hasData: hasSummaryData,
+    status: metricStatus,
+  });
+  const renderMetric = (
+    metric: MetricDisplay,
+    skeletonWidth: string,
+    readySupportingText?: string,
+  ) => {
+    if (metric.state === "loading") {
+      return <Skeleton className={`mx-auto h-8 ${skeletonWidth}`} />;
+    }
+
+    const stateLabel =
+      metric.state === "no-data"
+        ? t("No data")
+        : metric.state === "unavailable"
+          ? t("Unavailable")
+          : readySupportingText;
+
+    return (
+      <>
+        <p className="text-2xl font-bold tabular-nums">{metric.text}</p>
+        {stateLabel ? <p className="text-xs text-muted-foreground">{stateLabel}</p> : null}
+      </>
+    );
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("Reports")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Indicadores consolidados para las campañas bajo tu responsabilidad.
+            {t("Consolidated metrics for the campaigns under your responsibility.")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={openHistory}>
             <ClipboardCheck className="h-4 w-4" />
-            Ver evaluaciones
+            {t("View evaluations")}
           </Button>
           {canExport && (
             <Button variant="outline" onClick={() => router.push("/analytics/export")}>
               <Download className="h-4 w-4" />
-              Exportar
+              {t("Export")}
             </Button>
           )}
         </div>
@@ -191,23 +253,23 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
                 <SlidersHorizontal className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-sm font-semibold">Filtros del reporte</p>
+                <p className="text-sm font-semibold">{t("Report filters")}</p>
                 <p className="text-xs text-muted-foreground">
-                  Los cambios se aplican automáticamente a indicadores y resultados.
+                  {t("Changes apply automatically to metrics and results.")}
                 </p>
               </div>
             </div>
             {hasActiveFilters ? (
               <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
                 <X className="h-4 w-4" />
-                Limpiar
+                {t("Clear")}
               </Button>
             ) : null}
           </div>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             <FilterSelect
               id="reports-campaign"
-              label="Campaña"
+              label={t("Campaign")}
               value={campaignId || "all"}
               options={campaignOptions}
               onValueChange={(value) => {
@@ -216,24 +278,24 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
                 setFormId("");
                 setDispositionFilter("all");
               }}
-              placeholder="Todas"
+              placeholder={t("All campaigns")}
               icon={Megaphone}
             />
             <FilterSelect
               id="reports-form"
-              label="Formulario"
+              label={t("Form")}
               value={formId || "all"}
               options={formOptions}
               onValueChange={(value) => {
                 setPage(1);
                 setFormId(value === "all" ? "" : value);
               }}
-              placeholder="Todos"
+              placeholder={t("All forms")}
               icon={FileText}
             />
             <DateRangeFilter
               id="reports-period"
-              label="Periodo"
+              label={t("Period")}
               from={dateFrom}
               to={dateTo}
               onApply={(from, to) => {
@@ -245,12 +307,12 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
             />
             <FilterSelect
               id="reports-result"
-              label="Resultado"
+              label={t("Result")}
               value={resultFilter}
               options={[
-                { value: "all", label: "Todos" },
-                { value: "PASS", label: "Solo PASS" },
-                { value: "FAIL", label: "Solo FAIL" },
+                { value: "all", label: t("All results") },
+                { value: "PASS", label: t("PASS only") },
+                { value: "FAIL", label: t("FAIL only") },
               ]}
               onValueChange={(value) => {
                 setPage(1);
@@ -260,21 +322,21 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
             />
             <FilterSelect
               id="reports-disposition"
-              label="Disposición"
+              label={t("Disposition")}
               value={dispositionFilter}
               options={dispositionSelectOptions}
               onValueChange={(value) => {
                 setPage(1);
                 setDispositionFilter(value);
               }}
-              placeholder="Todas"
+              placeholder={t("All dispositions")}
               icon={Tags}
               contentClassName="min-w-64"
             />
             <FilterCheckbox
               id="reports-fatal-only"
-              fieldLabel="Riesgo"
-              label="Solo fatales"
+              fieldLabel={t("Risk")}
+              label={t("Critical failures only")}
               checked={fatalOnly}
               onCheckedChange={(checked) => {
                 setPage(1);
@@ -292,96 +354,109 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
           className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm"
         >
           <AlertCircle className="h-5 w-5 text-destructive" />
-          <span className="flex-1">{error}</span>
+          <span className="flex-1">{t(error)}</span>
           <Button variant="outline" size="sm" onClick={() => void loadReports()}>
-            Reintentar
+            {t("Retry")}
           </Button>
         </div>
       )}
 
       {/* Summary */}
-      {loading && !summary ? (
-        <div
-          role="status"
-          aria-label="Cargando indicadores del reporte"
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
-        >
-          {REPORT_SUMMARY_SKELETONS.map((skeleton) => (
-            <Card key={skeleton} aria-hidden="true">
-              <CardContent className="space-y-3 p-4">
-                <Skeleton className="mx-auto h-4 w-24" />
-                <Skeleton className="mx-auto h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : summary && !error ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" aria-busy={loading}>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Evaluaciones</p>
-              <p className="text-2xl font-bold">{summary.totalEvaluations}</p>
-            </CardContent>
-          </Card>
-          <Card
-            className={
-              summary.avgScore >= summary.targetAvgScore ? "border-green-200" : "border-red-200"
-            }
-          >
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Score Promedio</p>
-              <p className="text-2xl font-bold">{summary.avgScore.toFixed(1)}%</p>
-              <p className="text-xs text-muted-foreground">Target: {summary.targetAvgScore}%</p>
-            </CardContent>
-          </Card>
-          <Card
-            className={
-              summary.passRate >= summary.targetPassRate ? "border-green-200" : "border-red-200"
-            }
-          >
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Pass Rate</p>
-              <p className="text-2xl font-bold">{summary.passRate.toFixed(1)}%</p>
-              <p className="text-xs text-muted-foreground">Target: {summary.targetPassRate}%</p>
-            </CardContent>
-          </Card>
-          <Card
-            className={
-              summary.dailyRate >= summary.targetDailyRate ? "border-green-200" : "border-amber-200"
-            }
-          >
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Tasa Diaria</p>
-              <p className="text-2xl font-bold">{summary.dailyRate.toFixed(1)}</p>
-              <p className="text-xs text-muted-foreground">Target: {summary.targetDailyRate}/día</p>
-            </CardContent>
-          </Card>
-          <Card
-            className={
-              summary.fatalFailCount <= summary.fatalFailuresAllowed
+      <div
+        role="status"
+        aria-live="polite"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
+        aria-busy={loading}
+      >
+        {loading ? <span className="sr-only">{t("Loading report metrics")}</span> : null}
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">{t("Evaluated Calls")}</p>
+            {renderMetric(totalEvaluationsMetric, "w-16")}
+          </CardContent>
+        </Card>
+        <Card
+          className={
+            averageScoreMetric.state === "ready" && summary
+              ? summary.avgScore >= summary.targetAvgScore
                 ? "border-green-200"
                 : "border-red-200"
-            }
-          >
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Fatales</p>
-              <p className="text-2xl font-bold">{summary.fatalFailCount}</p>
-              <p className="text-xs text-muted-foreground">
-                Permitidas: {summary.fatalFailuresAllowed}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
+              : undefined
+          }
+        >
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">{t("Average Score")}</p>
+            {renderMetric(
+              averageScoreMetric,
+              "w-20",
+              summary ? t("Target: {value}%", { value: summary.targetAvgScore }) : undefined,
+            )}
+          </CardContent>
+        </Card>
+        <Card
+          className={
+            passRateMetric.state === "ready" && summary
+              ? summary.passRate >= summary.targetPassRate
+                ? "border-green-200"
+                : "border-red-200"
+              : undefined
+          }
+        >
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">{t("Pass Rate")}</p>
+            {renderMetric(
+              passRateMetric,
+              "w-20",
+              summary ? t("Target: {value}%", { value: summary.targetPassRate }) : undefined,
+            )}
+          </CardContent>
+        </Card>
+        <Card
+          className={
+            dailyRateMetric.state === "ready" && summary
+              ? summary.dailyRate >= summary.targetDailyRate
+                ? "border-green-200"
+                : "border-amber-200"
+              : undefined
+          }
+        >
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">{t("Daily Rate")}</p>
+            {renderMetric(
+              dailyRateMetric,
+              "w-16",
+              summary ? t("Target: {value}/day", { value: summary.targetDailyRate }) : undefined,
+            )}
+          </CardContent>
+        </Card>
+        <Card
+          className={
+            fatalFailuresMetric.state === "ready" && summary
+              ? summary.fatalFailCount <= summary.fatalFailuresAllowed
+                ? "border-green-200"
+                : "border-red-200"
+              : undefined
+          }
+        >
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground">{t("Critical Failures")}</p>
+            {renderMetric(
+              fatalFailuresMetric,
+              "w-16",
+              summary ? t("Allowed: {value}", { value: summary.fatalFailuresAllowed }) : undefined,
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {reportPage && reportPage.totalCount > 0 && (
         <p className="text-sm text-muted-foreground">
-          Mostrando{" "}
+          {t("Showing")}{" "}
           <span className="font-medium text-foreground">
             {(reportPage.page - 1) * reportPage.pageSize + 1}–
             {Math.min(reportPage.page * reportPage.pageSize, reportPage.totalCount)}
           </span>{" "}
-          de {reportPage.totalCount} evaluaciones
+          {t("of {count} evaluations", { count: reportPage.totalCount })}
         </p>
       )}
 
@@ -390,28 +465,29 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Fecha</TableHead>
-              <TableHead>Campaña</TableHead>
-              <TableHead>Formulario</TableHead>
-              <TableHead>Agente</TableHead>
-              <TableHead>Evaluador</TableHead>
-              <TableHead>Disposición</TableHead>
-              <TableHead>Score</TableHead>
-              <TableHead className="w-16">Detalle</TableHead>
+              <TableHead>{t("Date")}</TableHead>
+              <TableHead>{t("Campaign")}</TableHead>
+              <TableHead>{t("Form")}</TableHead>
+              <TableHead>{t("Agent")}</TableHead>
+              <TableHead>{t("Evaluator")}</TableHead>
+              <TableHead>{t("Disposition")}</TableHead>
+              <TableHead>{t("Score")}</TableHead>
+              <TableHead className="w-16">{t("Details")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {responses.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="whitespace-nowrap text-muted-foreground">
-                  {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
-                    dateStyle: "short",
-                  })}
+                  {formatOperationalTimestamp(
+                    r.submittedAt,
+                    operationalTimeZone,
+                    { dateStyle: "short" },
+                    displayLocale,
+                  )}
                 </TableCell>
                 <TableCell className="max-w-[150px] truncate">{r.campaignName}</TableCell>
-                <TableCell>
-                  {r.formTitle}
-                </TableCell>
+                <TableCell>{r.formTitle}</TableCell>
                 <TableCell>
                   {r.agentName}
                   {r.agentCode && (
@@ -425,8 +501,11 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
                       <span className="max-w-[150px] truncate">{r.dispositionName}</span>
                       {r.dispositionOutcome && (
                         <span className="text-xs text-muted-foreground">
-                          {OUTCOME_LABELS[r.dispositionOutcome as keyof typeof OUTCOME_LABELS] ??
-                            r.dispositionOutcome}
+                          {t(
+                            OUTCOME_LABELS_EN[
+                              r.dispositionOutcome as keyof typeof OUTCOME_LABELS_EN
+                            ] ?? r.dispositionOutcome,
+                          )}
                         </span>
                       )}
                     </div>
@@ -447,7 +526,9 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
                       {r.scoreTargetDelta.toFixed(1)}
                     </Badge>
                     {!r.passesThreshold && (
-                      <Badge variant="destructive">{r.hasFatalFail ? "Fatal" : "Fail"}</Badge>
+                      <Badge variant="destructive">
+                        {r.hasFatalFail ? t("Critical Failure") : t("Fail")}
+                      </Badge>
                     )}
                   </div>
                 </TableCell>
@@ -455,7 +536,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label={`Ver detalle de ${r.agentName}`}
+                    aria-label={t("View details for {name}", { name: r.agentName })}
                     onClick={() => router.push(`/evaluations/${r.id}`)}
                   >
                     <Eye className="h-3.5 w-3.5" />
@@ -466,11 +547,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
             {responses.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground">
-                  {loading
-                    ? "Cargando..."
-                    : error
-                      ? "No se pudieron cargar los datos"
-                      : "Sin resultados"}
+                  {loading ? t("Loading...") : error ? t("Unable to load data") : t("No results")}
                 </TableCell>
               </TableRow>
             )}
@@ -480,11 +557,14 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
 
       {reportPage && reportPage.totalPages > 1 && (
         <nav
-          aria-label="Paginacion de reportes"
+          aria-label={t("Report pagination")}
           className="flex items-center justify-between gap-3"
         >
           <p className="text-sm text-muted-foreground">
-            Pagina {reportPage.page} de {reportPage.totalPages}
+            {t("Page {page} of {total}", {
+              page: reportPage.page,
+              total: reportPage.totalPages,
+            })}
           </p>
           <div className="flex gap-2">
             <Button
@@ -494,7 +574,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
               onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
               <ChevronLeft className="h-4 w-4" />
-              Anterior
+              {t("Previous")}
             </Button>
             <Button
               variant="outline"
@@ -502,7 +582,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
               disabled={loading || reportPage.page >= reportPage.totalPages}
               onClick={() => setPage((current) => current + 1)}
             >
-              Siguiente
+              {t("Next")}
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>

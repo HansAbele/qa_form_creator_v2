@@ -24,6 +24,7 @@ import {
 } from "@/components/dashboard/data-load-state";
 import { DateRangeFilter, dateRangeLabel } from "@/components/filters/date-range-filter";
 import { FilterCheckbox, FilterSelect } from "@/components/filters/filter-select";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { cn } from "@/lib/utils";
 import {
   type EvaluationHistoryFilterOptions,
@@ -55,12 +57,7 @@ type CampaignOption = { id: string; name: string };
 function parseScore(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function parseResultStatus(value: string | undefined): ResultStatus | undefined {
-  const normalized = value?.trim().toUpperCase();
-  return normalized === "PASS" || normalized === "FAIL" ? normalized : undefined;
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : undefined;
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number) {
@@ -75,6 +72,8 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 }
 
 export function EvaluationsListClient({
+  initialData,
+  initialLoadStatus,
   ownCampaigns,
   managedCampaigns,
   ownFilterOptions,
@@ -97,6 +96,8 @@ export function EvaluationsListClient({
   initialFatalOnly = false,
   initialPage = 1,
 }: {
+  initialData: EvaluationHistoryData | null;
+  initialLoadStatus: DataLoadStatus;
   ownCampaigns: CampaignOption[];
   managedCampaigns: CampaignOption[];
   ownFilterOptions: EvaluationHistoryFilterOptions;
@@ -106,12 +107,12 @@ export function EvaluationsListClient({
   canViewOwn: boolean;
   canViewManaged: boolean;
   initialScope: EvaluationHistoryScope;
-  initialMinScore?: string;
-  initialMaxScore?: string;
+  initialMinScore?: number;
+  initialMaxScore?: number;
   initialCampaignId?: string;
   initialDateFrom?: string;
   initialDateTo?: string;
-  initialResultStatus?: string;
+  initialResultStatus?: ResultStatus;
   initialAgentId?: string;
   initialEvaluatorId?: string;
   initialFormId?: string;
@@ -119,16 +120,15 @@ export function EvaluationsListClient({
   initialFatalOnly?: boolean;
   initialPage?: number;
 }) {
+  const { locale, t } = useI18n();
   const operationalTimeZone = useOperationalTimeZone();
   const [scope, setScope] = useState<EvaluationHistoryScope>(initialScope);
-  const [minScore, setMinScore] = useState<number | undefined>(parseScore(initialMinScore));
-  const [maxScore, setMaxScore] = useState<number | undefined>(parseScore(initialMaxScore));
+  const [minScore, setMinScore] = useState<number | undefined>(initialMinScore);
+  const [maxScore, setMaxScore] = useState<number | undefined>(initialMaxScore);
   const [campaignId, setCampaignId] = useState(initialCampaignId ?? "");
   const [dateFrom, setDateFrom] = useState(initialDateFrom ?? "");
   const [dateTo, setDateTo] = useState(initialDateTo ?? "");
-  const [resultStatus, setResultStatus] = useState<ResultStatus | undefined>(
-    parseResultStatus(initialResultStatus),
-  );
+  const [resultStatus, setResultStatus] = useState<ResultStatus | undefined>(initialResultStatus);
   const [agentId, setAgentId] = useState(initialAgentId ?? "");
   const [evaluatorId, setEvaluatorId] = useState(initialEvaluatorId ?? "");
   const [formId, setFormId] = useState(initialFormId ?? "");
@@ -137,8 +137,8 @@ export function EvaluationsListClient({
   const debouncedMinScore = useDebouncedValue(minScore, 350);
   const debouncedMaxScore = useDebouncedValue(maxScore, 350);
   const [page, setPage] = useState(initialPage);
-  const [data, setData] = useState<EvaluationHistoryData | null>(null);
-  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
+  const [data, setData] = useState<EvaluationHistoryData | null>(initialData);
+  const [loadStatus, setLoadStatus] = useState<DataLoadStatus>(initialLoadStatus);
   const [filterOptionsByScope, setFilterOptionsByScope] = useState({
     own: ownFilterOptions,
     managed: managedFilterOptions,
@@ -148,6 +148,41 @@ export function EvaluationsListClient({
     managed: managedFilterOptionsLoaded,
   });
   const requestGeneration = useRef(0);
+
+  const requestSignature = useMemo(
+    () =>
+      JSON.stringify({
+        scope,
+        minScore: debouncedMinScore,
+        maxScore: debouncedMaxScore,
+        campaignId,
+        dateFrom,
+        dateTo,
+        resultStatus,
+        agentId,
+        evaluatorId: scope === "managed" ? evaluatorId : "",
+        formId,
+        dispositionId,
+        fatalOnly,
+        page,
+      }),
+    [
+      agentId,
+      campaignId,
+      dateFrom,
+      dateTo,
+      dispositionId,
+      evaluatorId,
+      fatalOnly,
+      formId,
+      debouncedMaxScore,
+      debouncedMinScore,
+      page,
+      resultStatus,
+      scope,
+    ],
+  );
+  const initialRequestSignature = useRef<string | null>(requestSignature);
 
   const campaigns = useMemo(
     () => (scope === "managed" ? managedCampaigns : ownCampaigns),
@@ -243,11 +278,13 @@ export function EvaluationsListClient({
   ]);
 
   useEffect(() => {
+    if (initialRequestSignature.current === requestSignature) return;
+    initialRequestSignature.current = null;
     void loadData();
     return () => {
       requestGeneration.current += 1;
     };
-  }, [loadData]);
+  }, [loadData, requestSignature]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -293,6 +330,33 @@ export function EvaluationsListClient({
   const activeEvaluator = evaluatorId
     ? filterOptions.evaluators.find((option) => option.id === evaluatorId)?.name
     : null;
+  const metricStatus: DataLoadStatus =
+    !data && loadStatus !== "loading" && loadStatus !== "error" ? "error" : loadStatus;
+  const hasSummaryData = (data?.summary.totalEvaluations ?? 0) > 0;
+  const evaluatedCallsMetric = getMetricDisplay({
+    kind: "count",
+    value: data?.summary.totalEvaluations,
+    hasData: hasSummaryData,
+    status: metricStatus,
+  });
+  const averageScoreMetric = getMetricDisplay({
+    kind: "measure",
+    value: data?.summary.avgScore,
+    hasData: hasSummaryData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const passRateMetric = getMetricDisplay({
+    kind: "measure",
+    value: data?.summary.passRate,
+    hasData: hasSummaryData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const metricSupportingText = (state: typeof evaluatedCallsMetric.state) =>
+    state === "no-data" ? t("No data") : state === "unavailable" ? t("Unavailable") : null;
 
   const resetDimensionFilters = () => {
     setAgentId("");
@@ -310,22 +374,22 @@ export function EvaluationsListClient({
             <ClipboardCheck className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-heading text-3xl font-bold tracking-tight">Evaluaciones</h1>
+            <h1 className="font-heading text-3xl font-bold tracking-tight">{t("Evaluations")}</h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               {scope === "own"
-                ? "Consulta por mes las llamadas que evaluaste y el promedio de cada agente."
-                : "Compara llamadas, agentes y evaluadores dentro de las campañas que administras."}
+                ? t("Review the calls you evaluated each month and each agent's average score.")
+                : t("Compare calls, agents, and evaluators across the campaigns you manage.")}
             </p>
           </div>
         </div>
         {canViewOwn && canViewManaged ? (
           <FilterSelect
             id="evaluation-scope"
-            label="Vista"
+            label={t("View")}
             value={scope}
             options={[
-              { value: "managed", label: "Equipo y campañas" },
-              { value: "own", label: "Mis evaluaciones" },
+              { value: "managed", label: t("Team & campaigns") },
+              { value: "own", label: t("My evaluations") },
             ]}
             onValueChange={(value) => {
               setScope(value === "managed" ? "managed" : "own");
@@ -345,12 +409,19 @@ export function EvaluationsListClient({
             <ClipboardCheck className="h-5 w-5 text-primary" />
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Llamadas evaluadas
+                {t("Evaluated Calls")}
               </p>
-              {data && loadStatus !== "loading" ? (
-                <p className="text-2xl font-bold tabular-nums">{data.summary.totalEvaluations}</p>
-              ) : (
+              {evaluatedCallsMetric.state === "loading" ? (
                 <Skeleton className="mt-1 h-7 w-16" />
+              ) : (
+                <>
+                  <p className="text-2xl font-bold tabular-nums">{evaluatedCallsMetric.text}</p>
+                  {metricSupportingText(evaluatedCallsMetric.state) ? (
+                    <p className="text-xs text-muted-foreground">
+                      {metricSupportingText(evaluatedCallsMetric.state)}
+                    </p>
+                  ) : null}
+                </>
               )}
             </div>
           </CardContent>
@@ -360,14 +431,19 @@ export function EvaluationsListClient({
             <Gauge className="h-5 w-5 text-primary" />
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Promedio general
+                {t("Average Score")}
               </p>
-              {data && loadStatus !== "loading" ? (
-                <p className="text-2xl font-bold tabular-nums">
-                  {data.summary.avgScore.toFixed(1)}%
-                </p>
-              ) : (
+              {averageScoreMetric.state === "loading" ? (
                 <Skeleton className="mt-1 h-7 w-20" />
+              ) : (
+                <>
+                  <p className="text-2xl font-bold tabular-nums">{averageScoreMetric.text}</p>
+                  {metricSupportingText(averageScoreMetric.state) ? (
+                    <p className="text-xs text-muted-foreground">
+                      {metricSupportingText(averageScoreMetric.state)}
+                    </p>
+                  ) : null}
+                </>
               )}
             </div>
           </CardContent>
@@ -377,14 +453,19 @@ export function EvaluationsListClient({
             <CircleCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Pass rate
+                {t("Pass Rate")}
               </p>
-              {data && loadStatus !== "loading" ? (
-                <p className="text-2xl font-bold tabular-nums">
-                  {data.summary.passRate.toFixed(1)}%
-                </p>
-              ) : (
+              {passRateMetric.state === "loading" ? (
                 <Skeleton className="mt-1 h-7 w-20" />
+              ) : (
+                <>
+                  <p className="text-2xl font-bold tabular-nums">{passRateMetric.text}</p>
+                  {metricSupportingText(passRateMetric.state) ? (
+                    <p className="text-xs text-muted-foreground">
+                      {metricSupportingText(passRateMetric.state)}
+                    </p>
+                  ) : null}
+                </>
               )}
             </div>
           </CardContent>
@@ -398,19 +479,19 @@ export function EvaluationsListClient({
               <Filter className="h-4 w-4" />
             </span>
             <div>
-              <p className="text-sm font-semibold">Filtros de seguimiento</p>
+              <p className="text-sm font-semibold">{t("Evaluation filters")}</p>
               <p className="text-xs text-muted-foreground">
-                Elige un mes y un agente para revisar cada llamada y su promedio general.
+                {t("Choose a period and agent to review every call and the overall average.")}
               </p>
             </div>
           </div>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             <FilterSelect
               id="evaluations-campaign"
-              label="Campaña"
+              label={t("Campaign")}
               value={campaignId || "all"}
               options={[
-                { value: "all", label: "Todas" },
+                { value: "all", label: t("All campaigns") },
                 ...campaigns.map((campaign) => ({
                   value: campaign.id,
                   label: campaign.name,
@@ -429,7 +510,7 @@ export function EvaluationsListClient({
             />
             <DateRangeFilter
               id="evaluations-period"
-              label="Periodo"
+              label={t("Period")}
               from={dateFrom}
               to={dateTo}
               onApply={(from, to) => {
@@ -441,10 +522,10 @@ export function EvaluationsListClient({
             />
             <FilterSelect
               id="evaluations-agent"
-              label="Agente"
+              label={t("Agent")}
               value={agentId || "all"}
               options={[
-                { value: "all", label: "Todos" },
+                { value: "all", label: t("All agents") },
                 ...agentOptions.map((option) => ({
                   value: option.id,
                   label: campaignId ? option.name : `${option.name} · ${option.campaignName}`,
@@ -461,10 +542,10 @@ export function EvaluationsListClient({
             {scope === "managed" ? (
               <FilterSelect
                 id="evaluations-evaluator"
-                label="Evaluador"
+                label={t("Evaluator")}
                 value={evaluatorId || "all"}
                 options={[
-                  { value: "all", label: "Todos" },
+                  { value: "all", label: t("All evaluators") },
                   ...evaluatorOptions.map((option) => ({
                     value: option.id,
                     label: option.name,
@@ -480,10 +561,10 @@ export function EvaluationsListClient({
             ) : null}
             <FilterSelect
               id="evaluations-form"
-              label="Formulario"
+              label={t("Form")}
               value={formId || "all"}
               options={[
-                { value: "all", label: "Todos" },
+                { value: "all", label: t("All forms") },
                 ...formOptions.map((option) => ({
                   value: option.id,
                   label: campaignId ? option.name : `${option.name} · ${option.campaignName}`,
@@ -499,10 +580,10 @@ export function EvaluationsListClient({
             />
             <FilterSelect
               id="evaluations-disposition"
-              label="Disposición"
+              label={t("Disposition")}
               value={dispositionId || "all"}
               options={[
-                { value: "all", label: "Todas" },
+                { value: "all", label: t("All dispositions") },
                 ...dispositionOptions.map((option) => ({
                   value: option.id,
                   label: campaignId ? option.name : `${option.name} · ${option.campaignName}`,
@@ -518,12 +599,12 @@ export function EvaluationsListClient({
             />
             <FilterSelect
               id="evaluations-status"
-              label="Resultado"
+              label={t("Result")}
               value={resultStatus ?? "all"}
               options={[
-                { value: "all", label: "Todos" },
-                { value: "PASS", label: "Solo PASS" },
-                { value: "FAIL", label: "Solo FAIL" },
+                { value: "all", label: t("All results") },
+                { value: "PASS", label: t("PASS only") },
+                { value: "FAIL", label: t("FAIL only") },
               ]}
               onValueChange={(value) => {
                 setResultStatus(value === "PASS" || value === "FAIL" ? value : undefined);
@@ -533,8 +614,8 @@ export function EvaluationsListClient({
             />
             <FilterCheckbox
               id="evaluations-fatal-only"
-              fieldLabel="Riesgo"
-              label="Solo fatales"
+              fieldLabel={t("Risk")}
+              label={t("Critical failures only")}
               checked={fatalOnly}
               onCheckedChange={(checked) => {
                 setFatalOnly(checked);
@@ -544,7 +625,7 @@ export function EvaluationsListClient({
             />
             <div className="min-w-0 space-y-1">
               <Label htmlFor="evaluations-score-min" className="text-xs font-medium">
-                Score mín.
+                {t("Min. score")}
               </Label>
               <Input
                 id="evaluations-score-min"
@@ -561,7 +642,7 @@ export function EvaluationsListClient({
             </div>
             <div className="min-w-0 space-y-1">
               <Label htmlFor="evaluations-score-max" className="text-xs font-medium">
-                Score máx.
+                {t("Max. score")}
               </Label>
               <Input
                 id="evaluations-score-max"
@@ -584,23 +665,25 @@ export function EvaluationsListClient({
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center gap-2 border-b pb-3 text-sm">
             <Filter className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground">Resultados</span>
+            <span className="text-muted-foreground">{t("Results")}</span>
             {loadStatus === "loading" ? (
               <Skeleton className="h-5 w-10" />
             ) : (
               <span className="font-semibold tabular-nums">{data?.totalCount ?? 0}</span>
             )}
             <Badge variant="secondary">
-              {scope === "own" ? "Solo tu actividad" : "Alcance administrado"}
+              {scope === "own" ? t("Your activity only") : t("Managed scope")}
             </Badge>
             {activeCampaign ? <Badge variant="outline">{activeCampaign}</Badge> : null}
-            {activeAgent ? <Badge variant="outline">Agente: {activeAgent}</Badge> : null}
-            {scope === "managed" && activeEvaluator ? (
-              <Badge variant="outline">Evaluador: {activeEvaluator}</Badge>
+            {activeAgent ? (
+              <Badge variant="outline">{t("Agent: {name}", { name: activeAgent })}</Badge>
             ) : null}
-            {fatalOnly ? <Badge variant="destructive">Solo fatales</Badge> : null}
+            {scope === "managed" && activeEvaluator ? (
+              <Badge variant="outline">{t("Evaluator: {name}", { name: activeEvaluator })}</Badge>
+            ) : null}
+            {fatalOnly ? <Badge variant="destructive">{t("Critical failures only")}</Badge> : null}
             {dateFrom || dateTo ? (
-              <Badge variant="outline">{dateRangeLabel(dateFrom, dateTo)}</Badge>
+              <Badge variant="outline">{dateRangeLabel(dateFrom, dateTo, undefined, locale)}</Badge>
             ) : null}
           </div>
 
@@ -615,7 +698,7 @@ export function EvaluationsListClient({
               <DataLoadError
                 compact
                 onRetry={() => void loadData()}
-                title="No pudimos cargar las evaluaciones"
+                title={t("We couldn't load the evaluations")}
               />
             </div>
           ) : data && data.responses.length > 0 ? (
@@ -624,14 +707,14 @@ export function EvaluationsListClient({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Agente</TableHead>
-                      <TableHead>{"Campa\u00f1a"}</TableHead>
-                      {scope === "managed" ? <TableHead>Evaluador</TableHead> : null}
-                      <TableHead>Formulario</TableHead>
-                      <TableHead>Disposición</TableHead>
-                      <TableHead className="text-center">Score / estado</TableHead>
-                      <TableHead className="text-right">Enviada</TableHead>
-                      <TableHead className="text-right">{"Acci\u00f3n"}</TableHead>
+                      <TableHead>{t("Agent")}</TableHead>
+                      <TableHead>{t("Campaign")}</TableHead>
+                      {scope === "managed" ? <TableHead>{t("Evaluator")}</TableHead> : null}
+                      <TableHead>{t("Form")}</TableHead>
+                      <TableHead>{t("Disposition")}</TableHead>
+                      <TableHead className="text-center">{t("Score / status")}</TableHead>
+                      <TableHead className="text-right">{t("Submitted")}</TableHead>
+                      <TableHead className="text-right">{t("Action")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -668,10 +751,12 @@ export function EvaluationsListClient({
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right text-xs text-muted-foreground">
-                          {formatOperationalTimestamp(response.submittedAt, operationalTimeZone, {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          })}
+                          {formatOperationalTimestamp(
+                            response.submittedAt,
+                            operationalTimeZone,
+                            { dateStyle: "short", timeStyle: "short" },
+                            locale === "es" ? "es-ES" : "en-US",
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <Link
@@ -682,7 +767,7 @@ export function EvaluationsListClient({
                             )}
                           >
                             <Eye className="h-3.5 w-3.5" />
-                            {"Ver evaluaci\u00f3n"}
+                            {t("View evaluation")}
                           </Link>
                         </TableCell>
                       </TableRow>
@@ -693,8 +778,10 @@ export function EvaluationsListClient({
 
               <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted-foreground">
-                  Página <span className="font-medium text-foreground">{data.page}</span> de{" "}
-                  <span className="font-medium text-foreground">{data.totalPages}</span>
+                  {t("Page {page} of {total}", {
+                    page: data.page,
+                    total: data.totalPages,
+                  })}
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -705,7 +792,7 @@ export function EvaluationsListClient({
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                   >
                     <ArrowLeft className="h-4 w-4" />
-                    Anterior
+                    {t("Previous")}
                   </Button>
                   <Button
                     type="button"
@@ -714,7 +801,7 @@ export function EvaluationsListClient({
                     disabled={data.page >= data.totalPages}
                     onClick={() => setPage((current) => current + 1)}
                   >
-                    Siguiente
+                    {t("Next")}
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </div>
@@ -723,9 +810,9 @@ export function EvaluationsListClient({
           ) : (
             <div className="flex min-h-52 flex-col items-center justify-center gap-2 text-center">
               <ClipboardCheck className="h-8 w-8 text-muted-foreground/60" />
-              <p className="font-medium">No hay evaluaciones para estos filtros</p>
+              <p className="font-medium">{t("No evaluations match these filters")}</p>
               <p className="max-w-md text-sm text-muted-foreground">
-                Prueba otro periodo, campaña o rango de score.
+                {t("Try another period, campaign, or score range.")}
               </p>
             </div>
           )}

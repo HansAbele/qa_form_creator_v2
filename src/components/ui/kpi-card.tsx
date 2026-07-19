@@ -3,8 +3,10 @@
 import type { LucideIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import type { MetricDisplay } from "@/lib/metric-display";
 import { cn } from "@/lib/utils";
 import { AnimatedNumber } from "./animated-number";
+import { Skeleton } from "./skeleton";
 import { useChartAnimation } from "./use-chart-animation";
 
 type Tone = "orange" | "navy" | "emerald" | "amber" | "rose" | "violet";
@@ -73,6 +75,8 @@ const TONES: Record<
 interface KpiCardProps {
   label: string;
   value: number;
+  display?: MetricDisplay;
+  statusLabel?: string;
   suffix?: string;
   prefix?: string;
   decimals?: number;
@@ -83,9 +87,17 @@ interface KpiCardProps {
   index?: number; // for staggered entry animation
 }
 
+export function getStaticKpiDisplayText(display?: MetricDisplay) {
+  return display && display.state !== "loading" && display.state !== "ready"
+    ? (display.text ?? "—")
+    : null;
+}
+
 export function KpiCard({
   label,
   value,
+  display,
+  statusLabel,
   suffix = "",
   prefix = "",
   decimals = 0,
@@ -97,6 +109,7 @@ export function KpiCard({
 }: KpiCardProps) {
   const T = TONES[tone];
   const chartAnimation = useChartAnimation();
+  const staticDisplayText = getStaticKpiDisplayText(display);
 
   return (
     <motion.div
@@ -132,13 +145,21 @@ export function KpiCard({
             {label}
           </p>
           <div className="flex items-baseline gap-2">
-            <AnimatedNumber
-              value={value}
-              decimals={decimals}
-              prefix={prefix}
-              suffix={suffix}
-              className="font-heading text-2xl font-semibold tabular-nums tracking-tight text-foreground"
-            />
+            {display?.state === "loading" ? (
+              <Skeleton className="h-8 w-20" />
+            ) : staticDisplayText ? (
+              <span className="font-heading text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+                {staticDisplayText}
+              </span>
+            ) : (
+              <AnimatedNumber
+                value={value}
+                decimals={decimals}
+                prefix={prefix}
+                suffix={suffix}
+                className="font-heading text-2xl font-semibold tabular-nums tracking-tight text-foreground"
+              />
+            )}
             {typeof delta === "number" && (
               <span
                 className={cn(
@@ -151,6 +172,7 @@ export function KpiCard({
               </span>
             )}
           </div>
+          {statusLabel ? <p className="text-xs text-muted-foreground">{statusLabel}</p> : null}
 
           {/* Mini sparkline */}
           {trend && trend.length > 1 && (

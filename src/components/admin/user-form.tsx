@@ -22,6 +22,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { getPasswordPolicyError, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 import { createUser, updateUser } from "@/server/actions/users";
 import type { Role } from "@prisma/client";
@@ -42,6 +43,7 @@ interface UserFormProps {
 
 export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const isEdit = !!user;
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(user?.name ?? "");
@@ -71,15 +73,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
 
     previousOpen.current = open;
     previousFormIdentity.current = formIdentity;
-  }, [
-    open,
-    formIdentity,
-    user?.name,
-    user?.email,
-    user?.role,
-    user?.active,
-    user?.campaigns,
-  ]);
+  }, [open, formIdentity, user?.name, user?.email, user?.role, user?.active, user?.campaigns]);
 
   const toggleCampaign = (campaignId: string) => {
     setSelectedCampaigns((prev) =>
@@ -90,12 +84,12 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) {
-      toast.error("Nombre y email son obligatorios");
+      toast.error(t("Name and email are required"));
       return;
     }
     const passwordPolicyError = !isEdit || password ? getPasswordPolicyError(password) : null;
     if (passwordPolicyError) {
-      toast.error(passwordPolicyError);
+      toast.error(t(passwordPolicyError));
       return;
     }
 
@@ -110,7 +104,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
           active,
           campaignIds: selectedCampaigns,
         });
-        toast.success("Usuario actualizado");
+        toast.success(t("User updated"));
       } else {
         await createUser({
           email: email.trim(),
@@ -119,12 +113,12 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
           role,
           campaignIds: selectedCampaigns,
         });
-        toast.success("Usuario creado");
+        toast.success(t("User created"));
       }
       onOpenChange(false);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to save changes"));
     } finally {
       setSaving(false);
     }
@@ -134,11 +128,11 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Editar usuario" : "Nuevo usuario"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("Edit user") : t("New user")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="user-name">Nombre</Label>
+            <Label htmlFor="user-name">{t("Name")}</Label>
             <Input id="user-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-2">
@@ -152,7 +146,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
           </div>
           <div className="space-y-2">
             <Label htmlFor="user-password">
-              Contraseña {isEdit && "(dejar vacío para no cambiar)"}
+              {t("Password")} {isEdit && t("(leave blank to keep current password)")}
             </Label>
             <Input
               id="user-password"
@@ -164,12 +158,14 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
               autoComplete="new-password"
             />
             <p className="text-xs text-muted-foreground">
-              {MIN_PASSWORD_LENGTH}+ caracteres y al menos tres tipos entre mayúsculas, minúsculas,
-              números y símbolos.
+              {t(
+                "{count}+ characters and at least three character types: uppercase, lowercase, numbers, and symbols.",
+                { count: MIN_PASSWORD_LENGTH },
+              )}
             </p>
           </div>
           <div className="space-y-2">
-            <Label>Rol</Label>
+            <Label>{t("Role")}</Label>
             <Select value={role} onValueChange={(v) => v && setRole(v as Role)}>
               <SelectTrigger className="w-full">
                 <SelectValue>
@@ -177,7 +173,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
                     if (value === "ADMIN") return "QA Manager";
                     if (value === "QA") return "QA";
                     if (value === "SUPERVISOR") return "Supervisor";
-                    return "Seleccionar rol";
+                    return t("Select role");
                   }}
                 </SelectValue>
               </SelectTrigger>
@@ -189,7 +185,7 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Campañas asignadas</Label>
+            <Label>{t("Assigned campaigns")}</Label>
             <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
               {campaigns.map((c) => (
                 <div key={c.id} className="flex items-center gap-2 text-sm">
@@ -202,22 +198,22 @@ export function UserForm({ user, campaigns, open, onOpenChange }: UserFormProps)
                 </div>
               ))}
               {campaigns.length === 0 && (
-                <p className="text-sm text-muted-foreground">No hay campañas</p>
+                <p className="text-sm text-muted-foreground">{t("No campaigns")}</p>
               )}
             </div>
           </div>
           {isEdit && (
             <div className="flex items-center gap-2">
               <Switch checked={active} onCheckedChange={(v) => setActive(Boolean(v))} />
-              <Label>Activo</Label>
+              <Label>{t("Active")}</Label>
             </div>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Guardando..." : isEdit ? "Actualizar" : "Crear"}
+              {saving ? t("Saving...") : isEdit ? t("Update") : t("Create")}
             </Button>
           </DialogFooter>
         </form>

@@ -25,6 +25,7 @@ import {
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import {
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
 import { formatDateOnlyForDisplay, formatOperationalTimestamp } from "@/lib/date-display";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { getDispositionDetail } from "@/server/queries/analytics";
 
 interface ScoreTrendPoint {
@@ -108,11 +110,11 @@ interface DispositionDetailData {
 }
 
 const scoreTrendConfig = {
-  avgScore: { label: "Score Promedio", color: "#06b6d4" },
+  avgScore: { label: "Average Score", color: "#06b6d4" },
 } satisfies ChartConfig;
 
 const volumeTrendConfig = {
-  count: { label: "Evaluaciones", color: "#8b5cf6" },
+  count: { label: "Evaluations", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
 const questionConfig = {
@@ -161,15 +163,30 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState({ label = "Sin datos" }: { label?: string }) {
+function EmptyState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
+      {label ?? t("No data")}
     </div>
   );
 }
 
 export function DispositionDetailClient({ dispositionId }: { dispositionId: string }) {
+  const { locale, t } = useI18n();
+  const localizedScoreTrendConfig = {
+    ...scoreTrendConfig,
+    avgScore: { ...scoreTrendConfig.avgScore, label: t("Average Score") },
+  } satisfies ChartConfig;
+  const localizedVolumeTrendConfig = {
+    ...volumeTrendConfig,
+    count: { ...volumeTrendConfig.count, label: t("Evaluations") },
+  } satisfies ChartConfig;
+  const localizedQuestionConfig = {
+    ...questionConfig,
+    avgScore: { ...questionConfig.avgScore, label: t("Score") },
+  } satisfies ChartConfig;
+  const displayLocale = locale === "es" ? "es" : "en";
   const chartAnimation = useChartAnimation();
   const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
@@ -208,22 +225,66 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
   if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
   if (loadStatus === "error") {
     return (
-      <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar la disposición" />
+      <DataLoadError onRetry={() => void loadData()} title={t("Unable to load Disposition")} />
     );
   }
   if (loadStatus === "empty" || !data) {
-    return <RestrictedResourceState resourceLabel="La disposición" />;
+    return <RestrictedResourceState resourceLabel={t("The Disposition")} />;
   }
 
-  const deltaIcon = data.scoreDelta > 0.5 ? ArrowUp : data.scoreDelta < -0.5 ? ArrowDown : Minus;
-  const deltaTone: "emerald" | "rose" | "navy" =
-    data.scoreDelta > 0.5 ? "emerald" : data.scoreDelta < -0.5 ? "rose" : "navy";
-  const deltaLabel =
-    data.scoreDelta > 0
-      ? `+${data.scoreDelta.toFixed(1)}% vs global`
+  const hasData = data.totalEvaluations > 0;
+  const deltaIcon = hasData
+    ? data.scoreDelta > 0.5
+      ? ArrowUp
+      : data.scoreDelta < -0.5
+        ? ArrowDown
+        : Minus
+    : Minus;
+  const deltaTone: "emerald" | "rose" | "navy" = hasData
+    ? data.scoreDelta > 0.5
+      ? "emerald"
+      : data.scoreDelta < -0.5
+        ? "rose"
+        : "navy"
+    : "navy";
+  const deltaLabel = !hasData
+    ? t("Overall Average Score")
+    : data.scoreDelta > 0
+      ? t("+{value}% vs overall", { value: data.scoreDelta.toFixed(1) })
       : data.scoreDelta < 0
-        ? `${data.scoreDelta.toFixed(1)}% vs global`
-        : "= global";
+        ? t("{value}% vs overall", { value: data.scoreDelta.toFixed(1) })
+        : t("= overall");
+  const metricStatus = loadStatus === "loading" ? "loading" : hasData ? "success" : "empty";
+  const metricStatusLabel = metricStatus === "empty" ? t("No data") : undefined;
+  const evaluationCountDisplay = getMetricDisplay({
+    kind: "count",
+    value: data.totalEvaluations,
+    hasData,
+    status: metricStatus,
+  });
+  const averageScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.avgScore,
+    hasData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const overallAverageDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.globalAvgScore,
+    hasData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const passRateDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.passRate,
+    hasData,
+    status: metricStatus,
+    suffix: "%",
+  });
 
   return (
     <div className="space-y-6">
@@ -239,7 +300,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
           className="mb-4 gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          Volver
+          {t("Back")}
         </Button>
 
         <Card>
@@ -260,14 +321,14 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                     )}
                     <Badge variant="secondary">{data.campaignName}</Badge>
                     {data.categoryName && <Badge variant="secondary">{data.categoryName}</Badge>}
-                    {!data.active && <Badge variant="destructive">Inactiva</Badge>}
+                    {!data.active && <Badge variant="destructive">{t("Inactive")}</Badge>}
                   </div>
                 </div>
               </div>
 
               <DateRangeFilter
                 id="disposition-detail-date-range"
-                label="Periodo"
+                label={t("Period")}
                 from={dateFrom}
                 to={dateTo}
                 onApply={(from, to) => {
@@ -283,42 +344,60 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Total Evaluaciones"
+          label={t("Evaluated Calls")}
           value={data.totalEvaluations}
+          display={evaluationCountDisplay}
+          statusLabel={metricStatusLabel}
           icon={ClipboardCheck}
           tone="orange"
           index={0}
         />
         <KpiCard
-          label="Score Promedio"
+          label={t("Average Score")}
           value={data.avgScore}
+          display={averageScoreDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
           tone={
-            data.avgScore >= data.passThreshold
-              ? "emerald"
-              : data.avgScore >= data.passThreshold * 0.7
-                ? "amber"
-                : "rose"
+            !hasData
+              ? "navy"
+              : data.avgScore >= data.passThreshold
+                ? "emerald"
+                : data.avgScore >= data.passThreshold * 0.7
+                  ? "amber"
+                  : "rose"
           }
           index={1}
         />
         <KpiCard
           label={deltaLabel}
           value={data.globalAvgScore}
+          display={overallAverageDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           suffix="%"
           icon={deltaIcon}
-          tone={deltaTone}
+          tone={hasData ? deltaTone : "navy"}
           index={2}
         />
         <KpiCard
-          label="Pass Rate"
+          label={t("Pass Rate")}
           value={data.passRate}
+          display={passRateDisplay}
+          statusLabel={metricStatusLabel}
           suffix="%"
           icon={Award}
-          tone={data.passRate >= 70 ? "emerald" : data.passRate >= 50 ? "amber" : "rose"}
+          tone={
+            !hasData
+              ? "navy"
+              : data.passRate >= 70
+                ? "emerald"
+                : data.passRate >= 50
+                  ? "amber"
+                  : "rose"
+          }
           index={3}
         />
       </div>
@@ -328,19 +407,21 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-4 w-4 text-cyan-500" />
-              Tendencia de Score
+              {t("Score trend")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {data.scoreTrend.length > 0 ? (
               <ChartContainer
-                config={scoreTrendConfig}
-                accessibilityLabel="Tendencia del score promedio para la disposición"
+                config={localizedScoreTrendConfig}
+                accessibilityLabel={t("Disposition Average Score trend")}
                 accessibilityDescription={summarizeChartData(
                   data.scoreTrend.map(
                     (point) =>
-                      `${formatDateOnlyForDisplay(point.date)}: ${point.avgScore.toFixed(1)}%`,
+                      `${formatDateOnlyForDisplay(point.date, undefined, displayLocale)}: ${point.avgScore.toFixed(1)}%`,
                   ),
+                  10,
+                  locale,
                 )}
                 className="h-[260px] w-full"
               >
@@ -352,14 +433,20 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                     axisLine={false}
                     className="text-xs"
                     tickFormatter={(v) =>
-                      formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                      formatDateOnlyForDisplay(
+                        String(v),
+                        { day: "2-digit", month: "short" },
+                        displayLocale,
+                      )
                     }
                   />
                   <YAxis domain={[0, 100]} tickLine={false} axisLine={false} className="text-xs" />
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
-                        labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                        labelFormatter={(label) =>
+                          formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                        }
                         formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
                       />
                     }
@@ -376,7 +463,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                 </LineChart>
               </ChartContainer>
             ) : (
-              <EmptyState label="Sin datos en el período" />
+              <EmptyState label={t("No data in this period")} />
             )}
           </CardContent>
         </Card>
@@ -385,19 +472,23 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <BarChart3 className="h-4 w-4 text-violet-500" />
-              Tendencia de Volumen
+              {t("Volume trend")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {data.scoreTrend.length > 0 ? (
               <ChartContainer
-                config={volumeTrendConfig}
-                accessibilityLabel="Volumen de evaluaciones para la disposición por fecha"
+                config={localizedVolumeTrendConfig}
+                accessibilityLabel={t("Disposition evaluation volume by date")}
                 accessibilityDescription={summarizeChartData(
-                  data.scoreTrend.map(
-                    (point) =>
-                      `${formatDateOnlyForDisplay(point.date)}: ${point.count} evaluaciones`,
+                  data.scoreTrend.map((point) =>
+                    t("{date}: {count} evaluations", {
+                      date: formatDateOnlyForDisplay(point.date, undefined, displayLocale),
+                      count: point.count,
+                    }),
                   ),
+                  10,
+                  locale,
                 )}
                 className="h-[260px] w-full"
               >
@@ -409,7 +500,11 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                     axisLine={false}
                     className="text-xs"
                     tickFormatter={(v) =>
-                      formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                      formatDateOnlyForDisplay(
+                        String(v),
+                        { day: "2-digit", month: "short" },
+                        displayLocale,
+                      )
                     }
                   />
                   <YAxis
@@ -422,7 +517,9 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                     cursor={false}
                     content={
                       <ChartTooltipContent
-                        labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                        labelFormatter={(label) =>
+                          formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                        }
                       />
                     }
                   />
@@ -436,7 +533,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                 </BarChart>
               </ChartContainer>
             ) : (
-              <EmptyState label="Sin datos en el período" />
+              <EmptyState label={t("No data in this period")} />
             )}
           </CardContent>
         </Card>
@@ -447,18 +544,20 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-4 w-4 text-cyan-500" />
-              Score por Pregunta
+              {t("Score by Question")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {data.scoreByQuestion.length > 0 ? (
               <ChartContainer
-                config={questionConfig}
-                accessibilityLabel="Score promedio por pregunta para la disposición"
+                config={localizedQuestionConfig}
+                accessibilityLabel={t("Disposition Average Score by question")}
                 accessibilityDescription={summarizeChartData(
                   data.scoreByQuestion
                     .slice(0, 8)
                     .map((question) => `${question.question}: ${question.avgScore.toFixed(1)}%`),
+                  10,
+                  locale,
                 )}
                 className="h-[320px] w-full"
               >
@@ -511,7 +610,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                 </BarChart>
               </ChartContainer>
             ) : (
-              <EmptyState label="Sin preguntas tipo RATING" />
+              <EmptyState label={t("No RATING questions")} />
             )}
           </CardContent>
         </Card>
@@ -520,7 +619,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Users className="h-4 w-4 text-orange-500" />
-              Top Evaluadores
+              {t("Top Evaluators")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -528,9 +627,9 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Evaluador</TableHead>
-                    <TableHead className="text-center">Evals</TableHead>
-                    <TableHead className="text-center">Avg</TableHead>
+                    <TableHead>{t("Evaluator")}</TableHead>
+                    <TableHead className="text-center">{t("Evals")}</TableHead>
+                    <TableHead className="text-center">{t("Avg")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -555,7 +654,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                 </TableBody>
               </Table>
             ) : (
-              <EmptyState label="Sin evaluadores" />
+              <EmptyState label={t("No evaluators")} />
             )}
           </CardContent>
         </Card>
@@ -566,7 +665,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Users className="h-4 w-4 text-violet-500" />
-              Top Agentes
+              {t("Top Agents")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -574,9 +673,9 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Agente</TableHead>
-                    <TableHead className="text-center">Evals</TableHead>
-                    <TableHead className="text-center">Avg</TableHead>
+                    <TableHead>{t("Agent")}</TableHead>
+                    <TableHead className="text-center">{t("Evals")}</TableHead>
+                    <TableHead className="text-center">{t("Avg")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -601,24 +700,24 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                 </TableBody>
               </Table>
             ) : (
-              <EmptyState label="Sin agentes" />
+              <EmptyState label={t("No agents")} />
             )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Evaluaciones Recientes</CardTitle>
+            <CardTitle className="text-base">{t("Recent evaluations")}</CardTitle>
           </CardHeader>
           <CardContent>
             {data.recentResponses.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Agente</TableHead>
-                    <TableHead>Evaluador</TableHead>
-                    <TableHead className="text-center">Score</TableHead>
-                    <TableHead className="text-right">Fecha</TableHead>
+                    <TableHead>{t("Agent")}</TableHead>
+                    <TableHead>{t("Evaluator")}</TableHead>
+                    <TableHead className="text-center">{t("Score")}</TableHead>
+                    <TableHead className="text-right">{t("Date")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -636,16 +735,19 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground">
-                        {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
-                          dateStyle: "short",
-                        })}
+                        {formatOperationalTimestamp(
+                          r.submittedAt,
+                          operationalTimeZone,
+                          { dateStyle: "short" },
+                          displayLocale,
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             ) : (
-              <EmptyState label="Sin evaluaciones" />
+              <EmptyState label={t("No evaluations")} />
             )}
           </CardContent>
         </Card>
@@ -656,7 +758,7 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Layers className="h-4 w-4 text-cyan-500" />
-              Disposiciones Hermanas
+              {t("Related Dispositions")}
               {data.categoryName && (
                 <Badge variant="secondary" className="ml-1 text-xs">
                   {data.categoryName}
@@ -668,10 +770,10 @@ export function DispositionDetailClient({ dispositionId }: { dispositionId: stri
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Disposición</TableHead>
-                  <TableHead>Código</TableHead>
-                  <TableHead className="text-center">Evals</TableHead>
-                  <TableHead className="text-center">Avg Score</TableHead>
+                  <TableHead>{t("Disposition")}</TableHead>
+                  <TableHead>{t("Code")}</TableHead>
+                  <TableHead className="text-center">{t("Evals")}</TableHead>
+                  <TableHead className="text-center">{t("Average Score")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

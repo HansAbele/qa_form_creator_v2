@@ -12,11 +12,11 @@ export type QuestionTypeValue = (typeof QUESTION_TYPES)[number];
 
 /** Single source of truth for question-type display labels (all surfaces). */
 export const QUESTION_TYPE_LABELS: Record<QuestionTypeValue, string> = {
-  TEXT: "Texto",
-  RATING: "Calificación",
-  SELECT: "Lista desplegable",
-  RADIO: "Opcion unica",
-  BOOLEAN: "Si / No",
+  TEXT: "Text",
+  RATING: "Rating",
+  SELECT: "Dropdown",
+  RADIO: "Single choice",
+  BOOLEAN: "Yes / No",
 };
 
 export function questionTypeLabel(type: string): string {
@@ -42,11 +42,11 @@ export const DEFAULT_RATING_MAX = 5;
 export const formQuestionInputSchema = z
   .object({
     type: z.enum(QUESTION_TYPES),
-    label: z.string().trim().min(1, "La pregunta es obligatoria").max(500),
+    label: z.string().trim().min(1, "Question text is required").max(500),
     options: z.array(z.string().trim().min(1).max(200)).optional(),
     optionPoints: z.array(z.coerce.number().int().min(0).max(100)).optional(),
     required: z.boolean(),
-    qaCategoryId: z.string().trim().min(1, "Selecciona una categoria QA"),
+    qaCategoryId: z.string().trim().min(1, "Select a QA category"),
     weight: z.coerce.number().int().min(0).max(100),
     fatal: z.boolean(),
     fatalOptions: z.array(z.string().trim().min(1).max(200)).optional(),
@@ -63,7 +63,7 @@ export const formQuestionInputSchema = z
     if (isOptionType && (!question.options || question.options.length < 2)) {
       ctx.addIssue({
         code: "custom",
-        message: "Las preguntas de seleccion requieren al menos 2 opciones",
+        message: "Choice questions require at least 2 options",
         path: ["options"],
       });
     }
@@ -74,7 +74,7 @@ export const formQuestionInputSchema = z
       if (question.fatal && fatalOptions.length === 0) {
         ctx.addIssue({
           code: "custom",
-          message: "Selecciona al menos una opcion fatal",
+          message: "Select at least one critical option",
           path: ["fatalOptions"],
         });
       }
@@ -82,14 +82,14 @@ export const formQuestionInputSchema = z
       if (fatalOptions.some((option) => !optionSet.has(option))) {
         ctx.addIssue({
           code: "custom",
-          message: "Las opciones fatales deben existir en las opciones de respuesta",
+          message: "Critical options must exist in the answer options",
           path: ["fatalOptions"],
         });
       }
     } else if (question.fatalOptions?.length) {
       ctx.addIssue({
         code: "custom",
-        message: "Solo seleccion, opcion multiple y Si/No admiten opciones fatales",
+        message: "Only choice and Yes/No questions support critical options",
         path: ["fatalOptions"],
       });
     }
@@ -97,10 +97,10 @@ export const formQuestionInputSchema = z
 
 export const formMutationSchema = z
   .object({
-    title: z.string().trim().min(1, "El titulo es obligatorio").max(255),
+    title: z.string().trim().min(1, "Form title is required").max(255),
     description: z.string().trim().max(1000).optional(),
-    campaignId: z.string().trim().min(1, "Selecciona una campana"),
-    questions: z.array(formQuestionInputSchema).min(1, "Agrega al menos una pregunta"),
+    campaignId: z.string().trim().min(1, "Select a campaign"),
+    questions: z.array(formQuestionInputSchema).min(1, "Add at least one question"),
   })
   .strict()
   .superRefine((form, ctx) => {
@@ -114,7 +114,7 @@ export const formMutationSchema = z
     if (totalWeight !== 100) {
       ctx.addIssue({
         code: "custom",
-        message: "Los pesos de las preguntas puntuables deben sumar 100%",
+        message: "Scored question weights must total 100%",
         path: ["questions"],
       });
     }

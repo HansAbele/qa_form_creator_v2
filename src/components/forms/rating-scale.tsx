@@ -1,9 +1,18 @@
 "use client";
 
 import { Star } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { RATING_TIER_CLASSES, ratingLabel, ratingTier } from "@/lib/rating-scale";
 import { cn } from "@/lib/utils";
 import type { RatingStyleValue } from "@/types/form-builder";
+
+const DEFAULT_RATING_LABELS = [
+  "Poor",
+  "Needs improvement",
+  "Meets expectations",
+  "Good",
+  "Excellent",
+];
 
 interface RatingScaleProps {
   id?: string;
@@ -29,9 +38,15 @@ export function RatingScale({
   ariaDescribedBy,
   onChange,
 }: RatingScaleProps) {
+  const { t } = useI18n();
   const selected = Number(value) || 0;
   const options = Array.from({ length: max }, (_, i) => i + 1);
   const isStars = style === "stars";
+  const displayRatingLabel = (rating: number) => {
+    if (labels?.[rating - 1]) return labels[rating - 1] as string;
+    if (max === 5) return t(DEFAULT_RATING_LABELS[rating - 1] ?? String(rating));
+    return ratingLabel(rating, max, labels);
+  };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const option = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -61,7 +76,7 @@ export function RatingScale({
       <div
         id={id}
         role="radiogroup"
-        aria-label={ariaLabelledBy ? undefined : "Calificación"}
+        aria-label={ariaLabelledBy ? undefined : t("Rating")}
         aria-labelledby={ariaLabelledBy}
         aria-describedby={ariaDescribedBy}
         aria-orientation="horizontal"
@@ -82,7 +97,7 @@ export function RatingScale({
                 type="button"
                 role="radio"
                 aria-checked={isSelected}
-                aria-label={ratingLabel(n, max, labels)}
+                aria-label={displayRatingLabel(n)}
                 data-rating-value={n}
                 tabIndex={isSelected || (selected === 0 && n === 1) ? 0 : -1}
                 disabled={disabled}
@@ -108,7 +123,7 @@ export function RatingScale({
               type="button"
               role="radio"
               aria-checked={isSelected}
-              aria-label={ratingLabel(n, max, labels)}
+              aria-label={displayRatingLabel(n)}
               data-rating-value={n}
               tabIndex={isSelected || (selected === 0 && n === 1) ? 0 : -1}
               disabled={disabled}
@@ -132,7 +147,7 @@ export function RatingScale({
             RATING_TIER_CLASSES[ratingTier(selected, max)].text,
           )}
         >
-          {ratingLabel(selected, max, labels)}
+          {displayRatingLabel(selected)}
         </span>
       )}
     </div>

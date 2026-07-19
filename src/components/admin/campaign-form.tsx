@@ -3,12 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { createCampaign, updateCampaign } from "@/server/actions/campaigns";
 
 interface CampaignFormProps {
@@ -24,6 +31,7 @@ interface CampaignFormProps {
 
 export function CampaignForm({ campaign, open, onOpenChange }: CampaignFormProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const isEdit = !!campaign;
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(campaign?.name ?? "");
@@ -50,7 +58,7 @@ export function CampaignForm({ campaign, open, onOpenChange }: CampaignFormProps
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      toast.error("El nombre es obligatorio");
+      toast.error(t("Name is required"));
       return;
     }
 
@@ -62,18 +70,18 @@ export function CampaignForm({ campaign, open, onOpenChange }: CampaignFormProps
           description: description.trim() || undefined,
           active,
         });
-        toast.success("Campaña actualizada");
+        toast.success(t("Campaign updated"));
       } else {
         await createCampaign({
           name: name.trim(),
           description: description.trim() || undefined,
         });
-        toast.success("Campaña creada");
+        toast.success(t("Campaign created"));
       }
       onOpenChange(false);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to save changes"));
     } finally {
       setSaving(false);
     }
@@ -83,40 +91,40 @@ export function CampaignForm({ campaign, open, onOpenChange }: CampaignFormProps
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Editar campaña" : "Nueva campaña"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("Edit campaign") : t("New campaign")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Nombre</Label>
+            <Label htmlFor="name">{t("Name")}</Label>
             <Input
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Nombre de la campaña"
+              placeholder={t("Campaign name")}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="description">Descripción</Label>
+            <Label htmlFor="description">{t("Description")}</Label>
             <Textarea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descripción (opcional)"
+              placeholder={t("Description (optional)")}
               rows={3}
             />
           </div>
           {isEdit && (
             <div className="flex items-center gap-2">
               <Switch checked={active} onCheckedChange={(v) => setActive(Boolean(v))} />
-              <Label>Activa</Label>
+              <Label>{t("Active")}</Label>
             </div>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Guardando..." : isEdit ? "Actualizar" : "Crear"}
+              {saving ? t("Saving...") : isEdit ? t("Update") : t("Create")}
             </Button>
           </DialogFooter>
         </form>

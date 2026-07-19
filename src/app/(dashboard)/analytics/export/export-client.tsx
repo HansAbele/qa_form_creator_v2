@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { FilterSelect } from "@/components/filters/filter-select";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +23,7 @@ interface ExportClientProps {
 }
 
 export function ExportClient({ campaigns, forms }: ExportClientProps) {
+  const { t } = useI18n();
   const [campaignId, setCampaignId] = useState("");
   const [formId, setFormId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -70,18 +72,20 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
         const payload = (await response.json().catch(() => null)) as {
           error?: { message?: string };
         } | null;
-        throw new Error(payload?.error?.message ?? "No fue posible generar la exportación.");
+        throw new Error(payload?.error?.message ?? t("Unable to generate the export."));
       }
 
       const blob = await response.blob();
-      if (blob.size === 0) throw new Error("No hay datos para exportar.");
+      if (blob.size === 0) throw new Error(t("No data to export."));
       const disposition = response.headers.get("content-disposition");
       const filename =
-        disposition?.match(/filename="([^"]+)"/)?.[1] ?? `evaluaciones_${Date.now()}.${format}`;
+        disposition?.match(/filename="([^"]+)"/)?.[1] ?? `evaluations_${Date.now()}.${format}`;
       downloadFile(blob, filename);
-      toast.success(`${format === "xlsx" ? "Excel" : format.toUpperCase()} exportado`);
+      toast.success(
+        t("{format} exported", { format: format === "xlsx" ? "Excel" : format.toUpperCase() }),
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al exportar");
+      toast.error(error instanceof Error ? t(error.message) : t("Export failed"));
     } finally {
       setExporting(null);
     }
@@ -89,45 +93,45 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">Exportar Datos</h1>
+      <h1 className="text-3xl font-bold tracking-tight">{t("Export Data")}</h1>
 
       {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Filtros</CardTitle>
+          <CardTitle className="text-base">{t("Filters")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <FilterSelect
               id="export-campaign"
-              label="Campaña"
+              label={t("Campaign")}
               value={campaignId || "all"}
               options={[
-                { value: "all", label: "Todas" },
+                { value: "all", label: t("All") },
                 ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
               ]}
               onValueChange={(value) => {
                 setCampaignId(value === "all" ? "" : value);
                 setFormId("");
               }}
-              placeholder="Todas"
+              placeholder={t("All")}
               icon={Megaphone}
             />
             <FilterSelect
               id="export-form"
-              label="Formulario"
+              label={t("Form")}
               value={formId || "all"}
               options={[
-                { value: "all", label: "Todos" },
+                { value: "all", label: t("All") },
                 ...filteredForms.map((form) => ({ value: form.id, label: form.title })),
               ]}
               onValueChange={(value) => setFormId(value === "all" ? "" : value)}
-              placeholder="Todos"
+              placeholder={t("All")}
               icon={FileText}
             />
             <DateRangeFilter
               id="export-period"
-              label="Periodo"
+              label={t("Period")}
               from={dateFrom}
               to={dateTo}
               onApply={(from, to) => {
@@ -145,7 +149,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-base">Campos exportables</CardTitle>
+            <CardTitle className="text-base">{t("Exportable fields")}</CardTitle>
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -153,7 +157,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
                 size="sm"
                 onClick={() => setSelectedFields(DEFAULT_EXPORT_FIELDS)}
               >
-                Default
+                {t("Default")}
               </Button>
               <Button
                 type="button"
@@ -161,7 +165,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
                 size="sm"
                 onClick={() => setSelectedFields(ALL_EXPORT_FIELDS)}
               >
-                Todos
+                {t("All")}
               </Button>
             </div>
           </div>
@@ -171,7 +175,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
             {EXPORT_FIELD_GROUPS.map((group) => (
               <div key={group.id} className="space-y-3">
                 <div className="flex items-center justify-between gap-3 border-b pb-2">
-                  <p className="text-sm font-medium">{group.label}</p>
+                  <p className="text-sm font-medium">{t(group.label)}</p>
                   <span className="text-xs text-muted-foreground">
                     {group.fields.filter((field) => selectedFields.includes(field.key)).length}/
                     {group.fields.length}
@@ -188,7 +192,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
                           onCheckedChange={(checked) => toggleField(field.key, checked === true)}
                         />
                         <Label htmlFor={id} className="text-sm font-normal">
-                          {field.label}
+                          {t(field.label)}
                         </Label>
                       </div>
                     );
@@ -206,8 +210,10 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
           <CardContent className="flex flex-col items-center gap-4 p-6">
             <FileText className="h-12 w-12 text-green-600" />
             <div className="text-center">
-              <p className="font-medium">Exportar CSV</p>
-              <p className="text-sm text-muted-foreground">Compatible con Excel y Google Sheets</p>
+              <p className="font-medium">{t("Export CSV")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("Compatible with Excel and Google Sheets")}
+              </p>
             </div>
             <Button
               onClick={() => handleExport("csv")}
@@ -215,7 +221,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
               className="w-full"
             >
               <Download className="mr-1 h-4 w-4" />
-              {exporting === "csv" ? "Exportando..." : "Descargar CSV"}
+              {exporting === "csv" ? t("Exporting...") : t("Download CSV")}
             </Button>
           </CardContent>
         </Card>
@@ -224,8 +230,10 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
           <CardContent className="flex flex-col items-center gap-4 p-6">
             <FileJson className="h-12 w-12 text-blue-600" />
             <div className="text-center">
-              <p className="font-medium">Exportar JSON</p>
-              <p className="text-sm text-muted-foreground">Datos estructurados para integración</p>
+              <p className="font-medium">{t("Export JSON")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("Structured data for integrations")}
+              </p>
             </div>
             <Button
               onClick={() => handleExport("json")}
@@ -233,7 +241,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
               className="w-full"
             >
               <Download className="mr-1 h-4 w-4" />
-              {exporting === "json" ? "Exportando..." : "Descargar JSON"}
+              {exporting === "json" ? t("Exporting...") : t("Download JSON")}
             </Button>
           </CardContent>
         </Card>
@@ -242,8 +250,10 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
           <CardContent className="flex flex-col items-center gap-4 p-6">
             <FileSpreadsheet className="h-12 w-12 text-emerald-600" />
             <div className="text-center">
-              <p className="font-medium">Exportar Excel</p>
-              <p className="text-sm text-muted-foreground">Con formato, colores y filtros</p>
+              <p className="font-medium">{t("Export Excel")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("Formatted with colors and filters")}
+              </p>
             </div>
             <Button
               onClick={() => handleExport("xlsx")}
@@ -251,7 +261,7 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
               className="w-full"
             >
               <Download className="mr-1 h-4 w-4" />
-              {exporting === "xlsx" ? "Exportando..." : "Descargar Excel"}
+              {exporting === "xlsx" ? t("Exporting...") : t("Download Excel")}
             </Button>
           </CardContent>
         </Card>

@@ -24,14 +24,14 @@ export type QACategoryMutationInput = z.input<typeof categoryMutationSchema>;
 
 async function requireQAManager() {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
   return session;
 }
 
 function parseCategoryInput(input: unknown) {
   const parsed = categoryMutationSchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Datos de categoría inválidos");
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid QA category data");
   }
   return parsed.data;
 }
@@ -87,16 +87,16 @@ async function readActiveQACategoriesForPermission(
   permission: "canCreateForms" | "canEditForms",
 ): Promise<QACategoryFormOption[]> {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   if (session.user.role !== "ADMIN") {
-    if (session.user.role === "SUPERVISOR") throw new Error("No autorizado");
+    if (session.user.role === "SUPERVISOR") throw new Error("Unauthorized");
     const access = await prisma.userCampaign.findMany({
       where: { userId: session.user.id, [permission]: true },
       select: { campaignId: true },
       take: 1,
     });
-    if (access.length === 0) throw new Error("No autorizado");
+    if (access.length === 0) throw new Error("Unauthorized");
   }
 
   return prisma.qACategory.findMany({
@@ -128,7 +128,7 @@ export async function createQACategory(data: QACategoryMutationInput) {
     where: { name: { equals: input.name, mode: "insensitive" } },
     select: { id: true },
   });
-  if (existing) throw new Error("Ya existe una categoría QA con ese nombre");
+  if (existing) throw new Error("A QA category with this name already exists");
 
   const sortOrder = await prisma.qACategory.count();
   const category = await prisma.$transaction(async (tx) => {
@@ -141,7 +141,7 @@ export async function createQACategory(data: QACategoryMutationInput) {
         entityType: "qa_category",
         entityId: category.id,
         afterValue: category,
-        impact: "Categoría QA disponible para nuevos formularios.",
+        impact: "QA category made available for new forms.",
       },
       tx,
     );
@@ -156,13 +156,13 @@ export async function updateQACategory(id: string, data: QACategoryMutationInput
   const session = await requireQAManager();
   const input = parseCategoryInput(data);
   const before = await prisma.qACategory.findUnique({ where: { id } });
-  if (!before) throw new Error("Categoría QA no encontrada");
+  if (!before) throw new Error("QA category not found");
 
   const duplicate = await prisma.qACategory.findFirst({
     where: { id: { not: id }, name: { equals: input.name, mode: "insensitive" } },
     select: { id: true },
   });
-  if (duplicate) throw new Error("Ya existe una categoría QA con ese nombre");
+  if (duplicate) throw new Error("A QA category with this name already exists");
 
   const category = await prisma.$transaction(async (tx) => {
     const category = await tx.qACategory.update({ where: { id }, data: input });
@@ -175,7 +175,7 @@ export async function updateQACategory(id: string, data: QACategoryMutationInput
         entityId: id,
         beforeValue: before,
         afterValue: category,
-        impact: "Reglas y visibilidad de categoría QA actualizadas.",
+        impact: "QA category rules and visibility updated.",
       },
       tx,
     );
@@ -192,10 +192,10 @@ export async function deactivateQACategory(id: string) {
     where: { id },
     include: { _count: { select: { formCategories: true } } },
   });
-  if (!before) throw new Error("Categoría QA no encontrada");
-  if (!before.isActive) throw new Error("La categoría QA ya está inactiva");
+  if (!before) throw new Error("QA category not found");
+  if (!before.isActive) throw new Error("QA category is already inactive");
   if (before._count.formCategories > 0) {
-    throw new Error("No se puede desactivar una categoría usada por formularios");
+    throw new Error("A QA category used by forms cannot be deactivated");
   }
 
   const category = await prisma.$transaction(async (tx) => {
@@ -209,7 +209,7 @@ export async function deactivateQACategory(id: string) {
         entityId: id,
         beforeValue: before,
         afterValue: category,
-        impact: "Categoría retirada de nuevos formularios sin borrar historial.",
+        impact: "QA category removed from new forms without deleting history.",
       },
       tx,
     );

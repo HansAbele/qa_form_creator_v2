@@ -1,11 +1,14 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { getServerI18n } from "@/lib/i18n-server";
 
 const metricSkeletons = ["metric-1", "metric-2", "metric-3", "metric-4"];
 
-export default function RouteLoading() {
+export default async function RouteLoading() {
+  const { t } = await getServerI18n();
+
   return (
     <div role="status" aria-live="polite" aria-busy="true" className="space-y-6">
-      <span className="sr-only">Cargando contenido...</span>
+      <span className="sr-only">{t("Loading content...")}</span>
 
       <div aria-hidden="true" className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

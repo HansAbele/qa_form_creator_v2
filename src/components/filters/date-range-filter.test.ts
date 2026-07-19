@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveDateRangePreset } from "./date-range-filter";
+import { dateRangeLabel, resolveDateRangePreset } from "./date-range-filter";
+
+vi.mock("@/components/providers/i18n-provider", () => ({
+  useI18n: () => ({ locale: "en", t: (message: string) => message }),
+}));
 
 afterEach(() => {
   vi.useRealTimers();
@@ -58,5 +62,19 @@ describe("DateRangeFilter monthly presets", () => {
       from: "2026-01-01",
       to: "2026-01-31",
     });
+  });
+});
+
+describe("dateRangeLabel", () => {
+  it("uses English by default", () => {
+    expect(dateRangeLabel("", "")).toBe("All time");
+    expect(dateRangeLabel("2026-07-17", "2026-07-17", "2026-07-17")).toBe("Today · Jul 17");
+    expect(dateRangeLabel("2026-07-01", "2026-07-17")).toBe("Jul 1 – Jul 17, 2026");
+  });
+
+  it("formats and translates labels in Spanish", () => {
+    expect(dateRangeLabel("", "", undefined, "es")).toBe("Todo el periodo");
+    expect(dateRangeLabel("2026-07-17", "2026-07-17", "2026-07-17", "es")).toBe("Hoy · 17 jul");
+    expect(dateRangeLabel("2026-07-01", "", undefined, "es")).toBe("Desde 1 jul 2026");
   });
 });

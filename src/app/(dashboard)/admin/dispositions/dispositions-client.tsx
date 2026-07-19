@@ -2,14 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  FolderPlus,
-  Upload,
-  Tag,
-} from "lucide-react";
+import { Plus, Pencil, Trash2, FolderPlus, Upload, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -39,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { DispositionForm } from "@/components/admin/disposition-form";
+import { useI18n } from "@/components/providers/i18n-provider";
 import {
   getDispositions,
   getDispositionCategories,
@@ -85,20 +79,16 @@ export function DispositionsClient({
   initialCategories,
   campaigns,
 }: DispositionsClientProps) {
+  const { t } = useI18n();
   // Campaign filter
-  const [selectedCampaign, setSelectedCampaign] = useState(
-    campaigns[0]?.id ?? "",
-  );
-  const [dispositions, setDispositions] =
-    useState<DispositionItem[]>(initialDispositions);
-  const [categories, setCategories] =
-    useState<CategoryItem[]>(initialCategories);
+  const [selectedCampaign, setSelectedCampaign] = useState(campaigns[0]?.id ?? "");
+  const [dispositions, setDispositions] = useState<DispositionItem[]>(initialDispositions);
+  const [categories, setCategories] = useState<CategoryItem[]>(initialCategories);
   const [loadingData, setLoadingData] = useState(false);
 
   // Disposition form
   const [formOpen, setFormOpen] = useState(false);
-  const [editDisposition, setEditDisposition] =
-    useState<DispositionItem | null>(null);
+  const [editDisposition, setEditDisposition] = useState<DispositionItem | null>(null);
 
   // Category dialog
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
@@ -130,12 +120,12 @@ export function DispositionsClient({
         setDispositions(d);
         setCategories(c);
       } catch {
-        toast.error("Error al cargar datos");
+        toast.error(t("Unable to load data"));
       } finally {
         setLoadingData(false);
       }
     },
-    [],
+    [t],
   );
 
   const handleCampaignChange = (campaignId: string) => {
@@ -166,13 +156,13 @@ export function DispositionsClient({
   };
 
   const handleDeleteDisposition = async (id: string, name: string) => {
-    if (!confirm(`¿Eliminar/desactivar la disposición "${name}"?`)) return;
+    if (!confirm(t('Delete or deactivate disposition "{name}"?', { name }))) return;
     try {
       await deleteDisposition(id);
-      toast.success("Disposición eliminada");
+      toast.success(t("Disposition deleted"));
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     }
   };
 
@@ -192,7 +182,7 @@ export function DispositionsClient({
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!categoryName.trim()) {
-      toast.error("El nombre es obligatorio");
+      toast.error(t("Name is required"));
       return;
     }
     setSavingCategory(true);
@@ -201,18 +191,18 @@ export function DispositionsClient({
         await updateDispositionCategory(editCategoryId, {
           name: categoryName.trim(),
         });
-        toast.success("Categoría actualizada");
+        toast.success(t("Category updated"));
       } else {
         await createDispositionCategory({
           name: categoryName.trim(),
           campaignId: selectedCampaign,
         });
-        toast.success("Categoría creada");
+        toast.success(t("Category created"));
       }
       setCategoryDialogOpen(false);
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     } finally {
       setSavingCategory(false);
     }
@@ -221,16 +211,16 @@ export function DispositionsClient({
   const handleDeleteCategory = async (id: string, name: string) => {
     if (
       !confirm(
-        `¿Eliminar la categoría "${name}"? Las disposiciones se desvinculan pero no se borran.`,
+        t('Delete category "{name}"? Dispositions will be unassigned but not deleted.', { name }),
       )
     )
       return;
     try {
       await deleteDispositionCategory(id);
-      toast.success("Categoría eliminada");
+      toast.success(t("Category deleted"));
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     }
   };
 
@@ -244,7 +234,7 @@ export function DispositionsClient({
       .filter(Boolean);
 
     if (names.length === 0) {
-      toast.error("Pega al menos un nombre por línea");
+      toast.error(t("Paste at least one name per line"));
       return;
     }
 
@@ -256,13 +246,16 @@ export function DispositionsClient({
         names,
       });
       toast.success(
-        `${result.created} creadas, ${result.skipped} duplicadas omitidas`,
+        t("{created} created, {skipped} duplicates skipped", {
+          created: result.created,
+          skipped: result.skipped,
+        }),
       );
       setBulkDialogOpen(false);
       setBulkText("");
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error en importación");
+      toast.error(error instanceof Error ? t(error.message) : t("Import failed"));
     } finally {
       setImporting(false);
     }
@@ -275,12 +268,12 @@ export function DispositionsClient({
       const result = await seedDefaultDispositions(selectedCampaign, kind);
       toast.success(
         result.created > 0
-          ? `${result.created} disposiciones creadas`
-          : "Ya existían todas (nada nuevo)",
+          ? t("{count} dispositions created", { count: result.created })
+          : t("All default dispositions already exist"),
       );
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al sembrar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to seed dispositions"));
     } finally {
       setSeeding(false);
     }
@@ -292,21 +285,19 @@ export function DispositionsClient({
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Gestión de Disposiciones
-        </h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t("Disposition Management")}</h1>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
             <Upload className="mr-1 h-4 w-4" />
-            Importar
+            {t("Import")}
           </Button>
           <Button variant="outline" onClick={() => openCategoryDialog()}>
             <FolderPlus className="mr-1 h-4 w-4" />
-            Nueva categoría
+            {t("New category")}
           </Button>
           <Button onClick={handleCreateDisposition}>
             <Plus className="mr-1 h-4 w-4" />
-            Nueva disposición
+            {t("New disposition")}
           </Button>
         </div>
       </div>
@@ -314,16 +305,11 @@ export function DispositionsClient({
       {/* Campaign + Category filters */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Campaña:</span>
-          <Select
-            value={selectedCampaign}
-            onValueChange={(v) => v && handleCampaignChange(v)}
-          >
+          <span className="text-sm text-muted-foreground">{t("Campaign:")}</span>
+          <Select value={selectedCampaign} onValueChange={(v) => v && handleCampaignChange(v)}>
             <SelectTrigger className="w-52">
               <SelectValue>
-                {(value: string | null) =>
-                  campaigns.find((c) => c.id === value)?.name ?? ""
-                }
+                {(value: string | null) => campaigns.find((c) => c.id === value)?.name ?? ""}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -337,23 +323,20 @@ export function DispositionsClient({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Categoría:</span>
-          <Select
-            value={filterCategory}
-            onValueChange={(v) => v && setFilterCategory(v)}
-          >
+          <span className="text-sm text-muted-foreground">{t("Category:")}</span>
+          <Select value={filterCategory} onValueChange={(v) => v && setFilterCategory(v)}>
             <SelectTrigger className="w-48">
               <SelectValue>
                 {(value: string | null) => {
-                  if (!value || value === "all") return "Todas";
-                  if (value === "uncategorized") return "Sin categoría";
+                  if (!value || value === "all") return t("All");
+                  if (value === "uncategorized") return t("No category");
                   return categories.find((c) => c.id === value)?.name ?? "";
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              <SelectItem value="uncategorized">Sin categoría</SelectItem>
+              <SelectItem value="all">{t("All")}</SelectItem>
+              <SelectItem value="uncategorized">{t("No category")}</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name} ({c._count.dispositions})
@@ -364,18 +347,18 @@ export function DispositionsClient({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Sembrar:</span>
+          <span className="text-sm text-muted-foreground">{t("Seed defaults:")}</span>
           <Select
             value=""
             onValueChange={(v) => v && handleSeed(v as "inbound" | "outbound")}
             disabled={seeding || !selectedCampaign}
           >
             <SelectTrigger className="w-52">
-              <SelectValue placeholder={seeding ? "Sembrando..." : "Taxonomía base…"} />
+              <SelectValue placeholder={seeding ? t("Seeding...") : t("Default taxonomy...")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="inbound">Taxonomía inbound</SelectItem>
-              <SelectItem value="outbound">Taxonomía outbound</SelectItem>
+              <SelectItem value="inbound">{t("Inbound taxonomy")}</SelectItem>
+              <SelectItem value="outbound">{t("Outbound taxonomy")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -390,13 +373,14 @@ export function DispositionsClient({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{cat.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {cat._count.dispositions} disposiciones
+                    {t("{count} dispositions", { count: cat._count.dispositions })}
                   </p>
                 </div>
                 <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    aria-label={t("Edit {name}", { name: cat.name })}
                     onClick={() => openCategoryDialog(cat)}
                   >
                     <Pencil className="h-3 w-3" />
@@ -404,6 +388,7 @@ export function DispositionsClient({
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    aria-label={t("Delete {name}", { name: cat.name })}
                     onClick={() => handleDeleteCategory(cat.id, cat.name)}
                   >
                     <Trash2 className="h-3 w-3 text-destructive" />
@@ -418,19 +403,19 @@ export function DispositionsClient({
       {/* Dispositions table */}
       {loadingData ? (
         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Cargando...
+          {t("Loading...")}
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nombre</TableHead>
-              <TableHead>Código</TableHead>
-              <TableHead>Categoría</TableHead>
-              <TableHead className="text-center">Usos</TableHead>
-              <TableHead>Creada por</TableHead>
-              <TableHead>Estado</TableHead>
-              <TableHead className="w-24">Acciones</TableHead>
+              <TableHead>{t("Name")}</TableHead>
+              <TableHead>{t("Code")}</TableHead>
+              <TableHead>{t("Category")}</TableHead>
+              <TableHead className="text-center">{t("Uses")}</TableHead>
+              <TableHead>{t("Created by")}</TableHead>
+              <TableHead>{t("Status")}</TableHead>
+              <TableHead className="w-24">{t("Actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -442,9 +427,7 @@ export function DispositionsClient({
                     {d.name}
                   </div>
                 </TableCell>
-                <TableCell className="font-mono text-muted-foreground">
-                  {d.code || "—"}
-                </TableCell>
+                <TableCell className="font-mono text-muted-foreground">{d.code || "—"}</TableCell>
                 <TableCell>
                   {d.category ? (
                     <Badge variant="outline">{d.category.name}</Badge>
@@ -452,15 +435,13 @@ export function DispositionsClient({
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell className="text-center">
-                  {d._count.responses}
-                </TableCell>
+                <TableCell className="text-center">{d._count.responses}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {d.createdBy?.name ?? "—"}
                 </TableCell>
                 <TableCell>
                   <Badge variant={d.active ? "default" : "secondary"}>
-                    {d.active ? "Activa" : "Inactiva"}
+                    {d.active ? t("Active") : t("Inactive")}
                   </Badge>
                 </TableCell>
                 <TableCell>
@@ -468,6 +449,7 @@ export function DispositionsClient({
                     <Button
                       variant="ghost"
                       size="icon-xs"
+                      aria-label={t("Edit {name}", { name: d.name })}
                       onClick={() => handleEditDisposition(d)}
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -475,6 +457,7 @@ export function DispositionsClient({
                     <Button
                       variant="ghost"
                       size="icon-xs"
+                      aria-label={t("Delete {name}", { name: d.name })}
                       onClick={() => handleDeleteDisposition(d.id, d.name)}
                     >
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -485,11 +468,8 @@ export function DispositionsClient({
             ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell
-                  colSpan={7}
-                  className="text-center text-muted-foreground"
-                >
-                  No hay disposiciones en esta campaña
+                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  {t("No dispositions in this campaign")}
                 </TableCell>
               </TableRow>
             )}
@@ -528,34 +508,24 @@ export function DispositionsClient({
       <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>
-              {editCategoryId ? "Editar categoría" : "Nueva categoría"}
-            </DialogTitle>
+            <DialogTitle>{editCategoryId ? t("Edit category") : t("New category")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSaveCategory} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="cat-name">Nombre</Label>
+              <Label htmlFor="cat-name">{t("Name")}</Label>
               <Input
                 id="cat-name"
                 value={categoryName}
                 onChange={(e) => setCategoryName(e.target.value)}
-                placeholder="Ej: Ventas"
+                placeholder={t("Example: Sales")}
               />
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setCategoryDialogOpen(false)}
-              >
-                Cancelar
+              <Button type="button" variant="outline" onClick={() => setCategoryDialogOpen(false)}>
+                {t("Cancel")}
               </Button>
               <Button type="submit" disabled={savingCategory}>
-                {savingCategory
-                  ? "Guardando..."
-                  : editCategoryId
-                    ? "Actualizar"
-                    : "Crear"}
+                {savingCategory ? t("Saving...") : editCategoryId ? t("Update") : t("Create")}
               </Button>
             </DialogFooter>
           </form>
@@ -566,40 +536,37 @@ export function DispositionsClient({
       <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Importar Disposiciones</DialogTitle>
+            <DialogTitle>{t("Import dispositions")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleBulkImport} className="space-y-4">
             <div className="space-y-2">
-              <Label>
-                Pega un nombre por línea (desde Excel, CSV o texto plano)
-              </Label>
+              <Label>{t("Paste one name per line from Excel, CSV, or plain text")}</Label>
               <Textarea
                 rows={10}
                 value={bulkText}
                 onChange={(e) => setBulkText(e.target.value)}
-                placeholder={"Venta Cerrada\nCliente No Interesado\nEscalación\nProblema Resuelto\n..."}
+                placeholder={t(
+                  "Closed Sale\nCustomer Not Interested\nEscalation\nIssue Resolved\n...",
+                )}
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Los nombres duplicados se omiten automáticamente.
+                {t("Duplicate names are skipped automatically.")}
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Asignar a categoría (opcional)</Label>
-              <Select
-                value={bulkCategoryId}
-                onValueChange={(v) => v && setBulkCategoryId(v)}
-              >
+              <Label>{t("Assign to category (optional)")}</Label>
+              <Select value={bulkCategoryId} onValueChange={(v) => v && setBulkCategoryId(v)}>
                 <SelectTrigger className="w-full">
                   <SelectValue>
                     {(value: string | null) => {
-                      if (!value || value === "none") return "Sin categoría";
+                      if (!value || value === "none") return t("No category");
                       return categories.find((c) => c.id === value)?.name ?? "";
                     }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sin categoría</SelectItem>
+                  <SelectItem value="none">{t("No category")}</SelectItem>
                   {categories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -609,17 +576,15 @@ export function DispositionsClient({
               </Select>
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setBulkDialogOpen(false)}
-              >
-                Cancelar
+              <Button type="button" variant="outline" onClick={() => setBulkDialogOpen(false)}>
+                {t("Cancel")}
               </Button>
               <Button type="submit" disabled={importing}>
                 {importing
-                  ? "Importando..."
-                  : `Importar (${bulkText.split("\n").filter((l) => l.trim()).length} líneas)`}
+                  ? t("Importing...")
+                  : t("Import ({count} lines)", {
+                      count: bulkText.split("\n").filter((line) => line.trim()).length,
+                    })}
               </Button>
             </DialogFooter>
           </form>

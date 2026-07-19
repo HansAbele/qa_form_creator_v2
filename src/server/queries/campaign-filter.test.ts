@@ -27,18 +27,21 @@ const adminUser = {
   id: "admin-1",
   role: "ADMIN" as const,
   campaignIds: [],
+  locale: "en" as const,
 };
 
 const qaUser = {
   id: "qa-1",
   role: "QA" as const,
   campaignIds: ["campaign-1", "campaign-2"],
+  locale: "en" as const,
 };
 
 const supervisorUser = {
   id: "supervisor-1",
   role: "SUPERVISOR" as const,
   campaignIds: ["campaign-1", "campaign-2"],
+  locale: "en" as const,
 };
 
 describe("campaign RBAC filters", () => {
@@ -77,7 +80,7 @@ describe("campaign RBAC filters", () => {
     authMock.mockResolvedValue({ user: qaUser });
 
     await expect(getCampaignFilter("campaign-3")).rejects.toThrow(
-      "No autorizado para esta campana",
+      "Unauthorized for this campaign",
     );
   });
 
@@ -117,7 +120,7 @@ describe("campaign RBAC filters", () => {
 
     await expect(
       getCampaignFilterForPermissions(["canExport", "canViewReports"], "campaign-1"),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    ).rejects.toThrow("Unauthorized for this action in this campaign");
   });
 
   it("rejects permission assertions when the campaign assignment lacks the permission", async () => {
@@ -128,7 +131,7 @@ describe("campaign RBAC filters", () => {
 
     await expect(
       assertCampaignPermissionForUser(qaUser, "campaign-1", "canManageAgents"),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    ).rejects.toThrow("Unauthorized for this action in this campaign");
   });
 
   it("resolves an effective permission for one assigned campaign", async () => {
@@ -166,7 +169,7 @@ describe("campaign RBAC filters", () => {
     });
     await expect(
       assertCampaignPermissionForUser(supervisorUser, "campaign-1", "canEvaluate"),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    ).rejects.toThrow("Unauthorized for this action in this campaign");
     await expect(
       hasCampaignPermissionForUser(supervisorUser, "campaign-1", "canManageDispositions"),
     ).resolves.toBe(false);

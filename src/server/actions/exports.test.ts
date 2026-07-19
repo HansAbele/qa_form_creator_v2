@@ -67,7 +67,7 @@ describe("exports RBAC", () => {
     });
 
     await expect(exportToCsv({ campaignId: "campaign-1" })).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+      "Unauthorized for this action in this campaign",
     );
     expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
@@ -80,7 +80,7 @@ describe("exports RBAC", () => {
     });
 
     await expect(exportToCsv({ campaignId: "campaign-1" })).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+      "Unauthorized for this action in this campaign",
     );
     expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
@@ -207,7 +207,7 @@ describe("exports RBAC", () => {
     });
 
     expect(csv.split("\n")).toEqual([
-      "ID evaluacion,Agente,Equipo,Disposicion",
+      "Evaluation ID,Agent,Team,Disposition",
       "response-1,Ana Perez,Equipo A,Venta efectiva",
     ]);
     expect(csv).not.toContain("ajeno");
@@ -230,8 +230,8 @@ describe("exports RBAC", () => {
 
     const csv = await exportToCsv({ campaignId: "campaign-1", fields: ["date", "score"] });
 
-    expect(csv.split("\n")[0]).toBe("Fecha,Score");
-    expect(csv).not.toContain("Agente");
+    expect(csv.split("\n")[0]).toBe("Date,Score");
+    expect(csv).not.toContain("Agent");
     expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -260,7 +260,7 @@ describe("exports RBAC", () => {
       fields: ["result", "fatalFail"],
     });
 
-    expect(csv.split("\n")).toEqual(["Resultado,Falla fatal", "FAIL,Si"]);
+    expect(csv.split("\n")).toEqual(["Result,Critical failure", "FAIL,Yes"]);
   });
 
   it("neutralizes spreadsheet formulas in CSV text without changing safe leading spaces", async () => {
@@ -358,13 +358,13 @@ describe("exports RBAC", () => {
     >[0];
     await workbook.xlsx.load(workbookBuffer);
 
-    expect(workbook.getWorksheet("Resumen")).toBeTruthy();
-    expect(workbook.getWorksheet("Evaluaciones")).toBeTruthy();
-    expect(workbook.getWorksheet("Detalle respuestas")).toBeTruthy();
-    expect(workbook.getWorksheet("Evaluaciones")?.getRow(1).values).toEqual(
+    expect(workbook.getWorksheet("Summary")).toBeTruthy();
+    expect(workbook.getWorksheet("Evaluations")).toBeTruthy();
+    expect(workbook.getWorksheet("Answer details")).toBeTruthy();
+    expect(workbook.getWorksheet("Evaluations")?.getRow(1).values).toEqual(
       expect.arrayContaining([
-        "Fecha",
-        "Agente",
+        "Date",
+        "Agent",
         "Score",
         "S01-P02 · Apertura · Saludo [question-1]",
       ]),
@@ -425,9 +425,9 @@ describe("exports RBAC", () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(Buffer.from(workbookBytes) as never);
 
-    expect(workbook.getWorksheet("Resumen")).toBeTruthy();
-    expect(workbook.getWorksheet("Evaluaciones")?.getCell("B2").value).toBe("Ana Perez");
-    expect(workbook.getWorksheet("Detalle respuestas")?.rowCount).toBe(2);
+    expect(workbook.getWorksheet("Summary")).toBeTruthy();
+    expect(workbook.getWorksheet("Evaluations")?.getCell("B2").value).toBe("Ana Perez");
+    expect(workbook.getWorksheet("Answer details")?.rowCount).toBe(2);
     await vi.waitFor(() =>
       expect(prismaMock.auditLog.create.mock.calls.map(([call]) => call.data.action)).toEqual([
         "reserved",
@@ -550,7 +550,7 @@ describe("exports RBAC", () => {
       typeof workbook.xlsx.load
     >[0];
     await workbook.xlsx.load(workbookBuffer);
-    const sheet = workbook.getWorksheet("Evaluaciones");
+    const sheet = workbook.getWorksheet("Evaluations");
 
     expect(sheet?.getCell("A2").fill).toMatchObject({ fgColor: { argb: "FFFEE2E2" } });
     expect(sheet?.getCell("A3").fill).toMatchObject({ fgColor: { argb: "FFFEF3C7" } });
@@ -599,7 +599,7 @@ describe("exports RBAC", () => {
     await expect(exportToCsv({ campaignId: "campaign-1" })).rejects.toMatchObject({
       name: "ExportLimitError",
       code: "EXPORT_LIMIT_EXCEEDED",
-      message: expect.stringContaining("supera 1 evaluaciones"),
+      message: expect.stringContaining("exceeds 1 evaluations"),
     });
     expect(prismaMock.response.findMany).toHaveBeenCalledTimes(1);
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
@@ -629,7 +629,7 @@ describe("exports RBAC", () => {
     ).rejects.toMatchObject({
       name: "ExportLimitError",
       code: "EXPORT_LIMIT_EXCEEDED",
-      message: expect.stringContaining("supera 1 respuestas"),
+      message: expect.stringContaining("exceeds 1 answer rows"),
     });
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
 
@@ -641,7 +641,7 @@ describe("exports RBAC", () => {
     ).rejects.toMatchObject({
       name: "ExportLimitError",
       code: "EXPORT_LIMIT_EXCEEDED",
-      message: expect.stringContaining("supera 1 columnas"),
+      message: expect.stringContaining("exceeds 1 question columns"),
     });
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });

@@ -2,8 +2,11 @@ import { Home, SearchX } from "lucide-react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getServerI18n } from "@/lib/i18n-server";
 
-export default function NotFound() {
+export default async function NotFound() {
+  const { t } = await getServerI18n();
+
   return (
     <main
       aria-labelledby="not-found-title"
@@ -20,18 +23,18 @@ export default function NotFound() {
           <p className="text-sm font-semibold text-primary">Error 404</p>
           <CardTitle>
             <h1 id="not-found-title" className="text-2xl font-semibold">
-              Página no encontrada
+              {t("Page not found")}
             </h1>
           </CardTitle>
           <CardDescription>
-            La dirección solicitada no existe, fue movida o ya no está disponible.
+            {t("The requested address does not exist, was moved, or is no longer available.")}
           </CardDescription>
         </CardHeader>
 
         <CardContent className="flex justify-center">
           <Link href="/" className={buttonVariants({ size: "lg" })}>
             <Home aria-hidden="true" />
-            Volver al inicio
+            {t("Return home")}
           </Link>
         </CardContent>
       </Card>

@@ -21,7 +21,7 @@ describe("operational time", () => {
     delete process.env.OPERATIONAL_TIME_ZONE;
     expect(getOperationalTimeZone()).toBe("UTC");
     expect(assertValidOperationalTimeZone("America/Havana")).toBe("America/Havana");
-    expect(() => assertValidOperationalTimeZone("Not/AZone")).toThrow("zona IANA valida");
+    expect(() => assertValidOperationalTimeZone("Not/AZone")).toThrow("not a valid IANA zone");
   });
 
   it("builds half-open UTC bounds for an operational local day", () => {
@@ -72,10 +72,10 @@ describe("operational time", () => {
 
   it("rejects invalid and reversed date ranges", () => {
     expect(() => getOperationalDateBounds("2026-02-30", undefined, "UTC")).toThrow(
-      "fecha valida",
+      "not a valid date",
     );
     expect(() => getOperationalDateBounds("2026-05-10", "2026-05-01", "UTC")).toThrow(
-      "posterior",
+      "cannot be later than",
     );
   });
 

@@ -13,7 +13,7 @@ import { writeAuditLog } from "@/server/audit-log";
 
 export async function getCampaigns() {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   return prisma.campaign.findMany({
     include: {
@@ -28,7 +28,7 @@ async function getCampaignsForPermissions(
   options: { activeOnly?: boolean } = {},
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   if (
     isSupervisorRole(session.user.role) &&
@@ -107,7 +107,7 @@ export async function getAuditCampaigns() {
 
 export async function createCampaign(data: { name: string; description?: string }) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const campaign = await prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.create({
@@ -122,7 +122,7 @@ export async function createCampaign(data: { name: string; description?: string 
         entityType: "campaign",
         entityId: campaign.id,
         afterValue: campaign,
-        impact: "Campana creada para asignaciones, formularios y evaluaciones.",
+        impact: "Campaign created for assignments, forms, and evaluations.",
       },
       tx,
     );
@@ -138,10 +138,10 @@ export async function updateCampaign(
   data: { name: string; description?: string; active: boolean },
 ) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const existing = await prisma.campaign.findUnique({ where: { id } });
-  if (!existing) throw new Error("Campana no encontrada");
+  if (!existing) throw new Error("Campaign not found");
 
   const campaign = await prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.update({
@@ -158,7 +158,7 @@ export async function updateCampaign(
         entityId: id,
         beforeValue: existing,
         afterValue: campaign,
-        impact: "Campana actualizada; afecta scope operativo y reportes.",
+        impact: "Campaign updated; operational scope and reports may change.",
       },
       tx,
     );
@@ -171,11 +171,11 @@ export async function updateCampaign(
 
 export async function deactivateCampaign(id: string) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const before = await prisma.campaign.findUnique({ where: { id } });
-  if (!before) throw new Error("Campana no encontrada");
-  if (!before.active) throw new Error("La campaña ya está inactiva");
+  if (!before) throw new Error("Campaign not found");
+  if (!before.active) throw new Error("Campaign is already inactive");
 
   const campaign = await prisma.$transaction(async (tx) => {
     const campaign = await tx.campaign.update({
@@ -192,7 +192,7 @@ export async function deactivateCampaign(id: string) {
         entityId: id,
         beforeValue: before,
         afterValue: campaign,
-        impact: "Campana desactivada; su historial y relaciones se conservan.",
+        impact: "Campaign deactivated; history and relationships were preserved.",
       },
       tx,
     );

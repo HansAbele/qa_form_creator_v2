@@ -25,10 +25,7 @@ type AuditDatabaseClient = Pick<Prisma.TransactionClient, "auditLog">;
  * Mutations must pass their transaction client so the business write and its
  * audit record either commit together or roll back together.
  */
-export async function writeAuditLog(
-  input: AuditLogInput,
-  database: AuditDatabaseClient = prisma,
-) {
+export async function writeAuditLog(input: AuditLogInput, database: AuditDatabaseClient = prisma) {
   return database.auditLog.create({
     data: {
       userId: input.userId ?? null,

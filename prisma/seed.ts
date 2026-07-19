@@ -556,59 +556,6 @@ async function main() {
     },
   });
 
-  await Promise.all([
-    prisma.notification.upsert({
-      where: { id: "e2e-notification-visible" },
-      update: {
-        userId: qaUser.id,
-        campaignId: campaign.id,
-        type: "system",
-        severity: "INFO",
-        title: "E2E Customer Service notice",
-        body: "Visible notification for the assigned campaign",
-        href: null,
-        requiredPermission: "canViewDashboard",
-        readAt: null,
-        archivedAt: null,
-      },
-      create: {
-        id: "e2e-notification-visible",
-        userId: qaUser.id,
-        campaignId: campaign.id,
-        type: "system",
-        severity: "INFO",
-        title: "E2E Customer Service notice",
-        body: "Visible notification for the assigned campaign",
-        requiredPermission: "canViewDashboard",
-      },
-    }),
-    prisma.notification.upsert({
-      where: { id: "e2e-notification-restricted" },
-      update: {
-        userId: qaUser.id,
-        campaignId: restrictedCampaign.id,
-        type: "system",
-        severity: "CRITICAL",
-        title: "E2E Backoffice secret notice",
-        body: "This notification must be filtered by campaign access",
-        href: null,
-        requiredPermission: "canViewDashboard",
-        readAt: null,
-        archivedAt: null,
-      },
-      create: {
-        id: "e2e-notification-restricted",
-        userId: qaUser.id,
-        campaignId: restrictedCampaign.id,
-        type: "system",
-        severity: "CRITICAL",
-        title: "E2E Backoffice secret notice",
-        body: "This notification must be filtered by campaign access",
-        requiredPermission: "canViewDashboard",
-      },
-    }),
-  ]);
-
   await prisma.auditLog.createMany({
     data: [
       {

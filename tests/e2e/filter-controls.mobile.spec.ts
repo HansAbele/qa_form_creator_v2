@@ -3,18 +3,15 @@ import { ADMIN_AUTH_STATE } from "./auth-state";
 
 test.use({ storageState: ADMIN_AUTH_STATE });
 
-test("los filtros de Reports y su calendario caben en móvil sin desbordamiento global", async ({
-  page,
-}) => {
-  await page.goto("/reports");
-  await expect(page.getByRole("heading", { name: "Reportes" })).toBeVisible();
-  await page.getByRole("button", { name: "Usar tema oscuro" }).click();
-  await expect(page.getByRole("button", { name: "Usar tema oscuro" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+test("Reports filters and calendar fit on mobile without global overflow", async ({ page }) => {
+  await page.goto("/preferences");
+  await page.getByRole("radio", { name: "Dark Use the dark color palette." }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
 
-  const periodTrigger = page.getByRole("button", { name: /^Periodo:/ });
+  await page.goto("/reports");
+  await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+
+  const periodTrigger = page.getByRole("button", { name: /^Period:/ });
   await periodTrigger.click();
   const menu = page.getByRole("dialog");
   await expect(menu).toBeVisible();
@@ -33,7 +30,7 @@ test("los filtros de Reports y su calendario caben en móvil sin desbordamiento 
   );
   expect(openMenuOverflow).toBeLessThanOrEqual(1);
 
-  await menu.getByRole("button", { name: "Aplicar", exact: true }).click();
+  await menu.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(menu).toBeHidden();
 
   const pageOverflow = await page.evaluate(

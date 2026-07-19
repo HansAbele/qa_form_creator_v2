@@ -60,7 +60,7 @@ describe("evaluation draft discovery RBAC", () => {
   it("requires authentication before querying drafts", async () => {
     authMock.mockResolvedValue(null);
 
-    await expect(getAccessibleEvaluationDrafts()).rejects.toThrow("No autorizado");
+    await expect(getAccessibleEvaluationDrafts()).rejects.toThrow("Unauthorized");
     expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
 

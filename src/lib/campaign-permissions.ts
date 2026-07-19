@@ -24,36 +24,36 @@ export type CampaignPermissionState = Record<CampaignPermissionKey, boolean>;
 export type AppRole = "ADMIN" | "QA" | "SUPERVISOR";
 
 export const CAMPAIGN_ACCESS_LABELS: Record<CampaignAccessLevel, string> = {
-  CAMPAIGN_ADMIN: "Admin campaña",
-  EVALUATOR: "Evaluador",
+  CAMPAIGN_ADMIN: "Campaign Admin",
+  EVALUATOR: "Evaluator",
   SUPERVISOR: "Supervisor",
 };
 
 export const CAMPAIGN_PERMISSION_LABELS: Record<CampaignPermissionKey, string> = {
-  canViewDashboard: "Ver Dashboard",
-  canViewKPIs: "Ver KPIs",
-  canViewForms: "Ver formularios",
-  canViewEvaluations: "Ver evaluaciones de la campa\u00f1a",
-  canCreateForms: "Crear formularios",
-  canEditForms: "Editar formularios",
-  canPublishForms: "Publicar formularios",
-  canEvaluate: "Evaluar agentes",
-  canEditEvaluations: "Editar evaluaciones",
-  canViewReports: "Ver reportes",
-  canExport: "Exportar reportes",
-  canManageAgents: "Administrar agentes/equipos",
-  canManageDispositions: "Administrar disposiciones",
-  canManageCampaignScoring: "Administrar scoring campaña",
-  canViewAudit: "Ver auditoría operativa",
+  canViewDashboard: "View Dashboard",
+  canViewKPIs: "View KPIs",
+  canViewForms: "View forms",
+  canViewEvaluations: "View campaign evaluations",
+  canCreateForms: "Create forms",
+  canEditForms: "Edit forms",
+  canPublishForms: "Publish forms",
+  canEvaluate: "Evaluate agents",
+  canEditEvaluations: "Edit evaluations",
+  canViewReports: "View reports",
+  canExport: "Export reports",
+  canManageAgents: "Manage agents and teams",
+  canManageDispositions: "Manage dispositions",
+  canManageCampaignScoring: "Manage campaign scoring",
+  canViewAudit: "View operational audit",
 };
 
 export const CAMPAIGN_PERMISSION_GROUPS = [
   {
-    title: "Lectura y analítica",
+    title: "Read access and analytics",
     keys: ["canViewDashboard", "canViewKPIs", "canViewForms", "canViewReports", "canViewAudit"],
   },
   {
-    title: "Formularios y evaluaciones",
+    title: "Forms and evaluations",
     keys: [
       "canCreateForms",
       "canEditForms",
@@ -64,7 +64,7 @@ export const CAMPAIGN_PERMISSION_GROUPS = [
     ],
   },
   {
-    title: "Operación y datos",
+    title: "Operations and data",
     keys: ["canExport", "canManageAgents", "canManageDispositions", "canManageCampaignScoring"],
   },
 ] as const satisfies ReadonlyArray<{

@@ -19,6 +19,7 @@ import {
 } from "@/components/dashboard/data-load-state";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { FilterSelect } from "@/components/filters/filter-select";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +30,6 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -39,14 +39,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
+import { summarizeChartData } from "@/lib/chart-accessibility";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { getKpiCampaigns } from "@/server/actions/campaigns";
 import { getDispositionAnalytics } from "@/server/queries/analytics";
-import { summarizeChartData } from "@/lib/chart-accessibility";
 
 // ─── Chart configs ────────────────────────────────────────────────────────────
 
 const volumeConfig = {
-  totalEvaluations: { label: "Evaluaciones", color: "#ff6600" },
+  totalEvaluations: { label: "Evaluations", color: "#ff6600" },
 } satisfies ChartConfig;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -79,10 +81,11 @@ const BAR_COLORS = ["#ff6600", "#1a2b45", "#8b5cf6", "#06b6d4", "#f59e0b", "#10b
 
 // ─── Animated section wrapper ─────────────────────────────────────────────────
 
-function EmptyState({ label = "Sin datos" }: { label?: string }) {
+function EmptyState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
+      {label ?? t("No data")}
     </div>
   );
 }
@@ -107,6 +110,11 @@ function LoadingSkeleton() {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function DispositionsAnalyticsClient() {
+  const { locale, t } = useI18n();
+  const localizedVolumeConfig = {
+    ...volumeConfig,
+    totalEvaluations: { ...volumeConfig.totalEvaluations, label: t("Evaluations") },
+  } satisfies ChartConfig;
   const chartAnimation = useChartAnimation();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -179,6 +187,26 @@ export function DispositionsAnalyticsClient() {
   const mostUsed = data.length > 0 ? data[0] : null; // already sorted desc by totalEvaluations
   const bestScore =
     data.length > 0 ? data.reduce((best, d) => (d.avgScore > best.avgScore ? d : best)) : null;
+  const totalDispositionsDisplay = getMetricDisplay({
+    kind: "count",
+    value: totalDispositions,
+    hasData: data.length > 0,
+    status: loadStatus,
+  });
+  const mostUsedDisplay = getMetricDisplay({
+    kind: "count",
+    value: mostUsed?.totalEvaluations,
+    hasData: data.length > 0,
+    status: loadStatus,
+  });
+  const bestScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: bestScore?.avgScore,
+    hasData: data.length > 0,
+    status: loadStatus,
+    decimals: 1,
+    suffix: "%",
+  });
 
   // ─── Chart data (top 15 by volume) ──────────────────────────────────────────
 
@@ -199,7 +227,7 @@ export function DispositionsAnalyticsClient() {
             size="xs"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Nombre
+            {t("Name")}
             <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
@@ -207,7 +235,7 @@ export function DispositionsAnalyticsClient() {
       },
       {
         accessorKey: "code",
-        header: "Codigo",
+        header: t("Code"),
         cell: ({ getValue }) => {
           const v = getValue<string | null>();
           return v ? (
@@ -219,7 +247,7 @@ export function DispositionsAnalyticsClient() {
       },
       {
         accessorKey: "categoryName",
-        header: "Categoria",
+        header: t("Category"),
         cell: ({ getValue }) => {
           const v = getValue<string | null>();
           return v ? (
@@ -237,7 +265,7 @@ export function DispositionsAnalyticsClient() {
             size="xs"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Evaluaciones
+            {t("Evaluated Calls")}
             <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
@@ -251,7 +279,7 @@ export function DispositionsAnalyticsClient() {
             size="xs"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Avg Score
+            {t("Average Score")}
             <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
@@ -281,7 +309,7 @@ export function DispositionsAnalyticsClient() {
             size="xs"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Pass Rate
+            {t("Pass Rate")}
             <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
@@ -303,7 +331,7 @@ export function DispositionsAnalyticsClient() {
         },
       },
     ],
-    [],
+    [t],
   );
 
   const table = useReactTable({
@@ -320,7 +348,7 @@ export function DispositionsAnalyticsClient() {
   if (loadStatus === "loading" && data.length === 0) return <LoadingSkeleton />;
   if (loadStatus === "error") {
     return (
-      <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar las disposiciones" />
+      <DataLoadError onRetry={() => void loadData()} title={t("Unable to load Dispositions")} />
     );
   }
 
@@ -332,7 +360,7 @@ export function DispositionsAnalyticsClient() {
         <DataLoadError
           compact
           onRetry={() => void loadCampaigns()}
-          title="No pudimos cargar el filtro de campañas"
+          title={t("Unable to load campaign filter")}
         />
       ) : null}
       {/* ─── Header + Filters ──────────────────────────────────────────── */}
@@ -345,19 +373,19 @@ export function DispositionsAnalyticsClient() {
         <div>
           <div className="flex items-center gap-2">
             <Tag className="h-5 w-5 text-cyan-500" />
-            <h1 className="font-heading text-3xl font-bold tracking-tight">Disposiciones</h1>
+            <h1 className="font-heading text-3xl font-bold tracking-tight">{t("Dispositions")}</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Analisis de rendimiento por disposicion
+            {t("Disposition performance analysis")}
           </p>
         </div>
         <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:grid-cols-2">
           <FilterSelect
             id="dispositions-campaign"
-            label="Campaña"
+            label={t("Campaign")}
             value={campaignId}
             options={[
-              { value: "all", label: "Todas" },
+              { value: "all", label: t("All") },
               ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
             ]}
             onValueChange={setCampaignId}
@@ -367,7 +395,7 @@ export function DispositionsAnalyticsClient() {
           />
           <DateRangeFilter
             id="dispositions-period"
-            label="Periodo"
+            label={t("Period")}
             from={dateFrom}
             to={dateTo}
             onApply={(from, to) => {
@@ -382,23 +410,29 @@ export function DispositionsAnalyticsClient() {
       {/* ─── KPI Cards ─────────────────────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
-          label="Total Disposiciones"
+          label={t("Dispositions Used")}
           value={totalDispositions}
+          display={totalDispositionsDisplay}
+          statusLabel={loadStatus === "empty" ? t("No data") : undefined}
           icon={Tag}
           tone="navy"
           index={0}
         />
         <KpiCard
-          label="Mas Usada"
+          label={t("Most Used Disposition")}
           value={mostUsed?.totalEvaluations ?? 0}
+          display={mostUsedDisplay}
+          statusLabel={data.length > 0 ? undefined : t("No data")}
           suffix={mostUsed ? ` - ${mostUsed.name}` : ""}
           icon={ClipboardCheck}
           tone="orange"
           index={1}
         />
         <KpiCard
-          label="Mejor Score"
+          label={t("Top Average Score")}
           value={bestScore?.avgScore ?? 0}
+          display={bestScoreDisplay}
+          statusLabel={data.length > 0 ? undefined : t("No data")}
           decimals={1}
           suffix={bestScore ? `% - ${bestScore.name}` : "%"}
           icon={Award}
@@ -417,19 +451,23 @@ export function DispositionsAnalyticsClient() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <BarChart3 className="h-4 w-4 text-orange-500" />
-              Top 15 Disposiciones por Volumen
+              {t("Top 15 Dispositions by Volume")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {volumeChartData.length > 0 ? (
               <ChartContainer
-                config={volumeConfig}
-                accessibilityLabel="Volumen de evaluaciones por disposición"
+                config={localizedVolumeConfig}
+                accessibilityLabel={t("Evaluation volume by Disposition")}
                 accessibilityDescription={summarizeChartData(
-                  volumeChartData.map(
-                    (disposition) =>
-                      `${disposition.name}: ${disposition.totalEvaluations} evaluaciones`,
+                  volumeChartData.map((disposition) =>
+                    t("{name}: {count} evaluations", {
+                      name: disposition.name,
+                      count: disposition.totalEvaluations,
+                    }),
                   ),
+                  10,
+                  locale,
                 )}
                 className="h-[300px] w-full"
               >
@@ -467,7 +505,7 @@ export function DispositionsAnalyticsClient() {
                 </BarChart>
               </ChartContainer>
             ) : (
-              <EmptyState label="Sin disposiciones registradas" />
+              <EmptyState label={t("No Dispositions recorded")} />
             )}
           </CardContent>
         </Card>
@@ -483,7 +521,7 @@ export function DispositionsAnalyticsClient() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <ClipboardCheck className="h-4 w-4 text-orange-500" />
-              Detalle por Disposicion
+              {t("Disposition details")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -520,7 +558,7 @@ export function DispositionsAnalyticsClient() {
                           colSpan={columns.length}
                           className="text-center text-muted-foreground"
                         >
-                          No hay datos de disposiciones
+                          {t("No Disposition data")}
                         </TableCell>
                       </TableRow>
                     )}
@@ -528,7 +566,7 @@ export function DispositionsAnalyticsClient() {
                 </Table>
               </div>
             ) : (
-              <EmptyState label="Sin disposiciones registradas" />
+              <EmptyState label={t("No Dispositions recorded")} />
             )}
           </CardContent>
         </Card>
@@ -541,8 +579,8 @@ export function DispositionsAnalyticsClient() {
         transition={{ delay: 3 * 0.08 }}
       >
         <p className="text-right text-sm text-muted-foreground">
-          {data.length} disposicion{data.length !== 1 ? "es" : ""} con evaluaciones
-          {campaignId !== "all" && " en la campana seleccionada"}
+          {t("{count} Dispositions with evaluations", { count: data.length })}
+          {campaignId !== "all" && ` ${t("in the selected campaign")}`}
         </p>
       </motion.div>
     </div>

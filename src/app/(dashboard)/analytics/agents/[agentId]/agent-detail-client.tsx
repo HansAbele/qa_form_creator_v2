@@ -12,6 +12,7 @@ import {
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import {
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
 import { formatDateOnlyForDisplay, formatOperationalTimestamp } from "@/lib/date-display";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { getAgentDetail } from "@/server/queries/analytics";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -90,19 +92,19 @@ interface AgentDetailData {
 // ─── Chart configs ───────────────────────────────────────────────────────────
 
 const trendConfig = {
-  avgScore: { label: "Score Promedio", color: "#1a2b45" },
+  avgScore: { label: "Average Score", color: "#1a2b45" },
 } satisfies ChartConfig;
 
 const questionConfig = {
-  avgScore: { label: "Score Promedio", color: "#ff6600" },
+  avgScore: { label: "Average Score", color: "#ff6600" },
 } satisfies ChartConfig;
 
 const dispositionConfig = {
-  count: { label: "Evaluaciones", color: "#06b6d4" },
+  count: { label: "Evaluations", color: "#06b6d4" },
 } satisfies ChartConfig;
 
 const evaluatorConfig = {
-  count: { label: "Evaluaciones", color: "#8b5cf6" },
+  count: { label: "Evaluations", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -144,10 +146,11 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState({ label = "Sin datos" }: { label?: string }) {
+function EmptyState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
+      {label ?? t("No data")}
     </div>
   );
 }
@@ -155,6 +158,24 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function AgentDetailClient({ agentId }: { agentId: string }) {
+  const { locale, t } = useI18n();
+  const localizedTrendConfig = {
+    ...trendConfig,
+    avgScore: { ...trendConfig.avgScore, label: t("Average Score") },
+  } satisfies ChartConfig;
+  const localizedQuestionConfig = {
+    ...questionConfig,
+    avgScore: { ...questionConfig.avgScore, label: t("Average Score") },
+  } satisfies ChartConfig;
+  const localizedDispositionConfig = {
+    ...dispositionConfig,
+    count: { ...dispositionConfig.count, label: t("Evaluations") },
+  } satisfies ChartConfig;
+  const localizedEvaluatorConfig = {
+    ...evaluatorConfig,
+    count: { ...evaluatorConfig.count, label: t("Evaluations") },
+  } satisfies ChartConfig;
+  const displayLocale = locale === "es" ? "es" : "en";
   const chartAnimation = useChartAnimation();
   const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
@@ -188,13 +209,30 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
 
   if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
   if (loadStatus === "error") {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar el agente" />;
+    return <DataLoadError onRetry={() => void loadData()} title={t("Unable to load agent")} />;
   }
   if (loadStatus === "empty" || !data) {
-    return <RestrictedResourceState resourceLabel="El agente" />;
+    return <RestrictedResourceState resourceLabel={t("The agent")} />;
   }
 
   const scoreTrendSpark = data.scoreTrend.map((t) => ({ value: t.avgScore }));
+  const hasData = data.totalEvaluations > 0;
+  const metricStatus = loadStatus === "loading" ? "loading" : hasData ? "success" : "empty";
+  const metricStatusLabel = metricStatus === "empty" ? t("No data") : undefined;
+  const evaluationCountDisplay = getMetricDisplay({
+    kind: "count",
+    value: data.totalEvaluations,
+    hasData,
+    status: metricStatus,
+  });
+  const averageScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.avgScore,
+    hasData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
 
   return (
     <div className="space-y-6">
@@ -211,7 +249,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
           className="mb-4 gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          Volver
+          {t("Back")}
         </Button>
 
         <Card>
@@ -244,7 +282,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
               {/* Date range filters */}
               <DateRangeFilter
                 id="agent-detail-date-range"
-                label="Periodo"
+                label={t("Period")}
                 from={dateFrom}
                 to={dateTo}
                 onApply={(from, to) => {
@@ -261,25 +299,31 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
       {/* ─── KPI Cards ─────────────────────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2">
         <KpiCard
-          label="Total Evaluaciones"
+          label={t("Evaluated Calls")}
           value={data.totalEvaluations}
+          display={evaluationCountDisplay}
+          statusLabel={metricStatusLabel}
           icon={ClipboardCheck}
           tone="orange"
           trend={scoreTrendSpark}
           index={0}
         />
         <KpiCard
-          label="Score Promedio"
+          label={t("Average Score")}
           value={data.avgScore}
+          display={averageScoreDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
           tone={
-            data.avgScore >= data.passThreshold
-              ? "emerald"
-              : data.avgScore >= data.passThreshold * 0.7
-                ? "amber"
-                : "rose"
+            !hasData
+              ? "navy"
+              : data.avgScore >= data.passThreshold
+                ? "emerald"
+                : data.avgScore >= data.passThreshold * 0.7
+                  ? "amber"
+                  : "rose"
           }
           index={1}
         />
@@ -297,19 +341,21 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <TrendingUp className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Tendencia de Score
+                {t("Score trend")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.scoreTrend.length > 1 ? (
                 <ChartContainer
-                  config={trendConfig}
-                  accessibilityLabel="Tendencia del score promedio del agente por fecha"
+                  config={localizedTrendConfig}
+                  accessibilityLabel={t("Agent Average Score trend by date")}
                   accessibilityDescription={summarizeChartData(
                     data.scoreTrend.map(
                       (point) =>
-                        `${formatDateOnlyForDisplay(point.date)}: ${point.avgScore.toFixed(1)}%`,
+                        `${formatDateOnlyForDisplay(point.date, undefined, displayLocale)}: ${point.avgScore.toFixed(1)}%`,
                     ),
+                    10,
+                    locale,
                   )}
                   className="h-[280px] w-full"
                 >
@@ -331,7 +377,11 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                       axisLine={false}
                       tickMargin={8}
                       tickFormatter={(v) =>
-                        formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                        formatDateOnlyForDisplay(
+                          String(v),
+                          { day: "2-digit", month: "short" },
+                          displayLocale,
+                        )
                       }
                       className="text-xs"
                     />
@@ -347,7 +397,9 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                       content={
                         <ChartTooltipContent
                           indicator="line"
-                          labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                          labelFormatter={(label) =>
+                            formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                          }
                           formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
                         />
                       }
@@ -365,7 +417,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                   </LineChart>
                 </ChartContainer>
               ) : (
-                <EmptyState label="Se necesitan al menos 2 puntos de datos" />
+                <EmptyState label={t("At least 2 data points are required")} />
               )}
             </CardContent>
           </Card>
@@ -375,18 +427,20 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <ClipboardCheck className="h-4 w-4 text-orange-500" />
-                Score por Pregunta
+                {t("Score by Question")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.scoreByQuestion.length > 0 ? (
                 <ChartContainer
-                  config={questionConfig}
-                  accessibilityLabel="Score promedio del agente por pregunta"
+                  config={localizedQuestionConfig}
+                  accessibilityLabel={t("Agent Average Score by question")}
                   accessibilityDescription={summarizeChartData(
                     data.scoreByQuestion.map(
                       (question) => `${question.question}: ${question.avgScore.toFixed(1)}%`,
                     ),
+                    10,
+                    locale,
                   )}
                   className="h-[280px] w-full"
                 >
@@ -442,7 +496,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <EmptyState label="Sin datos de preguntas" />
+                <EmptyState label={t("No question data")} />
               )}
             </CardContent>
           </Card>
@@ -461,19 +515,24 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <BarChart3 className="h-4 w-4 text-cyan-500" />
-                Disposiciones
+                {t("Dispositions")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.dispositionBreakdown.length > 0 ? (
                 <ChartContainer
-                  config={dispositionConfig}
-                  accessibilityLabel="Evaluaciones del agente por disposición"
+                  config={localizedDispositionConfig}
+                  accessibilityLabel={t("Agent evaluations by Disposition")}
                   accessibilityDescription={summarizeChartData(
-                    data.dispositionBreakdown.map(
-                      (disposition) =>
-                        `${disposition.name}: ${disposition.count} evaluaciones, score promedio ${disposition.avgScore.toFixed(1)}%`,
+                    data.dispositionBreakdown.map((disposition) =>
+                      t("{name}: {count} evaluations, Average Score {score}%", {
+                        name: disposition.name,
+                        count: disposition.count,
+                        score: disposition.avgScore.toFixed(1),
+                      }),
                     ),
+                    10,
+                    locale,
                   )}
                   className="h-[280px] w-full"
                 >
@@ -514,7 +573,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                             const avg = payload?.avgScore;
                             return [
                               `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
-                              "Disposicion",
+                              t("Disposition"),
                             ];
                           }}
                         />
@@ -530,7 +589,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <EmptyState label="Sin disposiciones registradas" />
+                <EmptyState label={t("No Dispositions recorded")} />
               )}
             </CardContent>
           </Card>
@@ -540,19 +599,24 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-4 w-4 text-violet-500" />
-                Evaluadores
+                {t("Evaluators")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.evaluators.length > 0 ? (
                 <ChartContainer
-                  config={evaluatorConfig}
-                  accessibilityLabel="Evaluaciones del agente por evaluador"
+                  config={localizedEvaluatorConfig}
+                  accessibilityLabel={t("Agent evaluations by evaluator")}
                   accessibilityDescription={summarizeChartData(
-                    data.evaluators.map(
-                      (evaluator) =>
-                        `${evaluator.name}: ${evaluator.count} evaluaciones, score promedio ${evaluator.avgScore.toFixed(1)}%`,
+                    data.evaluators.map((evaluator) =>
+                      t("{name}: {count} evaluations, Average Score {score}%", {
+                        name: evaluator.name,
+                        count: evaluator.count,
+                        score: evaluator.avgScore.toFixed(1),
+                      }),
                     ),
+                    10,
+                    locale,
                   )}
                   className="h-[280px] w-full"
                 >
@@ -590,7 +654,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                             const avg = payload?.avgScore;
                             return [
                               `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
-                              "Evaluador",
+                              t("Evaluator"),
                             ];
                           }}
                         />
@@ -606,7 +670,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <EmptyState label="Sin datos de evaluadores" />
+                <EmptyState label={t("No evaluator data")} />
               )}
             </CardContent>
           </Card>
@@ -621,7 +685,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
       >
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Ultimas 10 Evaluaciones</CardTitle>
+            <CardTitle className="text-base">{t("Last 10 Evaluations")}</CardTitle>
           </CardHeader>
           <CardContent>
             {data.recentResponses.length > 0 ? (
@@ -629,11 +693,11 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="text-center">Score</TableHead>
-                      <TableHead>Formulario</TableHead>
-                      <TableHead>Evaluador</TableHead>
-                      <TableHead>Disposicion</TableHead>
-                      <TableHead className="text-right">Fecha</TableHead>
+                      <TableHead className="text-center">{t("Score")}</TableHead>
+                      <TableHead>{t("Form")}</TableHead>
+                      <TableHead>{t("Evaluator")}</TableHead>
+                      <TableHead>{t("Disposition")}</TableHead>
+                      <TableHead className="text-right">{t("Date")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -656,11 +720,12 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                           )}
                         </TableCell>
                         <TableCell className="text-right text-sm text-muted-foreground">
-                          {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
-                            day: "2-digit",
-                            month: "short",
-                            year: "numeric",
-                          })}
+                          {formatOperationalTimestamp(
+                            r.submittedAt,
+                            operationalTimeZone,
+                            { day: "2-digit", month: "short", year: "numeric" },
+                            displayLocale,
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -668,7 +733,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                 </Table>
               </div>
             ) : (
-              <EmptyState label="Sin evaluaciones registradas" />
+              <EmptyState label={t("No evaluations recorded")} />
             )}
           </CardContent>
         </Card>

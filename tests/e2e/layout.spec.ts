@@ -61,12 +61,12 @@ test.describe("Desktop application shell", () => {
       has: page.getByText("Customer Service QA Form", { exact: true }),
     });
     await expect(formCard).toBeVisible();
-    const evaluationLink = formCard.getByRole("link", { name: "Evaluar" });
+    const evaluationLink = formCard.getByRole("link", { name: "Evaluate" });
     const href = await evaluationLink.getAttribute("href");
     expect(href).toMatch(/^\/forms\/[^/?]+$/);
 
     await page.goto(href as string);
-    await expect(page.getByRole("heading", { name: "Nueva evaluacion" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "New Evaluation" })).toBeVisible();
 
     await expectDocumentOwnedVerticalScroll(page);
   });

@@ -8,7 +8,7 @@ const DRAFT_LIST_LIMIT = 50;
 
 export async function getAccessibleEvaluationDrafts() {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   if (isSupervisorRole(session.user.role)) return [];
 
   const accessRules: Prisma.ResponseWhereInput[] = [];

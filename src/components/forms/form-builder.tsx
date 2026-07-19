@@ -1,24 +1,26 @@
 "use client";
 
 import {
+  closestCenter,
   DndContext,
+  type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
-  closestCenter,
-  type DragEndEvent,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
 import {
-  SortableContext,
   arrayMove,
+  SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import type { QuestionType } from "@prisma/client";
 import { AlertTriangle, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +41,6 @@ import {
   isScoredQuestionType,
   type RatingStyleValue,
 } from "@/types/form-builder";
-import type { QuestionType } from "@prisma/client";
 import { FormPreview } from "./form-preview";
 import { type QuestionData, QuestionPanel } from "./question-panel";
 import { QuestionRow } from "./question-row";
@@ -98,6 +99,7 @@ function generateTempId() {
 }
 
 export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilderProps) {
+  const { t } = useI18n();
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(initialData?.title ?? "");
@@ -131,10 +133,10 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
   const editingPublished = initialData?.status === "PUBLISHED";
   const statusText =
     initialData?.status === "PUBLISHED"
-      ? "Publicado"
+      ? t("Published")
       : initialData?.status === "ARCHIVED"
-        ? "Archivado"
-        : "Borrador";
+        ? t("Archived")
+        : t("Draft");
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -208,15 +210,15 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
 
   const handleSave = async () => {
     if (!title.trim()) {
-      toast.error("El titulo es obligatorio");
+      toast.error(t("Form title is required"));
       return;
     }
     if (!campaignId) {
-      toast.error("Selecciona una campana");
+      toast.error(t("Select a campaign"));
       return;
     }
     if (qaCategories.length === 0) {
-      toast.error("No hay categorias QA activas para asignar");
+      toast.error(t("No active QA categories are available"));
       return;
     }
 
@@ -224,22 +226,22 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
     let effectiveQuestions = questions;
     if (draft) {
       if (!draft.label.trim() || !draft.qaCategoryId) {
-        toast.error("Termina la pregunta abierta en el panel antes de guardar");
+        toast.error(t("Finish the open question before saving"));
         return;
       }
       effectiveQuestions = mergeDraft(questions, draft, panelMode);
     }
 
     if (effectiveQuestions.length === 0) {
-      toast.error("Agrega al menos una pregunta");
+      toast.error(t("Add at least one question"));
       return;
     }
     if (effectiveQuestions.some((q) => !q.label.trim())) {
-      toast.error("Todas las preguntas deben tener un texto");
+      toast.error(t("Every question must include text"));
       return;
     }
     if (effectiveQuestions.some((q) => !q.qaCategoryId)) {
-      toast.error("Todas las preguntas deben tener una categoria QA");
+      toast.error(t("Every question must have a QA category"));
       return;
     }
     const invalidFatal = effectiveQuestions.some((question) => {
@@ -247,7 +249,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       return question.fatal && !category?.canBeFatal;
     });
     if (invalidFatal) {
-      toast.error("Hay fallas fatales en categorias que no lo permiten");
+      toast.error(t("Some critical failures use categories that do not allow them"));
       return;
     }
     const optionQuestionWithoutOptions = effectiveQuestions.some((question) => {
@@ -255,7 +257,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       return question.options.filter((option) => option.trim()).length < 2;
     });
     if (optionQuestionWithoutOptions) {
-      toast.error("Seleccion y opcion multiple requieren al menos 2 opciones");
+      toast.error(t("Choice questions require at least 2 options"));
       return;
     }
     const fatalOptionQuestionWithoutRules = effectiveQuestions.some((question) => {
@@ -264,7 +266,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       return validFatalOptions.length === 0;
     });
     if (fatalOptionQuestionWithoutRules) {
-      toast.error("Selecciona al menos una opcion fatal en preguntas criticas");
+      toast.error(t("Select at least one critical option for each critical question"));
       return;
     }
     const scoredTotal = effectiveQuestions.reduce(
@@ -275,7 +277,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       effectiveQuestions.some((question) => isScoredQuestionType(question.type)) &&
       scoredTotal !== 100
     ) {
-      toast.error("Los pesos de las preguntas puntuables deben sumar 100%");
+      toast.error(t("Scored question weights must total 100%"));
       return;
     }
 
@@ -318,28 +320,22 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       };
 
       if (initialData) {
-        const savedForm = await updateForm(initialData.id, formData);
-        if (editingPublished && savedForm.id !== initialData.id) {
-          toast.success("Cambios guardados como borrador pendiente");
-          router.push(`/forms/${savedForm.id}/edit`);
-          router.refresh();
-          return;
-        }
-        toast.success("Formulario actualizado");
+        await updateForm(initialData.id, formData);
+        toast.success(t("Form updated"));
       } else {
         await createForm(formData);
-        toast.success("Formulario creado");
+        toast.success(t("Form created"));
       }
       router.push("/forms");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to save form"));
     } finally {
       setSaving(false);
     }
   };
 
-  const groups = groupByCategory(questions, qaCategories);
+  const groups = groupByCategory(questions, qaCategories, t("No category"));
 
   return (
     <div className="space-y-6">
@@ -355,8 +351,9 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
               </div>
               {editingPublished && (
                 <p className="text-sm text-muted-foreground">
-                  Los cambios quedaran pendientes de publicacion. Las evaluaciones historicas no
-                  se alteran.
+                  {t(
+                    "Changes apply to future evaluations only. Historical evaluations remain unchanged.",
+                  )}
                 </p>
               )}
             </div>
@@ -365,8 +362,8 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       )}
       <Tabs defaultValue="editor">
         <TabsList>
-          <TabsTrigger value="editor">Editor</TabsTrigger>
-          <TabsTrigger value="preview">Vista previa</TabsTrigger>
+          <TabsTrigger value="editor">{t("Editor")}</TabsTrigger>
+          <TabsTrigger value="preview">{t("Preview")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="editor">
@@ -375,26 +372,28 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
             <div className="min-w-0 flex-1 space-y-5">
               <div className="grid gap-4 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="title">Titulo</Label>
+                  <Label htmlFor="title">{t("Title")}</Label>
                   <Input
                     id="title"
-                    placeholder="Nombre del formulario"
+                    placeholder={t("Form name")}
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="campaign">Campana</Label>
+                  <Label htmlFor="campaign">{t("Campaign")}</Label>
                   <Select
                     value={campaignId}
                     onValueChange={(v) => v && setCampaignId(v)}
                     disabled={editingPublished}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Seleccionar campana">
+                      <SelectValue placeholder={t("Select a campaign")}>
                         {(value: string | null) => {
-                          if (!value) return "Seleccionar campana";
-                          return campaigns.find((c) => c.id === value)?.name ?? "Seleccionar campana";
+                          if (!value) return t("Select a campaign");
+                          return (
+                            campaigns.find((c) => c.id === value)?.name ?? t("Select a campaign")
+                          );
                         }}
                       </SelectValue>
                     </SelectTrigger>
@@ -408,10 +407,10 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
                   </Select>
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="description">Descripcion (opcional)</Label>
+                  <Label htmlFor="description">{t("Description (optional)")}</Label>
                   <Textarea
                     id="description"
-                    placeholder="Descripcion del formulario..."
+                    placeholder={t("Describe this form...")}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={2}
@@ -421,17 +420,17 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
 
               <div className="flex items-center justify-between">
                 <h3 className="font-heading text-lg font-semibold">
-                  Preguntas ({questions.length})
+                  {t("Questions ({count})", { count: questions.length })}
                 </h3>
                 <Button type="button" variant="outline" onClick={() => startAdd()}>
                   <Plus className="mr-1 h-4 w-4" />
-                  Agregar pregunta
+                  {t("Add question")}
                 </Button>
               </div>
 
               {questions.length === 0 ? (
                 <div className="flex h-32 items-center justify-center rounded-xl border border-dashed text-muted-foreground">
-                  Haz clic en &quot;Agregar pregunta&quot; para comenzar
+                  {t('Select "Add question" to get started')}
                 </div>
               ) : (
                 <DndContext
@@ -449,11 +448,13 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
                           />
                           <span className="font-heading text-sm font-semibold">{group.name}</span>
                           <span className="text-xs text-muted-foreground">
-                            {group.items.length} pregunta{group.items.length === 1 ? "" : "s"}
+                            {group.items.length === 1
+                              ? t("1 question")
+                              : t("{count} questions", { count: group.items.length })}
                           </span>
                           {group.weight > 0 && (
                             <Badge variant="outline" className="text-[10px] tabular-nums">
-                              Peso {group.weight}%
+                              {t("Weight {weight}%", { weight: group.weight })}
                             </Badge>
                           )}
                         </div>
@@ -481,7 +482,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
                             onClick={() => startAdd(group.catId)}
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Agregar pregunta a {group.name}
+                            {t("Add question to {category}", { category: group.name })}
                           </Button>
                         </div>
                       </div>
@@ -506,10 +507,10 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
               )}
               <div className="space-y-2 rounded-xl border border-border bg-card p-4">
                 <Button onClick={handleSave} disabled={saving} className="w-full">
-                  {saving ? "Guardando..." : initialData ? "Actualizar" : "Crear formulario"}
+                  {saving ? t("Saving...") : initialData ? t("Update") : t("Create form")}
                 </Button>
                 <Button variant="outline" onClick={() => router.push("/forms")} className="w-full">
-                  Cancelar
+                  {t("Cancel")}
                 </Button>
               </div>
             </div>
@@ -543,6 +544,7 @@ interface QuestionGroup {
 function groupByCategory(
   questions: QuestionData[],
   qaCategories: QACategoryOption[],
+  uncategorizedLabel: string,
 ): QuestionGroup[] {
   const order: string[] = [];
   for (const question of questions) {
@@ -553,7 +555,7 @@ function groupByCategory(
     const category = qaCategories.find((c) => c.id === catId);
     return {
       catId,
-      name: category?.name ?? "Sin categoria",
+      name: category?.name ?? uncategorizedLabel,
       color: category?.systemColor ?? null,
       weight: items.reduce(
         (sum, question) => sum + (isScoredQuestionType(question.type) ? question.weight : 0),

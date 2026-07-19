@@ -28,7 +28,7 @@ describe("QA category data minimization", () => {
       user: { id: "qa-1", role: "QA", campaignIds: ["campaign-1"] },
     });
 
-    await expect(readQACategories()).rejects.toThrow("No autorizado");
+    await expect(readQACategories()).rejects.toThrow("Unauthorized");
     expect(prismaMock.qACategory.findMany).not.toHaveBeenCalled();
   });
 
@@ -65,7 +65,7 @@ describe("QA category data minimization", () => {
       user: { id: "supervisor-1", role: "SUPERVISOR", campaignIds: ["campaign-1"] },
     });
 
-    await expect(readActiveQACategoriesForFormCreation()).rejects.toThrow("No autorizado");
+    await expect(readActiveQACategoriesForFormCreation()).rejects.toThrow("Unauthorized");
     expect(prismaMock.userCampaign.findMany).not.toHaveBeenCalled();
   });
 
@@ -101,7 +101,9 @@ describe("QA category data minimization", () => {
       _count: { formCategories: 2 },
     });
 
-    await expect(deactivateQACategory("category-1")).rejects.toThrow("usada por formularios");
+    await expect(deactivateQACategory("category-1")).rejects.toThrow(
+      "A QA category used by forms cannot be deactivated",
+    );
     expect(prismaMock.qACategory.update).not.toHaveBeenCalled();
   });
 });

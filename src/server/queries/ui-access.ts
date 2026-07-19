@@ -34,13 +34,13 @@ function toUiAccess(
     ...permissions,
     isAdmin,
     isSupervisor,
-    canOpenSettings: true,
+    canOpenSettings: isAdmin || permissions.canViewAudit,
   };
 }
 
 export async function getCurrentUserUiAccess(): Promise<UiAccess> {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const user = await prisma.user.findFirst({
     where: { id: session.user.id, active: true },

@@ -1,6 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
@@ -38,13 +39,15 @@ export function FilterSelect({
   value,
   options,
   onValueChange,
-  placeholder = "Seleccionar",
+  placeholder: placeholderProp,
   icon: Icon,
   disabled = false,
   className,
   triggerClassName,
   contentClassName,
 }: FilterSelectProps) {
+  const { t } = useI18n();
+  const placeholder = placeholderProp ?? t("Select");
   const selected = options.find((option) => option.value === value);
 
   return (

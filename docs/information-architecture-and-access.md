@@ -121,14 +121,18 @@ misma campaña
 
 Esto impide que una asignación con `canViewReports` en una campaña y `canExport` en otra se combine como si fuera autorización válida.
 
+## Trazabilidad sin notificaciones
+
+Qore no incluye un centro de notificaciones in-app ni preferencias asociadas. Los eventos relevantes —envío o anulación de evaluaciones, generación de exports y cambios administrativos— conservan su trazabilidad durable en `AuditLog`, respetando el alcance por campaña. La migración `20260717201000_remove_notifications` elimina las tablas retiradas y sus datos históricos.
+
 ## Compatibilidad de enlaces
 
-Los enlaces antiguos permanecen como redirecciones para no romper marcadores ni notificaciones históricas:
+Los enlaces antiguos permanecen como redirecciones para no romper marcadores o enlaces históricos:
 
 - `/analytics/responses` → `/evaluations`
 - `/analytics/responses/[responseId]` → `/evaluations/[responseId]`
 
-Las nuevas notificaciones y acciones internas ya generan enlaces canónicos.
+Las acciones internas generan enlaces canónicos.
 
 ## Menú de usuario
 
@@ -149,7 +153,7 @@ Estos cambios requieren su propio ciclo de diseño, migración y pruebas; no deb
 1. Unificar Usuarios y permisos por campaña en una sola experiencia administrativa.
 2. Retirar las rutas administrativas antiguas de agentes, equipos y disposiciones después de confirmar paridad con Operación.
 3. Reducir Configuración a controles realmente modificables y separar las reglas informativas.
-4. Implementar preferencias persistentes de notificaciones, idioma y presentación de zona horaria.
+4. Completar la presentación de zona horaria en todas las vistas operativas.
 5. Añadir metas configurables de muestra por agente y alertas de cobertura mensual.
 6. Incorporar un identificador de interacción o llamada, fecha de contacto y referencia de grabación para trazabilidad más allá de `Response.id`.
 

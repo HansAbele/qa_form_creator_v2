@@ -106,15 +106,6 @@ export const prismaMock = {
     findMany: vi.fn(),
     upsert: vi.fn(),
   },
-  notification: {
-    findMany: vi.fn(),
-    count: vi.fn(),
-    createMany: vi.fn(),
-    updateMany: vi.fn(),
-  },
-  notificationPreference: {
-    upsert: vi.fn(),
-  },
   auditLog: {
     create: vi.fn(),
     count: vi.fn(),

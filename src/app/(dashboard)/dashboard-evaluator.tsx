@@ -15,11 +15,13 @@ import {
   type DataLoadStatus,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { cn } from "@/lib/utils";
 import { getMyDashboard } from "@/server/queries/analytics";
 import type { UiAccess } from "@/server/queries/ui-access";
@@ -35,7 +37,9 @@ export function DashboardEvaluator({
   access: UiAccess;
   campaigns: { id: string; name: string }[];
 }) {
+  const { locale, t } = useI18n();
   const operationalTimeZone = useOperationalTimeZone();
+  const displayLocale = locale === "es" ? "es" : "en";
   const router = useRouter();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -50,7 +54,7 @@ export function DashboardEvaluator({
       const result = await getMyDashboard(dateFrom || undefined, dateTo || undefined);
       if (requestId !== requestGeneration.current) return;
       setData(result);
-      setLoadStatus("success");
+      setLoadStatus(result.evaluations === 0 ? "empty" : "success");
     } catch (e) {
       if (requestId !== requestGeneration.current) return;
       reportDataLoadError(e, "dashboard-evaluator");
@@ -67,24 +71,57 @@ export function DashboardEvaluator({
 
   if (loadStatus === "loading" && !data) return <DashboardSpinner />;
   if (loadStatus === "error") {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar tu dashboard" />;
+    return (
+      <DataLoadError onRetry={() => void loadData()} title={t("Unable to load your dashboard")} />
+    );
   }
   if (!data) {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar tu dashboard" />;
+    return (
+      <DataLoadError onRetry={() => void loadData()} title={t("Unable to load your dashboard")} />
+    );
   }
 
   const countTrend = data.trend.map((t) => ({ value: t.count }));
   const canOpenEvaluations = access.canViewDashboard;
 
   const consistencyOk = data.stdDev <= data.calibrationTolerance;
+  const hasData = data.evaluations > 0;
+  const countDisplay = getMetricDisplay({
+    kind: "count",
+    value: data.evaluations,
+    hasData,
+    status: loadStatus,
+  });
+  const dailyRateDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.dailyRate,
+    hasData,
+    status: loadStatus,
+    decimals: 1,
+  });
+  const criticalFailuresDisplay = getMetricDisplay({
+    kind: "count",
+    value: data.fatalCount,
+    hasData,
+    status: loadStatus,
+  });
+  const averageScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.avgScore,
+    hasData,
+    status: loadStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const metricStatusLabel = loadStatus === "empty" ? t("No data") : undefined;
 
   return (
     <div className="space-y-6">
       <ContextBar
-        title="Mi trabajo"
+        title={t("My work")}
         subtitle={
           <>
-            Bienvenido de vuelta, <span className="font-medium text-foreground">{userName}</span>
+            {t("Welcome back,")} <span className="font-medium text-foreground">{userName}</span>
           </>
         }
         icon={ClipboardCheck}
@@ -103,25 +140,39 @@ export function DashboardEvaluator({
       {/* Self-scoped KPI row (neutral labels — descriptive, not a judgment) */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Evaluaciones"
+          label={t("Evaluated Calls")}
           value={data.evaluations}
+          display={countDisplay}
+          statusLabel={metricStatusLabel}
           icon={ClipboardCheck}
           tone="orange"
           trend={countTrend}
           index={0}
         />
         <KpiCard
-          label="Tasa diaria"
+          label={t("Daily Rate")}
           value={data.dailyRate}
+          display={dailyRateDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           icon={Calendar}
           tone="navy"
           index={1}
         />
-        <KpiCard label="Fatales" value={data.fatalCount} icon={ShieldAlert} tone="navy" index={2} />
         <KpiCard
-          label="Score promedio"
+          label={t("Critical Failures")}
+          value={data.fatalCount}
+          display={criticalFailuresDisplay}
+          statusLabel={metricStatusLabel}
+          icon={ShieldAlert}
+          tone="navy"
+          index={2}
+        />
+        <KpiCard
+          label={t("Average Score")}
           value={data.avgScore}
+          display={averageScoreDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
@@ -133,51 +184,67 @@ export function DashboardEvaluator({
       {/* Distribution + personal consistency */}
       <Section delay={0.1}>
         <div className="grid gap-6 lg:grid-cols-2">
-          <DistributionCard title="Distribución de scores" data={data.distribution} />
+          <DistributionCard title={t("Score distribution")} data={data.distribution} />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Scale className="h-4 w-4 text-violet-500" />
-                Consistencia personal
+                {t("Personal consistency")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.evaluations === 0 ? (
-                <EmptyState label="Sin datos para calibrar" />
+                <EmptyState label={t("No calibration data")} />
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="rounded-xl border bg-card p-4">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Muestra personal
+                      {t("Personal sample")}
                     </p>
                     <p className="mt-1 font-heading text-3xl font-bold tabular-nums">
                       {data.evaluations}
                     </p>
-                    <p className="text-sm font-semibold text-foreground">evaluaciones</p>
+                    <p className="text-sm font-semibold text-foreground">{t("evaluations")}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Calculado únicamente con tu actividad
+                      {t("Calculated only from your activity")}
                     </p>
                   </div>
                   <div className="rounded-xl border bg-card p-4">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Consistencia
+                      {t("Consistency")}
                     </p>
-                    <p className="mt-1 font-heading text-3xl font-bold tabular-nums">
-                      {data.stdDev.toFixed(1)}
-                    </p>
-                    <p
-                      className={cn(
-                        "text-sm font-semibold",
-                        consistencyOk
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-amber-600 dark:text-amber-400",
-                      )}
-                    >
-                      {consistencyOk ? "Dentro de tolerancia" : "Fuera de tolerancia"}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      StdDev · tolerancia &lt; {data.calibrationTolerance}
-                    </p>
+                    {data.evaluations >= 2 ? (
+                      <>
+                        <p className="mt-1 font-heading text-3xl font-bold tabular-nums">
+                          {data.stdDev.toFixed(1)}
+                        </p>
+                        <p
+                          className={cn(
+                            "text-sm font-semibold",
+                            consistencyOk
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-amber-600 dark:text-amber-400",
+                          )}
+                        >
+                          {consistencyOk ? t("Within tolerance") : t("Outside tolerance")}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("StdDev")} · {t("tolerance")} &lt; {data.calibrationTolerance}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-1 font-heading text-3xl font-bold text-muted-foreground">
+                          —
+                        </p>
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          {t("Insufficient sample")}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("At least 2 evaluations are required")}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -191,7 +258,7 @@ export function DashboardEvaluator({
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Actividad reciente</CardTitle>
+              <CardTitle className="text-base">{t("Recent activity")}</CardTitle>
             </CardHeader>
             <CardContent>
               {data.recentActivity.length > 0 ? (
@@ -223,16 +290,19 @@ export function DashboardEvaluator({
                           {r.score.toFixed(1)}%
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          {formatOperationalTimestamp(r.submittedAt, operationalTimeZone, {
-                            dateStyle: "short",
-                          })}
+                          {formatOperationalTimestamp(
+                            r.submittedAt,
+                            operationalTimeZone,
+                            { dateStyle: "short" },
+                            displayLocale,
+                          )}
                         </span>
                       </div>
                     </button>
                   ))}
                 </div>
               ) : (
-                <EmptyState label="Sin evaluaciones en el periodo" />
+                <EmptyState label={t("No evaluations in this period")} />
               )}
             </CardContent>
           </Card>
@@ -241,7 +311,7 @@ export function DashboardEvaluator({
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Target className="h-4 w-4 text-orange-500" />
-                Dónde enfocar según mis evaluaciones
+                {t("Coaching focus from my evaluations")}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -263,7 +333,7 @@ export function DashboardEvaluator({
                   ))}
                 </div>
               ) : (
-                <EmptyState label="Sin agentes bajo objetivo" />
+                <EmptyState label={t("No agents below target")} />
               )}
             </CardContent>
           </Card>

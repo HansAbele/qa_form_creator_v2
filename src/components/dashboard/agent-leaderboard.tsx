@@ -1,5 +1,6 @@
 "use client";
 
+import { useI18n } from "@/components/providers/i18n-provider";
 import { agentTint, getInitials } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ interface AgentLeaderboardProps {
  * (identity, not data). Rows sorted by volume desc by the caller.
  */
 export function AgentLeaderboard({ rows, interactive = false, onRowClick }: AgentLeaderboardProps) {
+  const { t } = useI18n();
   if (rows.length === 0) return <LeaderboardSkeleton />;
 
   const max = Math.max(...rows.map((r) => r.count), 1);
@@ -29,9 +31,10 @@ export function AgentLeaderboard({ rows, interactive = false, onRowClick }: Agen
   return (
     <div className="space-y-3">
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        Top {rows.length} por volumen ·{" "}
-        <span className="font-heading font-bold tabular-nums text-foreground">{total}</span>{" "}
-        evaluaciones
+        {t("Top {count} by volume · {total} evaluations", {
+          count: rows.length,
+          total,
+        })}
       </p>
       <ul className="space-y-1.5">
         {rows.map((row, i) => {
@@ -44,7 +47,10 @@ export function AgentLeaderboard({ rows, interactive = false, onRowClick }: Agen
                 type="button"
                 disabled={!interactive}
                 onClick={interactive ? () => onRowClick?.(row.id) : undefined}
-                aria-label={`${row.name}: ${row.count} evaluaciones`}
+                aria-label={t("{name}: {count} evaluations", {
+                  name: row.name,
+                  count: row.count,
+                })}
                 className={cn(
                   "group flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors",
                   interactive ? "cursor-pointer hover:bg-muted/60" : "cursor-default",
@@ -80,7 +86,9 @@ export function AgentLeaderboard({ rows, interactive = false, onRowClick }: Agen
                 </span>
                 <span className="shrink-0 whitespace-nowrap font-heading text-[15px] font-bold tabular-nums text-foreground">
                   {row.count}
-                  <span className="ml-1 text-[11px] font-medium text-muted-foreground">evals</span>
+                  <span className="ml-1 text-[11px] font-medium text-muted-foreground">
+                    {t("evals")}
+                  </span>
                 </span>
               </button>
             </li>

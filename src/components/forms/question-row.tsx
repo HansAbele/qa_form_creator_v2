@@ -3,6 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Pencil, Trash2 } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,7 @@ interface QuestionRowProps {
 
 /** Compact read-only question row; click (or the pencil) opens it in the panel. */
 export function QuestionRow({ question, index, active, onEdit, onDelete }: QuestionRowProps) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: question.id,
   });
@@ -41,7 +43,7 @@ export function QuestionRow({ question, index, active, onEdit, onDelete }: Quest
       <button
         type="button"
         className="cursor-grab text-muted-foreground hover:text-foreground"
-        aria-label="Reordenar pregunta"
+        aria-label={t("Reorder question")}
         {...attributes}
         {...listeners}
       >
@@ -58,34 +60,42 @@ export function QuestionRow({ question, index, active, onEdit, onDelete }: Quest
         className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
       >
         <span className="line-clamp-1 text-[13.5px] font-semibold text-foreground">
-          {question.label.trim() || <span className="italic text-muted-foreground">Sin texto</span>}
+          {question.label.trim() || (
+            <span className="italic text-muted-foreground">{t("No text")}</span>
+          )}
         </span>
         <span className="flex flex-wrap items-center gap-1">
           <Badge variant="secondary" className="text-[10px]">
-            {QUESTION_TYPE_LABELS[question.type]}
+            {t(QUESTION_TYPE_LABELS[question.type])}
           </Badge>
           {isScoredQuestionType(question.type) && (
             <Badge variant="outline" className="text-[10px] tabular-nums">
-              Peso {question.weight}%
+              {t("Weight {weight}%", { weight: question.weight })}
             </Badge>
           )}
           {question.fatal && (
             <Badge variant="destructive" className="text-[10px]">
-              Fatal
+              {t("Critical")}
             </Badge>
           )}
           {question.required && (
             <Badge variant="outline" className="text-[10px]">
-              Requerida
+              {t("Required")}
             </Badge>
           )}
         </span>
       </button>
 
-      <Button type="button" variant="ghost" size="icon-xs" onClick={onEdit} aria-label="Editar">
+      <Button type="button" variant="ghost" size="icon-xs" onClick={onEdit} aria-label={t("Edit")}>
         <Pencil className="h-3.5 w-3.5" />
       </Button>
-      <Button type="button" variant="ghost" size="icon-xs" onClick={onDelete} aria-label="Eliminar">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        onClick={onDelete}
+        aria-label={t("Delete")}
+      >
         <Trash2 className="h-3.5 w-3.5 text-destructive" />
       </Button>
     </div>

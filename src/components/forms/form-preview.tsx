@@ -1,7 +1,8 @@
 "use client";
 
-import { QuestionRenderer } from "./question-renderer";
+import { useI18n } from "@/components/providers/i18n-provider";
 import type { QuestionData } from "./question-panel";
+import { QuestionRenderer } from "./question-renderer";
 
 interface FormPreviewProps {
   title: string;
@@ -15,10 +16,11 @@ interface FormPreviewProps {
  * evaluation — configurable rating scale/stars, Sí/No, options, fatal badges.
  */
 export function FormPreview({ title, description, questions }: FormPreviewProps) {
+  const { t } = useI18n();
   if (!title && questions.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-muted-foreground">
-        Completa el formulario para ver la vista previa
+        {t("Complete the form to see a preview")}
       </div>
     );
   }
@@ -26,12 +28,14 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="space-y-1">
-        <h2 className="font-heading text-2xl font-bold tracking-tight">{title || "Sin titulo"}</h2>
+        <h2 className="font-heading text-2xl font-bold tracking-tight">
+          {title || t("Untitled form")}
+        </h2>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
 
       {questions.length === 0 ? (
-        <p className="text-center text-muted-foreground">No hay preguntas agregadas</p>
+        <p className="text-center text-muted-foreground">{t("No questions added")}</p>
       ) : (
         <div className="pointer-events-none space-y-3 select-none">
           {questions.map((q, i) => (
@@ -40,7 +44,7 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
               question={{
                 id: q.id,
                 type: q.type,
-                label: q.label || `Pregunta ${i + 1}`,
+                label: q.label || t("Question {number}", { number: i + 1 }),
                 options: q.options,
                 required: q.required,
                 weight: q.weight,

@@ -137,7 +137,7 @@ describe("POST /api/exports/[format]", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/csv; charset=utf-8");
     expect(response.headers.get("content-disposition")).toMatch(
-      /^attachment; filename="evaluaciones_\d{8}T\d{6}\.csv"$/,
+      /^attachment; filename="evaluations_\d{8}T\d{6}\.csv"$/,
     );
     expect(response.headers.get("cache-control")).toContain("no-store");
     await expect(response.text()).resolves.toBe("score\n95");

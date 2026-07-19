@@ -49,7 +49,7 @@ export async function readOperationalAudit(
 ): Promise<OperationalAuditPage> {
   const session = await auth();
   if (!session?.user) {
-    throw new Error("No autorizado");
+    throw new Error("Unauthorized");
   }
 
   const page = clampInt(filters.page, 1, 10_000, 1);
@@ -111,7 +111,7 @@ async function getAllowedAuditCampaignIds(user: {
 
   const campaignIds = access.map((item) => item.campaignId);
   if (campaignIds.length === 0) {
-    throw new Error("No autorizado");
+    throw new Error("Unauthorized");
   }
 
   return campaignIds;
@@ -127,7 +127,7 @@ function applyAuditScope(
   if (isActiveFilter(filters.campaignId)) {
     const campaignId = filters.campaignId;
     if (!campaignId || !allowedCampaignIds.includes(campaignId)) {
-      throw new Error("No autorizado para esta campana");
+      throw new Error("Unauthorized for this campaign");
     }
     return;
   }

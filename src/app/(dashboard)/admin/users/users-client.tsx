@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { UserForm } from "@/components/admin/user-form";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { deleteUser } from "@/server/actions/users";
 import type { Role } from "@prisma/client";
 
@@ -34,6 +35,7 @@ interface UsersClientProps {
 
 export function UsersClient({ users, campaigns }: UsersClientProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const [formOpen, setFormOpen] = useState(false);
   const [editItem, setEditItem] = useState<UserItem | null>(null);
 
@@ -48,35 +50,35 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`¿Desactivar al usuario "${name}"?`)) return;
+    if (!confirm(t('Deactivate user "{name}"?', { name }))) return;
     try {
       await deleteUser(id);
-      toast.success("Usuario desactivado");
+      toast.success(t("User deactivated"));
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Gestión de Usuarios</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t("User Management")}</h1>
         <Button onClick={handleCreate}>
           <Plus className="mr-1 h-4 w-4" />
-          Nuevo usuario
+          {t("New user")}
         </Button>
       </div>
 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Nombre</TableHead>
+            <TableHead>{t("Name")}</TableHead>
             <TableHead>Email</TableHead>
-            <TableHead>Rol</TableHead>
-            <TableHead>Campañas</TableHead>
-            <TableHead>Estado</TableHead>
-            <TableHead className="w-24">Acciones</TableHead>
+            <TableHead>{t("Role")}</TableHead>
+            <TableHead>{t("Campaigns")}</TableHead>
+            <TableHead>{t("Status")}</TableHead>
+            <TableHead className="w-24">{t("Actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -97,21 +99,31 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
                     </Badge>
                   ))}
                   {u.campaigns.length === 0 && (
-                    <span className="text-xs text-muted-foreground">Sin campañas</span>
+                    <span className="text-xs text-muted-foreground">{t("No campaigns")}</span>
                   )}
                 </div>
               </TableCell>
               <TableCell>
                 <Badge variant={u.active ? "default" : "secondary"}>
-                  {u.active ? "Activo" : "Inactivo"}
+                  {u.active ? t("Active") : t("Inactive")}
                 </Badge>
               </TableCell>
               <TableCell>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="icon-xs" onClick={() => handleEdit(u)}>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={t("Edit {name}", { name: u.name })}
+                    onClick={() => handleEdit(u)}
+                  >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon-xs" onClick={() => handleDelete(u.id, u.name)}>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={t("Deactivate {name}", { name: u.name })}
+                    onClick={() => handleDelete(u.id, u.name)}
+                  >
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </Button>
                 </div>
@@ -121,7 +133,7 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
           {users.length === 0 && (
             <TableRow>
               <TableCell colSpan={6} className="text-center text-muted-foreground">
-                No hay usuarios registrados
+                {t("No users registered")}
               </TableCell>
             </TableRow>
           )}

@@ -31,6 +31,7 @@ const tokenSession: Session = {
     role: "QA",
     campaignIds: ["old-campaign"],
     sessionVersion: 3,
+    locale: "en",
   },
 };
 
@@ -42,6 +43,7 @@ const activeUser = {
   role: "SUPERVISOR" as const,
   active: true,
   sessionVersion: 3,
+  locale: "es",
   campaigns: [{ campaignId: "campaign-2" }, { campaignId: "campaign-3" }],
 };
 
@@ -63,6 +65,7 @@ describe("authoritative server sessions", () => {
         name: "Current name",
         role: "SUPERVISOR",
         campaignIds: ["campaign-2", "campaign-3"],
+        locale: "es",
       },
     });
 
@@ -72,6 +75,7 @@ describe("authoritative server sessions", () => {
         active: true,
         role: true,
         sessionVersion: true,
+        locale: true,
         campaigns: { select: { campaignId: true } },
       }),
     });

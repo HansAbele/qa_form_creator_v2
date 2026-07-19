@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { createTeam, updateTeam } from "@/server/actions/teams";
 
 interface TeamFormProps {
@@ -35,6 +36,7 @@ interface TeamFormProps {
 
 export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const isEdit = !!team;
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(team?.name ?? "");
@@ -59,11 +61,11 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      toast.error("El nombre es obligatorio");
+      toast.error(t("Name is required"));
       return;
     }
     if (!isEdit && !campaignId) {
-      toast.error("Selecciona una campaña");
+      toast.error(t("Select a campaign"));
       return;
     }
 
@@ -71,15 +73,15 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
     try {
       if (isEdit) {
         await updateTeam(team.id, { name: name.trim() });
-        toast.success("Equipo actualizado");
+        toast.success(t("Team updated"));
       } else {
         await createTeam({ name: name.trim(), campaignId });
-        toast.success("Equipo creado");
+        toast.success(t("Team created"));
       }
       onOpenChange(false);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to save changes"));
     } finally {
       setSaving(false);
     }
@@ -89,27 +91,30 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Editar equipo" : "Nuevo equipo"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("Edit team") : t("New team")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="team-name">Nombre</Label>
+            <Label htmlFor="team-name">{t("Name")}</Label>
             <Input
               id="team-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ej: Equipo Alpha"
+              placeholder={t("Example: Alpha Team")}
             />
           </div>
           {!isEdit && (
             <div className="space-y-2">
-              <Label>Campaña</Label>
+              <Label>{t("Campaign")}</Label>
               <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar campaña">
+                  <SelectValue placeholder={t("Select campaign")}>
                     {(value: string | null) => {
-                      if (!value) return "Seleccionar campaña";
-                      return campaigns.find((c) => c.id === value)?.name ?? "Seleccionar campaña";
+                      if (!value) return t("Select campaign");
+                      return (
+                        campaigns.find((campaign) => campaign.id === value)?.name ??
+                        t("Select campaign")
+                      );
                     }}
                   </SelectValue>
                 </SelectTrigger>
@@ -125,10 +130,10 @@ export function TeamForm({ team, campaigns, open, onOpenChange }: TeamFormProps)
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Guardando..." : isEdit ? "Actualizar" : "Crear"}
+              {saving ? t("Saving...") : isEdit ? t("Update") : t("Create")}
             </Button>
           </DialogFooter>
         </form>

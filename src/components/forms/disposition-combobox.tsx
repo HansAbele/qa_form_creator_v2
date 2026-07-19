@@ -3,6 +3,7 @@
 import { AlertTriangle, Check, ChevronsUpDown, FolderOpen, Plus } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,6 +56,7 @@ export function DispositionCombobox({
   initialDisposition = null,
   error,
 }: Props) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [loadedData, setLoadedData] = useState<LoadedDispositionData>({
@@ -111,12 +113,12 @@ export function DispositionCombobox({
       if (requestId !== loadRequestIdRef.current || activeCampaignIdRef.current !== campaignId) {
         return false;
       }
-      const message = getActionErrorMessage(error, "No se pudieron cargar las disposiciones");
+      const message = t(getActionErrorMessage(error, "Unable to load dispositions"));
       setActionError({ campaignId, message });
       toast.error(message);
       return false;
     }
-  }, [campaignId]);
+  }, [campaignId, t]);
 
   useEffect(() => {
     activeCampaignIdRef.current = campaignId;
@@ -184,7 +186,7 @@ export function DispositionCombobox({
       handleSelect(result.disposition.id);
     } catch (err) {
       if (activeCampaignIdRef.current !== creationCampaignId) return;
-      const msg = getActionErrorMessage(err, "No se pudo crear la disposicion");
+      const msg = t(getActionErrorMessage(err, "Unable to create disposition"));
       setActionError({ campaignId: creationCampaignId, message: msg });
       toast.error(msg);
     } finally {
@@ -216,11 +218,11 @@ export function DispositionCombobox({
   return (
     <div className="space-y-2">
       <Label id={labelId} htmlFor={controlId}>
-        Disposición
+        {t("Disposition")}
         <span aria-hidden="true" className="ml-1 text-destructive">
           *
         </span>
-        <span className="sr-only"> (obligatoria)</span>
+        <span className="sr-only"> {t("(required)")}</span>
       </Label>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
@@ -256,7 +258,7 @@ export function DispositionCombobox({
               {selectedDisposition.name}
             </span>
           ) : (
-            "Seleccionar disposición..."
+            t("Select a disposition...")
           )}
           <ChevronsUpDown aria-hidden="true" className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </PopoverTrigger>
@@ -265,9 +267,11 @@ export function DispositionCombobox({
           <div className="border-b p-2">
             <Input
               ref={inputRef}
-              aria-label="Buscar disposición"
+              aria-label={t("Search dispositions")}
               placeholder={
-                canManageDispositions ? "Buscar o crear disposición..." : "Buscar disposición..."
+                canManageDispositions
+                  ? t("Search or create a disposition...")
+                  : t("Search dispositions...")
               }
               value={search}
               onChange={(e) => {
@@ -284,7 +288,7 @@ export function DispositionCombobox({
             <div className="border-b bg-amber-50 p-2 dark:bg-amber-950/30">
               <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
                 <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
-                <span>Similar a &ldquo;{currentSimilarWarning.name}&rdquo;</span>
+                <span>{t('Similar to "{name}"', { name: currentSimilarWarning.name })}</span>
               </div>
               <div className="mt-1.5 flex gap-1.5">
                 <Button
@@ -293,7 +297,7 @@ export function DispositionCombobox({
                   className="text-xs"
                   onClick={() => handleSelect(currentSimilarWarning.id)}
                 >
-                  Usar existente
+                  {t("Use existing")}
                 </Button>
                 <Button
                   size="xs"
@@ -301,7 +305,7 @@ export function DispositionCombobox({
                   className="text-xs"
                   onClick={() => void handleCreate(search.trim(), true)}
                 >
-                  Crear de todos modos
+                  {t("Create anyway")}
                 </Button>
               </div>
             </div>
@@ -314,7 +318,9 @@ export function DispositionCombobox({
               <>
                 {filtered.map(renderItem)}
                 {filtered.length === 0 && (
-                  <p className="py-3 text-center text-xs text-muted-foreground">Sin resultados</p>
+                  <p className="py-3 text-center text-xs text-muted-foreground">
+                    {t("No results")}
+                  </p>
                 )}
               </>
             ) : (
@@ -336,7 +342,7 @@ export function DispositionCombobox({
                   <div className="mb-1">
                     {categories.length > 0 && (
                       <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Sin categoría
+                        {t("No category")}
                       </div>
                     )}
                     {uncategorized.map(renderItem)}
@@ -346,8 +352,8 @@ export function DispositionCombobox({
                 {all.length === 0 && (
                   <p className="py-3 text-center text-xs text-muted-foreground">
                     {canManageDispositions
-                      ? "No hay disposiciones. Escribe para crear una."
-                      : "No hay disposiciones disponibles."}
+                      ? t("No dispositions yet. Enter a name to create one.")
+                      : t("No dispositions available.")}
                   </p>
                 )}
               </>
@@ -362,7 +368,7 @@ export function DispositionCombobox({
                 disabled={creating}
               >
                 <Plus aria-hidden="true" className="h-3.5 w-3.5" />
-                {creating ? "Creando..." : `Crear "${search.trim()}"`}
+                {creating ? t("Creating...") : t('Create "{name}"', { name: search.trim() })}
               </button>
             )}
           </div>

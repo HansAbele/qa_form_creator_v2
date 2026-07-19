@@ -7,13 +7,16 @@ const DEFAULT_VISIBLE_ITEMS = 10;
 export function summarizeChartData(
   items: readonly string[],
   maxVisibleItems = DEFAULT_VISIBLE_ITEMS,
+  locale: "en" | "es" = "en",
 ) {
   const normalizedItems = items.map((item) => item.trim()).filter(Boolean);
-  if (normalizedItems.length === 0) return "Sin datos.";
+  if (normalizedItems.length === 0) return locale === "es" ? "Sin datos." : "No data.";
 
   const limit = Math.max(2, Math.floor(maxVisibleItems));
   if (normalizedItems.length <= limit) {
-    return `${normalizedItems.length} puntos de datos: ${normalizedItems.join("; ")}.`;
+    return locale === "es"
+      ? `${normalizedItems.length} puntos de datos: ${normalizedItems.join("; ")}.`
+      : `${normalizedItems.length} data points: ${normalizedItems.join("; ")}.`;
   }
 
   const firstCount = Math.ceil(limit / 2);
@@ -22,5 +25,7 @@ export function summarizeChartData(
   const firstItems = normalizedItems.slice(0, firstCount);
   const lastItems = normalizedItems.slice(-lastCount);
 
-  return `${normalizedItems.length} puntos de datos: ${firstItems.join("; ")}; se omiten ${omittedCount} puntos intermedios; ${lastItems.join("; ")}.`;
+  return locale === "es"
+    ? `${normalizedItems.length} puntos de datos: ${firstItems.join("; ")}; se omiten ${omittedCount} puntos intermedios; ${lastItems.join("; ")}.`
+    : `${normalizedItems.length} data points: ${firstItems.join("; ")}; ${omittedCount} intermediate points omitted; ${lastItems.join("; ")}.`;
 }

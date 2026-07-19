@@ -45,20 +45,20 @@ const SAVED_UPDATED_AT = new Date("2026-05-01T02:00:00.000Z");
 const RESPONSE_UNAVAILABLE_ERROR = {
   name: "ExpectedResponseActionError",
   code: "NOT_FOUND",
-  message: "Evaluacion no disponible",
+  message: "Evaluation unavailable",
 };
 const RESPONSE_UNAVAILABLE_RESULT = {
   ok: false,
   error: {
     code: "NOT_FOUND",
-    message: "Evaluacion no disponible",
+    message: "Evaluation unavailable",
   },
 };
 const FORM_UNAVAILABLE_RESULT = {
   ok: false,
   error: {
     code: "NOT_FOUND",
-    message: "Formulario no disponible",
+    message: "Form unavailable",
   },
 };
 
@@ -601,7 +601,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [],
       }),
-    ).rejects.toThrow("Datos de evaluacion invalidos");
+    ).rejects.toThrow("Invalid evaluation data");
 
     expect(prismaMock.response.create).not.toHaveBeenCalled();
   });
@@ -615,7 +615,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [],
       }),
-    ).rejects.toThrow("Datos de evaluacion invalidos");
+    ).rejects.toThrow("Invalid evaluation data");
 
     expect(prismaMock.response.create).not.toHaveBeenCalled();
   });
@@ -631,7 +631,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [],
       }),
-    ).rejects.toThrow("Solo se puede evaluar un formulario publicado");
+    ).rejects.toThrow("Only a published form can be evaluated");
 
     expect(prismaMock.response.create).not.toHaveBeenCalled();
   });
@@ -647,7 +647,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [],
       }),
-    ).rejects.toThrow("Solo se puede evaluar un formulario publicado");
+    ).rejects.toThrow("Only a published form can be evaluated");
 
     expect(prismaMock.response.create).not.toHaveBeenCalled();
   });
@@ -666,7 +666,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [],
       }),
-    ).rejects.toThrow("No se puede evaluar una campana inactiva");
+    ).rejects.toThrow("An inactive campaign cannot be evaluated");
 
     expect(prismaMock.response.create).not.toHaveBeenCalled();
   });
@@ -690,7 +690,7 @@ describe("submitResponse validation and RBAC", () => {
       answers: [],
     });
 
-    await expect(getResponseById("response-2")).rejects.toThrow("Evaluacion no disponible");
+    await expect(getResponseById("response-2")).rejects.toThrow("Evaluation unavailable");
   });
 
   it("checks campaign permission before exposing cancellation or corrupt-relation state", async () => {
@@ -798,7 +798,7 @@ describe("submitResponse validation and RBAC", () => {
           { questionId: "q-select", value: "Good" },
         ],
       }),
-    ).rejects.toThrow("Agente invalido para esta campana");
+    ).rejects.toThrow("Invalid agent for this campaign");
   });
 
   it("rejects arbitrary select answers outside the form definition", async () => {
@@ -813,7 +813,7 @@ describe("submitResponse validation and RBAC", () => {
           { questionId: "q-select", value: "Other campaign data" },
         ],
       }),
-    ).rejects.toThrow("Respuesta no pertenece a las opciones del formulario");
+    ).rejects.toThrow("The answer is not one of the form options");
   });
 
   it("rejects duplicate answers for the same question", async () => {
@@ -829,7 +829,7 @@ describe("submitResponse validation and RBAC", () => {
           { questionId: "q-select", value: "Good" },
         ],
       }),
-    ).rejects.toThrow("Respuesta duplicada para una pregunta");
+    ).rejects.toThrow("Duplicate answer for a question");
   });
 
   it("calculates weighted rating score and stores answer metadata", async () => {
@@ -995,7 +995,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [],
       }),
-    ).rejects.toThrow("Datos de evaluacion invalidos");
+    ).rejects.toThrow("Invalid evaluation data");
 
     expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
     expect(prismaMock.response.update).not.toHaveBeenCalled();
@@ -1012,7 +1012,7 @@ describe("submitResponse validation and RBAC", () => {
       }),
     ).resolves.toEqual({
       ok: false,
-      error: { code: "VALIDATION", message: "Datos de evaluacion invalidos" },
+      error: { code: "VALIDATION", message: "Invalid evaluation data" },
     });
   });
 
@@ -1026,7 +1026,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [],
       }),
-    ).rejects.toThrow("Datos de evaluacion invalidos");
+    ).rejects.toThrow("Invalid evaluation data");
 
     expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
     expect(prismaMock.response.update).not.toHaveBeenCalled();
@@ -1287,7 +1287,6 @@ describe("submitResponse validation and RBAC", () => {
       }),
     );
     expect(prismaMock.userCampaign.findMany).not.toHaveBeenCalled();
-    expect(prismaMock.notification.createMany).not.toHaveBeenCalled();
   });
 
   it("materializes the effective legacy policy and preserves a missing historical disposition", async () => {
@@ -1365,7 +1364,6 @@ describe("submitResponse validation and RBAC", () => {
         }),
       }),
     );
-    expect(prismaMock.notification.createMany).not.toHaveBeenCalled();
   });
 
   it("applies fatalZeroesScore from the effective campaign policy on submission", async () => {
@@ -1468,14 +1466,13 @@ describe("submitResponse validation and RBAC", () => {
       error: {
         code: "CONFLICT",
         message:
-          "La evaluacion fue modificada por otra sesion. Recarga la pagina e intenta nuevamente",
+          "The evaluation was modified in another session. Reload the page and try again",
       },
     });
 
     expect(prismaMock.userCampaign.findUnique).toHaveBeenCalled();
     expect(prismaMock.response.update).not.toHaveBeenCalled();
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
-    expect(prismaMock.notification.createMany).not.toHaveBeenCalled();
   });
 
   it("cancels submitted evaluations with canEditEvaluations", async () => {
@@ -1614,12 +1611,11 @@ describe("submitResponse validation and RBAC", () => {
       error: {
         code: "CONFLICT",
         message:
-          "La evaluacion fue modificada por otra sesion. Recarga la pagina e intenta nuevamente",
+          "The evaluation was modified in another session. Reload the page and try again",
       },
     });
 
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
-    expect(prismaMock.notification.createMany).not.toHaveBeenCalled();
   });
 
   it("marks a fatal failed rating as FAIL even when the weighted score passes", async () => {
@@ -1718,7 +1714,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [{ questionId: "q-select-fatal", value: "No" }],
       }),
-    ).rejects.toThrow("Hay preguntas que requieren comentario al fallar");
+    ).rejects.toThrow("Some failed questions require a comment");
 
     await submitResponse({
       clientResponseId: CLIENT_RESPONSE_ID,
@@ -1783,7 +1779,7 @@ describe("submitResponse validation and RBAC", () => {
         dispositionId: "disp-1",
         answers: [{ questionId: "q-comment-required", value: "2" }],
       }),
-    ).rejects.toThrow("Hay preguntas que requieren comentario al fallar");
+    ).rejects.toThrow("Some failed questions require a comment");
   });
 
   it("does not require a comment when a rating is above the fail threshold", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -19,13 +20,54 @@ export type CoachingInsights = {
 
 type Chip = {
   key: string;
-  type: "CAMPAÑA" | "AGENTE" | "CATEGORÍA";
+  type: "CAMPAIGN" | "AGENT" | "CATEGORY";
   text: string;
   severity: Severity;
   onClick?: () => void;
 };
 
 const SEVERITY_RANK: Record<Severity, number> = { CRITICAL: 0, WARNING: 1, INFO: 2 };
+
+function localizeSystemReason(reason: string, locale: "en" | "es") {
+  if (locale !== "es") return reason;
+
+  return reason
+    .split(" · ")
+    .map((part) => {
+      const criticalFailures = part.match(/^(\d+) critical (failure|failures)$/);
+      if (criticalFailures) {
+        const count = Number(criticalFailures[1]);
+        return `${count} ${count === 1 ? "falla crítica" : "fallas críticas"}`;
+      }
+
+      const scoreGap = part.match(/^([\d.]+) pts below the score target$/);
+      if (scoreGap) return `${scoreGap[1]} pts por debajo del objetivo de puntuación`;
+
+      const passRateGap = part.match(/^([\d.]+) pts below the pass-rate target$/);
+      if (passRateGap) return `${passRateGap[1]} pts por debajo del objetivo de aprobación`;
+
+      const recentTrend = part.match(/^recent trend (-?[\d.]+) pts$/);
+      if (recentTrend) return `tendencia reciente ${recentTrend[1]} pts`;
+
+      const categoryGap = part.match(/^([\d.]+) pts below target across (\d+) (agent|agents)$/);
+      if (categoryGap) {
+        const count = Number(categoryGap[2]);
+        return `${categoryGap[1]} pts por debajo del objetivo en ${count} ${count === 1 ? "agente" : "agentes"}`;
+      }
+
+      return part === "Within target" ? "Dentro del objetivo" : part;
+    })
+    .join(" · ");
+}
+
+function localizeMissedTarget(target: string, locale: "en" | "es") {
+  if (locale !== "es") return target;
+  if (target === "daily volume") return "volumen diario";
+  if (target === "critical failures") return "fallas críticas";
+  if (target === "pass rate") return "tasa de aprobación";
+  if (target === "score") return "puntuación";
+  return target;
+}
 
 export function NeedsAttentionStrip({
   insights,
@@ -38,25 +80,29 @@ export function NeedsAttentionStrip({
   onSelectCampaign: (id: string) => void;
   limit?: number;
 }) {
+  const { locale, t } = useI18n();
   const chips: Chip[] = [
     ...insights.campaignRisks.map((c) => ({
       key: `c-${c.id}`,
-      type: "CAMPAÑA" as const,
-      text: `${c.name} — ${c.missedTargets.join(", ")} bajo objetivo`,
+      type: "CAMPAIGN" as const,
+      text: t("{name} — {targets} below target", {
+        name: c.name,
+        targets: c.missedTargets.map((target) => localizeMissedTarget(target, locale)).join(", "),
+      }),
       severity: c.severity,
       onClick: () => onSelectCampaign(c.id),
     })),
     ...insights.agentRisks.map((a) => ({
       key: `a-${a.id}`,
-      type: "AGENTE" as const,
-      text: `${a.name} — ${a.reason}`,
+      type: "AGENT" as const,
+      text: `${a.name} — ${localizeSystemReason(a.reason, locale)}`,
       severity: a.severity,
       onClick: () => onNavigate(a.href),
     })),
     ...insights.categoryOpportunities.map((cat) => ({
       key: `cat-${cat.id}`,
-      type: "CATEGORÍA" as const,
-      text: `${cat.name} — ${cat.reason}`,
+      type: "CATEGORY" as const,
+      text: `${cat.name} — ${localizeSystemReason(cat.reason, locale)}`,
       severity: cat.severity,
     })),
   ]
@@ -71,7 +117,7 @@ export function NeedsAttentionStrip({
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <AlertTriangle className="h-4 w-4 text-amber-500" />
-          Necesita atención
+          {t("Needs attention")}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -94,7 +140,7 @@ export function NeedsAttentionStrip({
               >
                 <span className="text-sm">{chip.text}</span>
                 <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {chip.type}
+                  {t(chip.type)}
                 </span>
               </Comp>
             );

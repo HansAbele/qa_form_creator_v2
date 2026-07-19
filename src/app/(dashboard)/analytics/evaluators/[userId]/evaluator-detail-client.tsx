@@ -20,6 +20,7 @@ import {
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
 import { formatDateOnlyForDisplay } from "@/lib/date-display";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { getEvaluatorDetail } from "@/server/queries/analytics";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -72,15 +74,15 @@ interface EvaluatorDetailData {
 // ─── Chart configs ───────────────────────────────────────────────────────────
 
 const activityConfig = {
-  count: { label: "Evaluaciones", color: "#ff6600" },
+  count: { label: "Evaluations", color: "#ff6600" },
 } satisfies ChartConfig;
 
 const agentConfig = {
-  count: { label: "Evaluaciones", color: "#8b5cf6" },
+  count: { label: "Evaluations", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
 const dispositionConfig = {
-  count: { label: "Evaluaciones", color: "#06b6d4" },
+  count: { label: "Evaluations", color: "#06b6d4" },
 } satisfies ChartConfig;
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -106,10 +108,11 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState({ label = "Sin datos" }: { label?: string }) {
+function EmptyState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
+      {label ?? t("No data")}
     </div>
   );
 }
@@ -117,6 +120,20 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function EvaluatorDetailClient({ userId }: { userId: string }) {
+  const { locale, t } = useI18n();
+  const localizedActivityConfig = {
+    ...activityConfig,
+    count: { ...activityConfig.count, label: t("Evaluations") },
+  } satisfies ChartConfig;
+  const localizedAgentConfig = {
+    ...agentConfig,
+    count: { ...agentConfig.count, label: t("Evaluations") },
+  } satisfies ChartConfig;
+  const localizedDispositionConfig = {
+    ...dispositionConfig,
+    count: { ...dispositionConfig.count, label: t("Evaluations") },
+  } satisfies ChartConfig;
+  const displayLocale = locale === "es" ? "es" : "en";
   const chartAnimation = useChartAnimation();
   const router = useRouter();
   const [data, setData] = useState<EvaluatorDetailData | null>(null);
@@ -149,14 +166,39 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
 
   if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
   if (loadStatus === "error") {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar el evaluador" />;
+    return <DataLoadError onRetry={() => void loadData()} title={t("Unable to load evaluator")} />;
   }
   if (loadStatus === "empty" || !data) {
-    return <RestrictedResourceState resourceLabel="El evaluador" />;
+    return <RestrictedResourceState resourceLabel={t("The evaluator")} />;
   }
 
   const activitySpark = data.activityByDay.map((d) => ({ value: d.count }));
   const calibrationDelta = data.calibrationDelta;
+  const hasData = data.totalEvaluations > 0;
+  const metricStatus = loadStatus === "loading" ? "loading" : hasData ? "success" : "empty";
+  const metricStatusLabel = metricStatus === "empty" ? t("No data") : undefined;
+  const evaluationCountDisplay = getMetricDisplay({
+    kind: "count",
+    value: data.totalEvaluations,
+    hasData,
+    status: metricStatus,
+  });
+  const averageScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.avgScore,
+    hasData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const calibrationDisplay = getMetricDisplay({
+    kind: "measure",
+    value: Math.abs(calibrationDelta),
+    hasData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: " pts",
+  });
 
   return (
     <div className="space-y-6">
@@ -173,7 +215,7 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
           className="mb-4 gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          Volver
+          {t("Back")}
         </Button>
 
         <Card>
@@ -198,7 +240,7 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
               {/* Date range filters */}
               <DateRangeFilter
                 id="evaluator-detail-date-range"
-                label="Periodo"
+                label={t("Period")}
                 from={dateFrom}
                 to={dateTo}
                 onApply={(from, to) => {
@@ -215,35 +257,51 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
       {/* ─── KPI Cards ─────────────────────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
-          label="Total Evaluaciones"
+          label={t("Evaluated Calls")}
           value={data.totalEvaluations}
+          display={evaluationCountDisplay}
+          statusLabel={metricStatusLabel}
           icon={ClipboardCheck}
           tone="orange"
           trend={activitySpark}
           index={0}
         />
         <KpiCard
-          label="Score Promedio"
+          label={t("Average Score")}
           value={data.avgScore}
+          display={averageScoreDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={data.avgScore >= 70 ? "emerald" : data.avgScore >= 50 ? "amber" : "rose"}
+          tone={
+            !hasData
+              ? "navy"
+              : data.avgScore >= 70
+                ? "emerald"
+                : data.avgScore >= 50
+                  ? "amber"
+                  : "rose"
+          }
           index={1}
         />
         <KpiCard
-          label="Calibracion"
+          label={t("Calibration")}
           value={Math.abs(calibrationDelta)}
+          display={calibrationDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           prefix={calibrationDelta >= 0 ? "+" : "-"}
           suffix=" pts"
           icon={BarChart3}
           tone={
-            Math.abs(calibrationDelta) <= 5
-              ? "emerald"
-              : Math.abs(calibrationDelta) <= 10
-                ? "amber"
-                : "rose"
+            !hasData
+              ? "navy"
+              : Math.abs(calibrationDelta) <= 5
+                ? "emerald"
+                : Math.abs(calibrationDelta) <= 10
+                  ? "amber"
+                  : "rose"
           }
           index={2}
         />
@@ -259,19 +317,23 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <ClipboardCheck className="h-4 w-4 text-orange-500" />
-              Actividad por Dia
+              {t("Daily activity")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {data.activityByDay.length > 0 ? (
               <ChartContainer
-                config={activityConfig}
-                accessibilityLabel="Actividad del evaluador por día"
+                config={localizedActivityConfig}
+                accessibilityLabel={t("Evaluator activity by day")}
                 accessibilityDescription={summarizeChartData(
-                  data.activityByDay.map(
-                    (point) =>
-                      `${formatDateOnlyForDisplay(point.date)}: ${point.count} evaluaciones`,
+                  data.activityByDay.map((point) =>
+                    t("{date}: {count} evaluations", {
+                      date: formatDateOnlyForDisplay(point.date, undefined, displayLocale),
+                      count: point.count,
+                    }),
                   ),
+                  10,
+                  locale,
                 )}
                 className="h-[280px] w-full"
               >
@@ -283,7 +345,11 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                     axisLine={false}
                     tickMargin={8}
                     tickFormatter={(v) =>
-                      formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                      formatDateOnlyForDisplay(
+                        String(v),
+                        { day: "2-digit", month: "short" },
+                        displayLocale,
+                      )
                     }
                     className="text-xs"
                   />
@@ -298,8 +364,13 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                     cursor={{ fill: "rgba(255,102,0,0.08)" }}
                     content={
                       <ChartTooltipContent
-                        labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
-                        formatter={(value) => [`${value} evaluaciones`, "Cantidad"]}
+                        labelFormatter={(label) =>
+                          formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                        }
+                        formatter={(value) => [
+                          t("{count} evaluations", { count: Number(value) }),
+                          t("Count"),
+                        ]}
                       />
                     }
                   />
@@ -313,7 +384,7 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                 </BarChart>
               </ChartContainer>
             ) : (
-              <EmptyState label="Sin actividad registrada" />
+              <EmptyState label={t("No activity recorded")} />
             )}
           </CardContent>
         </Card>
@@ -331,21 +402,24 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-4 w-4 text-violet-500" />
-                Agentes Evaluados
+                {t("Evaluated Agents")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.agentsEvaluated.length > 0 ? (
                 <ChartContainer
-                  config={agentConfig}
-                  accessibilityLabel="Evaluaciones realizadas por agente"
+                  config={localizedAgentConfig}
+                  accessibilityLabel={t("Evaluations by agent")}
                   accessibilityDescription={summarizeChartData(
-                    data.agentsEvaluated
-                      .slice(0, 10)
-                      .map(
-                        (agent) =>
-                          `${agent.name}: ${agent.count} evaluaciones, score promedio ${agent.avgScore.toFixed(1)}%`,
-                      ),
+                    data.agentsEvaluated.slice(0, 10).map((agent) =>
+                      t("{name}: {count} evaluations, Average Score {score}%", {
+                        name: agent.name,
+                        count: agent.count,
+                        score: agent.avgScore.toFixed(1),
+                      }),
+                    ),
+                    10,
+                    locale,
                   )}
                   className="h-[280px] w-full"
                 >
@@ -383,7 +457,7 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                             const avg = payload?.avgScore;
                             return [
                               `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
-                              "Agente",
+                              t("Agent"),
                             ];
                           }}
                         />
@@ -407,7 +481,7 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <EmptyState label="Sin agentes evaluados" />
+                <EmptyState label={t("No evaluated agents")} />
               )}
             </CardContent>
           </Card>
@@ -417,18 +491,23 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <BarChart3 className="h-4 w-4 text-cyan-500" />
-                Disposiciones Frecuentes
+                {t("Frequent Dispositions")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {data.dispositionFrequency.length > 0 ? (
                 <ChartContainer
-                  config={dispositionConfig}
-                  accessibilityLabel="Evaluaciones realizadas por disposición"
+                  config={localizedDispositionConfig}
+                  accessibilityLabel={t("Evaluations by Disposition")}
                   accessibilityDescription={summarizeChartData(
-                    data.dispositionFrequency.map(
-                      (disposition) => `${disposition.name}: ${disposition.count} evaluaciones`,
+                    data.dispositionFrequency.map((disposition) =>
+                      t("{name}: {count} evaluations", {
+                        name: disposition.name,
+                        count: disposition.count,
+                      }),
                     ),
+                    10,
+                    locale,
                   )}
                   className="h-[280px] w-full"
                 >
@@ -464,7 +543,10 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                       cursor={{ fill: "rgba(6,182,212,0.08)" }}
                       content={
                         <ChartTooltipContent
-                          formatter={(value) => [`${value} evaluaciones`, "Cantidad"]}
+                          formatter={(value) => [
+                            t("{count} evaluations", { count: Number(value) }),
+                            t("Count"),
+                          ]}
                         />
                       }
                     />
@@ -478,7 +560,7 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <EmptyState label="Sin disposiciones registradas" />
+                <EmptyState label={t("No Dispositions recorded")} />
               )}
             </CardContent>
           </Card>

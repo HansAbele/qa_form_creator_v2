@@ -133,7 +133,7 @@ export async function reserveExportCapacity({
               maxConcurrentGlobal: limits.maxConcurrentGlobal,
               leaseTimeoutSeconds: limits.leaseTimeoutSeconds,
             },
-            impact: "Reserva de exportacion rechazada por el presupuesto distribuido de admision.",
+            impact: "Export reservation rejected by the distributed admission budget.",
           },
           tx,
         );
@@ -155,7 +155,7 @@ export async function reserveExportCapacity({
           maxConcurrentGlobal: limits.maxConcurrentGlobal,
           leaseTimeoutSeconds: limits.leaseTimeoutSeconds,
         },
-        impact: "Cupo distribuido reservado antes de consultar datos de exportacion.",
+        impact: "Distributed capacity reserved before querying export data.",
       },
       tx,
     );

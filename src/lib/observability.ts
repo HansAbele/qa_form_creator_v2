@@ -28,18 +28,12 @@ const SENSITIVE_KEY_PATTERN =
 
 export function sanitizeObservabilityText(value: string, maxLength = MAX_MESSAGE_LENGTH) {
   return value
-    .replace(
-      /\b(authorization|proxy-authorization)\s*:\s*[^\r\n]+/gi,
-      "$1: [redacted]",
-    )
+    .replace(/\b(authorization|proxy-authorization)\s*:\s*[^\r\n]+/gi, "$1: [redacted]")
     .replace(/\b(set-cookie|cookie)\s*:\s*[^\r\n]+/gi, "$1: [redacted]")
     .replace(/(https?:\/\/)[^/\s:@]+:[^/\s@]+@/gi, "$1[credential]@")
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
     .replace(/\b(?:Bearer\s+)?[A-Za-z0-9_-]{24,}\b/gi, "[credential]")
-    .replace(
-      new RegExp(`([?&]${SENSITIVE_KEY_PATTERN}=)[^&\\s#]+`, "gi"),
-      "$1[redacted]",
-    )
+    .replace(new RegExp(`([?&]${SENSITIVE_KEY_PATTERN}=)[^&\\s#]+`, "gi"), "$1[redacted]")
     .replace(
       new RegExp(
         `(\\b${SENSITIVE_KEY_PATTERN}\\b\\s*[:=]\\s*)(?:"[^"]*"|'[^']*'|[^\\s,;}\\]]+)`,

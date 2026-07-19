@@ -38,7 +38,7 @@ describe("fixed-purpose campaign readers", () => {
   });
 
   it("reserves the detailed campaign reader for global administrators", async () => {
-    await expect(campaignActions.getCampaigns()).rejects.toThrow("No autorizado");
+    await expect(campaignActions.getCampaigns()).rejects.toThrow("Unauthorized");
     expect(prismaMock.campaign.findMany).not.toHaveBeenCalled();
   });
 

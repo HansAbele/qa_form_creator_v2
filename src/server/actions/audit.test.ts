@@ -68,7 +68,7 @@ describe("operational audit RBAC", () => {
     prismaMock.userCampaign.findMany.mockResolvedValue([{ campaignId: "campaign-1" }]);
 
     await expect(readOperationalAudit({ campaignId: "campaign-2" })).rejects.toThrow(
-      "No autorizado para esta campana",
+      "Unauthorized for this campaign",
     );
     expect(prismaMock.auditLog.count).not.toHaveBeenCalled();
   });
@@ -77,7 +77,7 @@ describe("operational audit RBAC", () => {
     authMock.mockResolvedValue({ user: qaUser });
     prismaMock.userCampaign.findMany.mockResolvedValue([]);
 
-    await expect(readOperationalAudit()).rejects.toThrow("No autorizado");
+    await expect(readOperationalAudit()).rejects.toThrow("Unauthorized");
     expect(prismaMock.auditLog.count).not.toHaveBeenCalled();
   });
 

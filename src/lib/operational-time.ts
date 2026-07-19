@@ -39,9 +39,9 @@ function datePartsToKey({ year, month, day }: DateParts) {
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function parseDateOnly(value: string, fieldName = "fecha"): DateParts {
+function parseDateOnly(value: string, fieldName = "date"): DateParts {
   const match = DATE_ONLY_PATTERN.exec(value);
-  if (!match) throw new Error(`${fieldName} debe usar el formato YYYY-MM-DD.`);
+  if (!match) throw new Error(`${fieldName} must use the YYYY-MM-DD format.`);
 
   const year = Number(match[1]);
   const month = Number(match[2]);
@@ -53,7 +53,7 @@ function parseDateOnly(value: string, fieldName = "fecha"): DateParts {
     candidate.getUTCMonth() !== month - 1 ||
     candidate.getUTCDate() !== day
   ) {
-    throw new Error(`${fieldName} no es una fecha valida.`);
+    throw new Error(`${fieldName} is not a valid date.`);
   }
 
   return { year, month, day };
@@ -72,13 +72,13 @@ function dateOnlyOrdinal(value: string) {
 
 export function assertValidOperationalTimeZone(timeZone: string) {
   const normalized = timeZone.trim();
-  if (!normalized) throw new Error("OPERATIONAL_TIME_ZONE no puede estar vacia.");
+  if (!normalized) throw new Error("OPERATIONAL_TIME_ZONE cannot be empty.");
 
   try {
     getDateFormatter(normalized).format(new Date(0));
   } catch {
     formatterCache.delete(normalized);
-    throw new Error(`OPERATIONAL_TIME_ZONE no es una zona IANA valida: ${normalized}`);
+    throw new Error(`OPERATIONAL_TIME_ZONE is not a valid IANA zone: ${normalized}`);
   }
 
   return normalized;
@@ -91,7 +91,7 @@ export function getOperationalTimeZone() {
 }
 
 export function addDateOnlyDays(value: string, days: number) {
-  if (!Number.isInteger(days)) throw new Error("days debe ser un entero.");
+  if (!Number.isInteger(days)) throw new Error("days must be an integer.");
   const { year, month, day } = parseDateOnly(value);
   const date = new Date(Date.UTC(year, month - 1, day + days));
   return datePartsToKey({
@@ -101,10 +101,7 @@ export function addDateOnlyDays(value: string, days: number) {
   });
 }
 
-export function toOperationalDateKey(
-  date: Date,
-  timeZone = getOperationalTimeZone(),
-) {
+export function toOperationalDateKey(date: Date, timeZone = getOperationalTimeZone()) {
   const normalizedTimeZone = assertValidOperationalTimeZone(timeZone);
   const parts = getDateFormatter(normalizedTimeZone).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
@@ -119,10 +116,7 @@ export function toOperationalDateKey(
  * Returns the first real instant that belongs to a local calendar date.
  * Binary search avoids hard-coded offsets and remains correct across DST.
  */
-export function getOperationalDayStart(
-  dateOnly: string,
-  timeZone = getOperationalTimeZone(),
-) {
+export function getOperationalDayStart(dateOnly: string, timeZone = getOperationalTimeZone()) {
   const normalizedDate = datePartsToKey(parseDateOnly(dateOnly));
   const normalizedTimeZone = assertValidOperationalTimeZone(timeZone);
   const cacheKey = `${normalizedTimeZone}:${normalizedDate}`;
@@ -144,7 +138,7 @@ export function getOperationalDayStart(
 
   const result = new Date(low);
   if (toOperationalDateKey(result, normalizedTimeZone) !== normalizedDate) {
-    throw new Error(`La fecha ${normalizedDate} no existe en ${normalizedTimeZone}.`);
+    throw new Error(`Date ${normalizedDate} does not exist in ${normalizedTimeZone}.`);
   }
 
   if (dayStartCache.size >= 2_048) dayStartCache.clear();
@@ -160,7 +154,7 @@ export function getOperationalDateBounds(
   const from = normalizeOptionalDate(dateFrom, "dateFrom");
   const to = normalizeOptionalDate(dateTo, "dateTo");
   if (from && to && from > to) {
-    throw new Error("dateFrom no puede ser posterior a dateTo.");
+    throw new Error("dateFrom cannot be later than dateTo.");
   }
 
   return {
@@ -180,14 +174,14 @@ export function getOperationalRangeDays({
   const from = normalizeOptionalDate(dateFrom, "dateFrom");
   const to = normalizeOptionalDate(dateTo, "dateTo");
   if (from && to && from > to) {
-    throw new Error("dateFrom no puede ser posterior a dateTo.");
+    throw new Error("dateFrom cannot be later than dateTo.");
   }
 
   const today = toOperationalDateKey(now, timeZone);
   const firstDataDay = minDate ? toOperationalDateKey(minDate, timeZone) : undefined;
   const lastDataDay = maxDate ? toOperationalDateKey(maxDate, timeZone) : undefined;
   const start = from ?? firstDataDay ?? to ?? today;
-  const end = to ?? (from ? today : lastDataDay ?? today);
+  const end = to ?? (from ? today : (lastDataDay ?? today));
 
   if (start > end) return 1;
   return Math.max(1, Math.floor((dateOnlyOrdinal(end) - dateOnlyOrdinal(start)) / DAY_MS) + 1);

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { OUTCOME_LABELS } from "@/lib/disposition-outcome";
+import { OUTCOME_LABELS_EN } from "@/lib/disposition-outcome";
 import {
   EXPORT_FIELD_LABELS,
   type ExportFieldKey,
@@ -14,7 +14,6 @@ import { submittedResponseWhere } from "@/lib/response-status";
 import { getCampaignScoringSettingsMap } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
 import { reserveExportCapacity } from "@/server/export-admission";
-import { emitNotificationToUser } from "@/server/notifications";
 import {
   CampaignAuthorizationError,
   getCampaignFilterForPermissions,
@@ -40,7 +39,7 @@ type CampaignTargetSnapshot = {
 
 type ExportCellValue = string | number | boolean | Date | null;
 
-const YES = "Si";
+const YES = "Yes";
 const NO = "No";
 
 const EXPORT_QUERY_BATCH_SIZE = 300;
@@ -52,7 +51,7 @@ type ExportPayloadBudget = {
 
 async function getExportData(filters: ExportFilters, selectedFields: ExportFieldKey[]) {
   const session = await auth();
-  if (!session?.user) throw new CampaignAuthorizationError("No autorizado");
+  if (!session?.user) throw new CampaignAuthorizationError("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermissions(
     ["canExport", "canViewReports"],
@@ -83,7 +82,7 @@ async function getExportData(filters: ExportFilters, selectedFields: ExportField
 
       if (responseIds.length > limits.maxEvaluations) {
         throw new ExportLimitError(
-          `La exportacion supera ${limits.maxEvaluations} evaluaciones. Acota campana, formulario o fechas.`,
+          `The export exceeds ${limits.maxEvaluations} evaluations. Narrow the campaign, form, or date filters.`,
         );
       }
 
@@ -164,12 +163,12 @@ async function getExportData(filters: ExportFilters, selectedFields: ExportField
         const textBytes = Number(payloadBudget[0]?.textBytes ?? 0);
         if (answerRows > limits.maxAnswerRows) {
           throw new ExportLimitError(
-            `La exportacion supera ${limits.maxAnswerRows} respuestas. Acota los filtros o excluye Respuestas.`,
+            `The export exceeds ${limits.maxAnswerRows} answer rows. Narrow the filters or exclude Answers.`,
           );
         }
         if (textBytes > limits.maxTextBytes) {
           throw new ExportLimitError(
-            `La exportacion supera ${limits.maxTextBytes} bytes de texto. Acota los filtros o excluye Respuestas.`,
+            `The export exceeds ${limits.maxTextBytes} text bytes. Narrow the filters or exclude Answers.`,
           );
         }
       }
@@ -205,7 +204,7 @@ async function getExportData(filters: ExportFilters, selectedFields: ExportField
   const hydratedTextBytes = getHydratedExportTextBytes(exportableResponses, includeAnswers);
   if (hydratedTextBytes > limits.maxTextBytes) {
     throw new ExportLimitError(
-      `La exportacion supera ${limits.maxTextBytes} bytes de texto. Acota los filtros o excluye Respuestas.`,
+      `The export exceeds ${limits.maxTextBytes} text bytes. Narrow the filters or exclude Answers.`,
     );
   }
 
@@ -214,7 +213,7 @@ async function getExportData(filters: ExportFilters, selectedFields: ExportField
     : 0;
   if (answerRows > limits.maxAnswerRows) {
     throw new ExportLimitError(
-      `La exportacion supera ${limits.maxAnswerRows} respuestas. Acota los filtros o excluye Respuestas.`,
+      `The export exceeds ${limits.maxAnswerRows} answer rows. Narrow the filters or exclude Answers.`,
     );
   }
 
@@ -420,7 +419,7 @@ function getFieldValue(
       return response.disposition?.category?.name ?? "";
     case "outcome":
       return response.disposition?.outcomeType
-        ? (OUTCOME_LABELS[response.disposition.outcomeType] ?? response.disposition.outcomeType)
+        ? (OUTCOME_LABELS_EN[response.disposition.outcomeType] ?? response.disposition.outcomeType)
         : "";
     case "score":
       return score;
@@ -471,7 +470,7 @@ function getQuestionColumnKey(answer: ExportResponse["answers"][number]) {
 
 function getQuestionColumn(response: ExportResponse, answer: ExportResponse["answers"][number]) {
   const sectionOrder = answer.question.formCategory?.sortOrder ?? -1;
-  const sectionLabel = answer.question.formCategory?.qaCategory.name ?? "Sin seccion";
+  const sectionLabel = answer.question.formCategory?.qaCategory.name ?? "No section";
   const sectionNumber = String(Math.max(0, sectionOrder + 1)).padStart(2, "0");
   const questionNumber = String(Math.max(0, answer.question.order + 1)).padStart(2, "0");
 
@@ -496,7 +495,7 @@ function collectQuestionColumns(responses: ExportResponse[], selectedFields: Exp
     for (const answer of response.answers) {
       const column = getQuestionColumn(response, answer);
       if (responseKeys.has(column.key)) {
-        throw new Error(`La evaluacion ${response.id} contiene una pregunta duplicada.`);
+        throw new Error(`Evaluation ${response.id} contains a duplicate question.`);
       }
       responseKeys.add(column.key);
       columns.set(column.key, columns.get(column.key) ?? column);
@@ -519,7 +518,7 @@ function getAnswerMap(response: ExportResponse) {
   for (const answer of response.answers) {
     const key = getQuestionColumnKey(answer);
     if (result.has(key)) {
-      throw new Error(`La evaluacion ${response.id} contiene una pregunta duplicada.`);
+      throw new Error(`Evaluation ${response.id} contains a duplicate question.`);
     }
     result.set(key, getAnswerValue(answer));
   }
@@ -585,12 +584,12 @@ function assertExportShapeWithinLimits(
     : 0;
   if (answerRows > limits.maxAnswerRows) {
     throw new ExportLimitError(
-      `La exportacion supera ${limits.maxAnswerRows} respuestas. Acota los filtros o excluye Respuestas.`,
+      `The export exceeds ${limits.maxAnswerRows} answer rows. Narrow the filters or exclude Answers.`,
     );
   }
   if (questionColumns.length > limits.maxQuestionColumns) {
     throw new ExportLimitError(
-      `La exportacion supera ${limits.maxQuestionColumns} columnas de preguntas. Acota formulario o fechas.`,
+      `The export exceeds ${limits.maxQuestionColumns} question columns. Narrow the form or date filters.`,
     );
   }
 
@@ -604,7 +603,7 @@ function assertExportShapeWithinLimits(
   }
   if (estimatedCells > limits.maxCells) {
     throw new ExportLimitError(
-      `La exportacion supera ${limits.maxCells} celdas estimadas. Reduce campos o acota los filtros.`,
+      `The export exceeds ${limits.maxCells} estimated cells. Reduce fields or narrow the filters.`,
     );
   }
 }
@@ -666,7 +665,7 @@ function getSummary(
       0,
     ),
     filters: {
-      campaignId: filters.campaignId ?? "Todas",
+      campaignId: filters.campaignId ?? "All",
       formId: filters.formId ?? "Todos",
       agentId: filters.agentId ?? "Todos",
       dateFrom: filters.dateFrom ?? "",
@@ -716,7 +715,6 @@ async function recordExportLifecycle({
   selectedFields,
   userId,
   stats,
-  notify = false,
 }: {
   action: ExportLifecycleAction;
   exportId: string;
@@ -725,7 +723,6 @@ async function recordExportLifecycle({
   selectedFields: ExportFieldKey[];
   userId: string;
   stats: ExportCampaignStat[];
-  notify?: boolean;
 }) {
   const auditStats = getAuditStatsOrFallback(stats, filters);
   await prisma.$transaction(async (tx) => {
@@ -753,34 +750,12 @@ async function recordExportLifecycle({
           },
           impact:
             action === "generated"
-              ? "Datos exportados segun scope de campana y permisos del usuario."
-              : `Ciclo de exportacion registrado con estado ${action}.`,
+              ? "Data exported according to the user's campaign scope and permissions."
+              : `Export lifecycle recorded with status ${action}.`,
         },
         tx,
       );
     }
-  });
-
-  if (!notify || action !== "generated") return;
-  const rowCount = stats.reduce((sum, stat) => sum + stat.rowCount, 0);
-  const detailRowCount = stats.reduce((sum, stat) => sum + stat.detailRowCount, 0);
-  await emitNotificationToUser({
-    userId,
-    campaignId: stats.length === 1 ? stats[0]?.campaignId : null,
-    type: "export_generated",
-    severity: "SUCCESS",
-    title: `Export ${format.toUpperCase()} generado`,
-    body: `${rowCount} evaluaciones exportadas con ${selectedFields.length} campos seleccionados.`,
-    href: "/analytics/export",
-    entityType: "export",
-    metadata: {
-      exportId,
-      format,
-      filters,
-      selectedFields,
-      rowCount,
-      detailRowCount,
-    },
   });
 }
 
@@ -799,7 +774,6 @@ async function auditCompletedBufferedExport(
     selectedFields,
     userId,
     stats: getExportCampaignStats(responses, selectedFields),
-    notify: true,
   });
 }
 
@@ -910,33 +884,33 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
   workbook.created = new Date();
   workbook.modified = new Date();
 
-  const summarySheet = workbook.addWorksheet("Resumen");
+  const summarySheet = workbook.addWorksheet("Summary");
   summarySheet.columns = [
-    { header: "Metrica", key: "metric", width: 28 },
-    { header: "Valor", key: "value", width: 28 },
+    { header: "Metric", key: "metric", width: 28 },
+    { header: "Value", key: "value", width: 28 },
   ];
   styleHeaderRow(summarySheet.getRow(1));
   const summaryRows: [string, string | number][] = [
-    ["Total evaluaciones", summary.totalEvaluations],
-    ["Score promedio", summary.avgScore],
-    ["Target score", summary.targetAvgScore],
+    ["Total evaluations", summary.totalEvaluations],
+    ["Average score", summary.avgScore],
+    ["Score target", summary.targetAvgScore],
     ["Pass rate", `${summary.passRate}%`],
-    ["Target pass rate", `${summary.targetPassRate}%`],
-    ["Fallas fatales", summary.fatalFailCount],
-    ["Fatales permitidas", summary.fatalFailuresAllowed],
-    ["Target diario", summary.targetDailyRate],
-    ["Campanas incluidas", summary.campaignCount],
-    ["Filtro campana", summary.filters.campaignId],
-    ["Filtro formulario", summary.filters.formId],
-    ["Filtro agente", summary.filters.agentId],
-    ["Desde", summary.filters.dateFrom],
-    ["Hasta", summary.filters.dateTo],
-    ["Campos", summary.selectedFields.map((field) => EXPORT_FIELD_LABELS[field]).join(", ")],
+    ["Pass rate target", `${summary.targetPassRate}%`],
+    ["Critical failures", summary.fatalFailCount],
+    ["Allowed critical failures", summary.fatalFailuresAllowed],
+    ["Daily target", summary.targetDailyRate],
+    ["Included campaigns", summary.campaignCount],
+    ["Campaign filter", summary.filters.campaignId],
+    ["Form filter", summary.filters.formId],
+    ["Agent filter", summary.filters.agentId],
+    ["From", summary.filters.dateFrom],
+    ["To", summary.filters.dateTo],
+    ["Fields", summary.selectedFields.map((field) => EXPORT_FIELD_LABELS[field]).join(", ")],
   ];
   summarySheet.addRows(summaryRows.map(([metric, value]) => ({ metric, value })));
   summarySheet.views = [{ state: "frozen", ySplit: 1 }];
 
-  const evaluationSheet = workbook.addWorksheet("Evaluaciones");
+  const evaluationSheet = workbook.addWorksheet("Evaluations");
   const headerRow = evaluationSheet.addRow(headers);
   styleHeaderRow(headerRow);
   rows.forEach((row) => {
@@ -963,29 +937,29 @@ export async function exportToExcel(filters: ExportFilters): Promise<string> {
   autoWidth(evaluationSheet);
 
   if (includeAnswers) {
-    const detailSheet = workbook.addWorksheet("Detalle respuestas");
+    const detailSheet = workbook.addWorksheet("Answer details");
     const detailHeaders = [
-      "ID evaluacion",
-      "Fecha",
-      "Campana",
-      "Formulario",
-      "Agente",
-      "Evaluador",
-      "Categoria QA",
-      "ID pregunta",
-      "Clave pregunta",
-      "Orden seccion",
-      "Orden pregunta",
-      "Pregunta",
-      "Tipo",
-      "Respuesta",
-      "Score respuesta",
-      "Peso pregunta",
-      "Pregunta fatal",
-      "Respuesta fatal",
+      "Evaluation ID",
+      "Date",
+      "Campaign",
+      "Form",
+      "Agent",
+      "Evaluator",
+      "QA category",
+      "Question ID",
+      "Question key",
+      "Section order",
+      "Question order",
+      "Question",
+      "Type",
+      "Answer",
+      "Answer score",
+      "Question weight",
+      "Critical question",
+      "Critical answer",
       "N/A",
-      "Comentario requerido",
-      "Comentario",
+      "Comment required",
+      "Comment",
     ];
     styleHeaderRow(detailSheet.addRow(detailHeaders));
 
@@ -1127,7 +1101,6 @@ function createExportFinisher(context: {
         await recordExportLifecycle({
           ...context,
           action,
-          notify: action === "generated",
         });
       } catch (error) {
         if (action !== "failed") {
@@ -1271,37 +1244,37 @@ async function createXlsxDownload(
     try {
       const headers = getSelectedHeaders(selectedFields, questionColumns);
       const summary = getSummary(responses, targetsByCampaign, filters, selectedFields);
-      const summarySheet = workbook.addWorksheet("Resumen", {
+      const summarySheet = workbook.addWorksheet("Summary", {
         views: [{ state: "frozen", ySplit: 1 }],
       });
       summarySheet.columns = [
         { key: "metric", width: 28 },
         { key: "value", width: 32 },
       ];
-      const summaryHeader = summarySheet.addRow(["Metrica", "Valor"]);
+      const summaryHeader = summarySheet.addRow(["Metric", "Value"]);
       styleHeaderRow(summaryHeader);
       summaryHeader.commit();
       const summaryRows: [string, string | number][] = [
-        ["Total evaluaciones", summary.totalEvaluations],
-        ["Score promedio", summary.avgScore],
-        ["Target score", summary.targetAvgScore],
+        ["Total evaluations", summary.totalEvaluations],
+        ["Average score", summary.avgScore],
+        ["Score target", summary.targetAvgScore],
         ["Pass rate", `${summary.passRate}%`],
-        ["Target pass rate", `${summary.targetPassRate}%`],
-        ["Fallas fatales", summary.fatalFailCount],
-        ["Fatales permitidas", summary.fatalFailuresAllowed],
-        ["Target diario", summary.targetDailyRate],
-        ["Campanas incluidas", summary.campaignCount],
-        ["Filtro campana", summary.filters.campaignId],
-        ["Filtro formulario", summary.filters.formId],
-        ["Filtro agente", summary.filters.agentId],
-        ["Desde", summary.filters.dateFrom],
-        ["Hasta", summary.filters.dateTo],
-        ["Campos", summary.selectedFields.map((field) => EXPORT_FIELD_LABELS[field]).join(", ")],
+        ["Pass rate target", `${summary.targetPassRate}%`],
+        ["Critical failures", summary.fatalFailCount],
+        ["Allowed critical failures", summary.fatalFailuresAllowed],
+        ["Daily target", summary.targetDailyRate],
+        ["Included campaigns", summary.campaignCount],
+        ["Campaign filter", summary.filters.campaignId],
+        ["Form filter", summary.filters.formId],
+        ["Agent filter", summary.filters.agentId],
+        ["From", summary.filters.dateFrom],
+        ["To", summary.filters.dateTo],
+        ["Fields", summary.selectedFields.map((field) => EXPORT_FIELD_LABELS[field]).join(", ")],
       ];
       for (const values of summaryRows) summarySheet.addRow(values).commit();
       summarySheet.commit();
 
-      const evaluationSheet = workbook.addWorksheet("Evaluaciones", {
+      const evaluationSheet = workbook.addWorksheet("Evaluations", {
         views: [{ state: "frozen", ySplit: 1 }],
       });
       headers.forEach((header, index) => {
@@ -1337,29 +1310,29 @@ async function createXlsxDownload(
 
       if (isExportFieldSelected(selectedFields, "answers")) {
         const detailHeaders = [
-          "ID evaluacion",
-          "Fecha",
-          "Campana",
-          "Formulario",
-          "Agente",
-          "Evaluador",
-          "Categoria QA",
-          "ID pregunta",
-          "Clave pregunta",
-          "Orden seccion",
-          "Orden pregunta",
-          "Pregunta",
-          "Tipo",
-          "Respuesta",
-          "Score respuesta",
-          "Peso pregunta",
-          "Pregunta fatal",
-          "Respuesta fatal",
+          "Evaluation ID",
+          "Date",
+          "Campaign",
+          "Form",
+          "Agent",
+          "Evaluator",
+          "QA category",
+          "Question ID",
+          "Question key",
+          "Section order",
+          "Question order",
+          "Question",
+          "Type",
+          "Answer",
+          "Answer score",
+          "Question weight",
+          "Critical question",
+          "Critical answer",
           "N/A",
-          "Comentario requerido",
-          "Comentario",
+          "Comment required",
+          "Comment",
         ];
-        const detailSheet = workbook.addWorksheet("Detalle respuestas", {
+        const detailSheet = workbook.addWorksheet("Answer details", {
           views: [{ state: "frozen", ySplit: 1 }],
         });
         detailHeaders.forEach((header, index) => {
@@ -1409,7 +1382,7 @@ async function createXlsxDownload(
       output.end();
     } catch (error) {
       await finish("failed").catch(() => undefined);
-      output.destroy(error instanceof Error ? error : new Error("No se pudo generar el XLSX."));
+      output.destroy(error instanceof Error ? error : new Error("Unable to generate the XLSX."));
     }
   })();
 
@@ -1430,7 +1403,7 @@ export async function createExportDownload(
 ): Promise<ExportDownload> {
   const selectedFields = sanitizeExportFields(filters.fields);
   const session = await auth();
-  if (!session?.user) throw new CampaignAuthorizationError("No autorizado");
+  if (!session?.user) throw new CampaignAuthorizationError("Unauthorized");
   const admissionLimits = getExportLimits();
   const userId = session.user.id;
   const exportId = crypto.randomUUID();

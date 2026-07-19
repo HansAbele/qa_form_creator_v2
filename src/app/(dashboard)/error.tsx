@@ -2,6 +2,7 @@
 
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useEffect } from "react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { reportClientError } from "@/lib/client-observability";
 
@@ -12,6 +13,8 @@ export default function DashboardError({
   error: Error & { digest?: string };
   unstable_retry: () => void;
 }) {
+  const { t } = useI18n();
+
   useEffect(() => {
     reportClientError({
       source: "client-boundary",
@@ -31,17 +34,19 @@ export default function DashboardError({
       >
         <AlertTriangle aria-hidden="true" className="mx-auto mb-4 h-10 w-10 text-destructive" />
         <h1 id="dashboard-error-title" className="text-xl font-semibold">
-          No pudimos cargar esta sección
+          {t("Unable to load this section")}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          El incidente fue registrado. Puedes volver a intentarlo sin perder tu sesión.
+          {t("The incident was logged. You can try again without losing your session.")}
         </p>
         {error.digest ? (
-          <p className="mt-2 text-xs text-muted-foreground">Referencia: {error.digest}</p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t("Reference: {reference}", { reference: error.digest })}
+          </p>
         ) : null}
         <Button className="mt-6" onClick={unstable_retry}>
           <RotateCcw aria-hidden="true" className="mr-2 h-4 w-4" />
-          Reintentar
+          {t("Retry")}
         </Button>
       </section>
     </main>

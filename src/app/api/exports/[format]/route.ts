@@ -96,7 +96,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fo
       status: 200,
       headers: {
         "Content-Type": download.contentType,
-        "Content-Disposition": `attachment; filename="evaluaciones_${timestamp}.${download.extension}"`,
+        "Content-Disposition": `attachment; filename="evaluations_${timestamp}.${download.extension}"`,
         "Cache-Control": "private, no-store, max-age=0",
         "X-Content-Type-Options": "nosniff",
       },

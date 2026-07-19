@@ -182,7 +182,7 @@ BEGIN
       ('Agent'), ('Form'), ('Question'), ('QACategory'), ('FormCategory'),
       ('Response'), ('Answer'), ('AppSetting'), ('CampaignScoringSettings'),
       ('LoginRateLimit'), ('LoginRateLimitReservation'),
-      ('Notification'), ('NotificationPreference'), ('AuditLog')
+      ('AuditLog')
   ) AS expected(table_name)
   LEFT JOIN pg_class table_object
     ON table_object.relname = expected.table_name
@@ -207,7 +207,7 @@ BEGIN
       'Agent', 'Form', 'Question', 'QACategory', 'FormCategory',
       'Response', 'Answer', 'AppSetting', 'CampaignScoringSettings',
       'LoginRateLimit', 'LoginRateLimitReservation',
-      'Notification', 'NotificationPreference', 'AuditLog'
+      'AuditLog'
     );
 
   IF unexpected_tables IS NOT NULL THEN
@@ -226,7 +226,7 @@ FROM (
     ('UserCampaign'), ('Team'), ('DispositionCategory'), ('Disposition'),
     ('Agent'), ('Form'), ('Question'), ('QACategory'), ('FormCategory'),
     ('Response'), ('Answer'), ('AppSetting'), ('CampaignScoringSettings'),
-    ('LoginRateLimit'), ('Notification'), ('NotificationPreference')
+    ('LoginRateLimit')
 ) AS allowed(table_name)
 \gexec
 

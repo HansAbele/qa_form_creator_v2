@@ -2,7 +2,9 @@
 
 import { compare, hash } from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
+import { DEFAULT_LOCALE, isLocale, LOCALE_COOKIE, type Locale } from "@/lib/i18n";
 import { assertStrongPassword } from "@/lib/password-policy";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/server/audit-log";
@@ -17,12 +19,13 @@ export interface ProfileInfo {
   campaignCount: number;
   campaigns: { id: string; name: string }[];
   createdAt: string;
+  locale: Locale;
 }
 
 /** Read the logged-in user's profile info. */
 export async function getMyProfile(): Promise<ProfileInfo> {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -33,6 +36,7 @@ export async function getMyProfile(): Promise<ProfileInfo> {
       role: true,
       password: true,
       createdAt: true,
+      locale: true,
       campaigns: {
         select: {
           campaign: { select: { id: true, name: true } },
@@ -42,7 +46,7 @@ export async function getMyProfile(): Promise<ProfileInfo> {
     },
   });
 
-  if (!user) throw new Error("Usuario no encontrado");
+  if (!user) throw new Error("User not found");
 
   return {
     id: user.id,
@@ -55,20 +59,82 @@ export async function getMyProfile(): Promise<ProfileInfo> {
       .map(({ campaign }) => campaign)
       .sort((a, b) => a.name.localeCompare(b.name)),
     createdAt: user.createdAt.toISOString(),
+    locale: isLocale(user.locale) ? user.locale : DEFAULT_LOCALE,
   };
+}
+
+/** Persist the logged-in user's language preference and synchronize SSR locale. */
+export async function updateMyLocale(locale: string): Promise<void> {
+  const session = await auth();
+  if (!isLocale(locale)) throw new Error("Unsupported language");
+
+  if (session?.user) {
+    await prisma.$transaction(async (tx) => {
+      const before = await tx.user.findUnique({
+        where: { id: session.user.id },
+        select: { id: true, active: true, locale: true, sessionVersion: true },
+      });
+      if (!before?.active) throw new Error("User not found or inactive");
+      if (
+        session.user.sessionVersion !== undefined &&
+        before.sessionVersion !== session.user.sessionVersion
+      ) {
+        throw new Error("Your session changed; sign in again");
+      }
+
+      if (before.locale === locale) return;
+
+      const updated = await tx.user.updateMany({
+        where: {
+          id: before.id,
+          active: true,
+          locale: before.locale,
+          sessionVersion: before.sessionVersion,
+        },
+        data: { locale },
+      });
+      if (updated.count !== 1) {
+        throw new Error("Your preferences changed in another session; try again");
+      }
+
+      await writeAuditLog(
+        {
+          userId: before.id,
+          module: "profile",
+          action: "profile_locale_updated",
+          entityType: "user",
+          entityId: before.id,
+          beforeValue: { locale: before.locale },
+          afterValue: { locale },
+          impact: "User changed the interface language.",
+        },
+        tx,
+      );
+    });
+  }
+
+  const cookieStore = await cookies();
+  cookieStore.set(LOCALE_COOKIE, locale, {
+    httpOnly: false,
+    maxAge: 31_536_000,
+    path: "/",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+  revalidatePath("/", "layout");
 }
 
 /** Update the logged-in user's own name. */
 export async function updateMyName(name: string): Promise<void> {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const trimmed = name.trim();
   if (trimmed.length < 2) {
-    throw new Error("El nombre debe tener al menos 2 caracteres");
+    throw new Error("Full name must contain at least 2 characters.");
   }
   if (trimmed.length > 100) {
-    throw new Error("El nombre no puede exceder 100 caracteres");
+    throw new Error("Full name cannot exceed 100 characters.");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -76,12 +142,12 @@ export async function updateMyName(name: string): Promise<void> {
       where: { id: session.user.id },
       select: { id: true, name: true, active: true, sessionVersion: true },
     });
-    if (!before?.active) throw new Error("Usuario no encontrado o inactivo");
+    if (!before?.active) throw new Error("User not found or inactive");
     if (
       session.user.sessionVersion !== undefined &&
       before.sessionVersion !== session.user.sessionVersion
     ) {
-      throw new Error("La sesion cambio; vuelve a iniciar sesion");
+      throw new Error("Your session changed; sign in again");
     }
 
     const updated = await tx.user.updateMany({
@@ -94,7 +160,7 @@ export async function updateMyName(name: string): Promise<void> {
       data: { name: trimmed },
     });
     if (updated.count !== 1) {
-      throw new Error("El perfil cambio en otra sesion; vuelve a intentarlo");
+      throw new Error("Your profile changed in another session; try again");
     }
 
     await writeAuditLog(
@@ -106,13 +172,13 @@ export async function updateMyName(name: string): Promise<void> {
         entityId: before.id,
         beforeValue: { name: before.name },
         afterValue: { name: trimmed },
-        impact: "El usuario actualizo su nombre de perfil.",
+        impact: "User updated their profile name.",
       },
       tx,
     );
   });
 
-  revalidatePath("/settings");
+  revalidatePath("/account");
   revalidatePath("/", "layout");
 }
 
@@ -122,10 +188,10 @@ export async function changeMyPassword(
   newPassword: string,
 ): Promise<void> {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   if (!currentPassword) {
-    throw new Error("Debes ingresar tu contraseña actual");
+    throw new Error("Enter your current password.");
   }
   assertStrongPassword(newPassword);
 
@@ -134,21 +200,21 @@ export async function changeMyPassword(
     select: { id: true, password: true, active: true, sessionVersion: true },
   });
 
-  if (!user?.active) throw new Error("Usuario no encontrado o inactivo");
+  if (!user?.active) throw new Error("User not found or inactive");
 
   if (!user.password) {
-    throw new Error("Esta cuenta usa inicio de sesión externo (SSO) y no tiene contraseña.");
+    throw new Error("This account uses an external identity provider and has no local password.");
   }
   if (
     session.user.sessionVersion !== undefined &&
     user.sessionVersion !== session.user.sessionVersion
   ) {
-    throw new Error("La sesion cambio; vuelve a iniciar sesion");
+    throw new Error("Your session changed; sign in again");
   }
 
   const valid = await compare(currentPassword, user.password);
   if (!valid) {
-    throw new Error("La contraseña actual es incorrecta");
+    throw new Error("Current password is incorrect.");
   }
 
   const hashed = await hash(newPassword, 12);
@@ -163,7 +229,7 @@ export async function changeMyPassword(
       data: { password: hashed, sessionVersion: { increment: 1 } },
     });
     if (updated.count !== 1) {
-      throw new Error("La contrasena o la sesion cambiaron; vuelve a intentarlo");
+      throw new Error("The password or session changed; try again");
     }
 
     await writeAuditLog(
@@ -174,7 +240,7 @@ export async function changeMyPassword(
         entityType: "user",
         entityId: user.id,
         afterValue: { passwordChanged: true, sessionsRevoked: true },
-        impact: "Contrasena actualizada y sesiones anteriores revocadas.",
+        impact: "Password updated and previous sessions revoked.",
       },
       tx,
     );

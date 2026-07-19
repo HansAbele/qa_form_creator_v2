@@ -2,6 +2,7 @@
 
 import type { QuestionType } from "@prisma/client";
 import { AlertTriangle } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -64,6 +65,7 @@ export function QuestionRenderer({
   ratingMax = 5,
   ratingStyle,
 }: QuestionRendererProps) {
+  const { t } = useI18n();
   const optionPairs = getOptionPairs(question.options);
   const fatalOptions = getStringOptions(question.fatalOptions);
   const showComment = question.fatal || question.requiresCommentOnFail;
@@ -95,28 +97,28 @@ export function QuestionRenderer({
               <span aria-hidden="true" className="ml-1 text-destructive">
                 *
               </span>
-              <span className="sr-only"> (obligatoria)</span>
+              <span className="sr-only"> {t("(required)")}</span>
             </>
           )}
         </p>
         {isScoredQuestionType(question.type) && question.weight > 0 && (
           <Badge variant="outline" className="text-xs">
-            Peso {question.weight}%
+            {t("Weight {weight}%", { weight: question.weight })}
           </Badge>
         )}
         {question.fatal && (
           <Badge variant="destructive" className="text-xs">
-            Fatal
+            {t("Critical")}
           </Badge>
         )}
         {question.requiresCommentOnFail && (
           <Badge variant="outline" className="text-xs">
-            Comentario si falla
+            {t("Comment required on failure")}
           </Badge>
         )}
         {!notApplicable && failed && (
           <Badge variant="destructive" className="text-xs uppercase tracking-wide">
-            Fallo
+            {t("Failed")}
           </Badge>
         )}
         {notApplicable && (
@@ -131,7 +133,7 @@ export function QuestionRenderer({
             onCheckedChange={(checked) => onNotApplicableChange?.(checked === true)}
           />
           <Label htmlFor={`${question.id}-not-applicable`} className="text-xs font-normal">
-            No aplica
+            {t("Not applicable")}
           </Label>
         </div>
       </div>
@@ -143,7 +145,7 @@ export function QuestionRenderer({
           aria-describedby={answerDescription}
           aria-invalid={Boolean(error)}
           aria-required={question.required && !notApplicable}
-          placeholder="Escribe tu respuesta..."
+          placeholder={t("Enter your answer...")}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={notApplicable}
@@ -177,8 +179,8 @@ export function QuestionRenderer({
           {(optionPairs.length > 0
             ? optionPairs
             : [
-                { label: "Si", value: "Si" },
-                { label: "No", value: "No" },
+                { label: t("Yes"), value: "Yes" },
+                { label: t("No"), value: "No" },
               ]
           ).map((opt, optionIndex) => {
             const isFatalOption = fatalOptions.includes(opt.value);
@@ -226,14 +228,14 @@ export function QuestionRenderer({
             aria-required={question.required && !notApplicable}
             className={cn("w-full", failed && "border-destructive text-destructive")}
           >
-            <SelectValue placeholder="Seleccionar..." />
+            <SelectValue placeholder={t("Select...")} />
           </SelectTrigger>
           <SelectContent>
             {optionPairs.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
                 {fatalOptions.includes(opt.value) && (
-                  <span className="ml-1.5 text-xs text-destructive">· fatal</span>
+                  <span className="ml-1.5 text-xs text-destructive">· {t("critical")}</span>
                 )}
               </SelectItem>
             ))}
@@ -249,8 +251,8 @@ export function QuestionRenderer({
         >
           <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
           {question.type === "RATING"
-            ? "Esta calificacion cuenta como falla fatal."
-            : "Esta opcion cuenta como falla fatal."}
+            ? t("This rating counts as a critical failure.")
+            : t("This option counts as a critical failure.")}
         </p>
       )}
 
@@ -263,7 +265,7 @@ export function QuestionRenderer({
       {showComment && (
         <div className="space-y-2">
           <Label htmlFor={commentControlId} className="text-xs text-muted-foreground">
-            Comentario QA
+            {t("QA Comment")}
             {failed && question.requiresCommentOnFail && (
               <span className="ml-1 text-destructive">*</span>
             )}
@@ -273,7 +275,7 @@ export function QuestionRenderer({
             aria-describedby={commentError ? commentErrorId : undefined}
             aria-invalid={Boolean(commentError)}
             aria-required={failed && question.requiresCommentOnFail}
-            placeholder="Agrega contexto para esta regla..."
+            placeholder={t("Add context for this rule...")}
             value={comment}
             onChange={(event) => onCommentChange?.(event.target.value)}
             rows={2}

@@ -39,7 +39,7 @@ describe("export limits", () => {
 
     vi.stubEnv("EXPORT_MAX_CONCURRENT_GLOBAL", "2");
     vi.stubEnv("EXPORT_LEASE_TIMEOUT_SECONDS", "59");
-    expect(() => getExportLimits()).toThrow("entre 60 y 3600");
+    expect(() => getExportLimits()).toThrow("between 60 and 3600");
     expect(HARD_MAX_EXPORT_LIMITS).toMatchObject({
       maxEvaluations: 2_500,
       maxAnswerRows: 25_000,

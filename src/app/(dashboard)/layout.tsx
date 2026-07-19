@@ -1,10 +1,11 @@
 import { Header } from "@/components/layout/header";
 import { PageTransition } from "@/components/layout/page-transition";
 import { Sidebar } from "@/components/layout/sidebar";
+import { getServerI18n } from "@/lib/i18n-server";
 import { getCurrentUserUiAccess } from "@/server/queries/ui-access";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const access = await getCurrentUserUiAccess();
+  const [access, { t }] = await Promise.all([getCurrentUserUiAccess(), getServerI18n()]);
 
   return (
     <div className="flex min-h-dvh min-w-0 items-stretch bg-sidebar">
@@ -12,7 +13,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"
       >
-        Saltar al contenido principal
+        {t("Skip to main content")}
       </a>
       <Sidebar access={access} />
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col bg-background">

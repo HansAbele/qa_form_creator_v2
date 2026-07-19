@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDateOnlyForDisplay,
   formatOperationalTimestamp,
+  getUnavailableDateLabel,
   UNAVAILABLE_DATE_LABEL,
 } from "@/lib/date-display";
 
@@ -20,6 +21,13 @@ describe("formatDateOnlyForDisplay", () => {
     expect(formatDateOnlyForDisplay("2026-02-30")).toBe(UNAVAILABLE_DATE_LABEL);
     expect(formatDateOnlyForDisplay("2026-02-28T00:00:00Z")).toBe(UNAVAILABLE_DATE_LABEL);
   });
+
+  it("should localize invalid values without changing user-provided content", () => {
+    expect(getUnavailableDateLabel()).toBe("Date unavailable");
+    expect(getUnavailableDateLabel("es-ES")).toBe("Fecha no disponible");
+    expect(getUnavailableDateLabel(new Intl.Locale("es-MX"))).toBe("Fecha no disponible");
+    expect(formatDateOnlyForDisplay("not-a-date", undefined, "es-ES")).toBe("Fecha no disponible");
+  });
 });
 
 describe("formatOperationalTimestamp", () => {
@@ -34,9 +42,7 @@ describe("formatOperationalTimestamp", () => {
       hourCycle: "h23",
     } as const;
 
-    expect(formatOperationalTimestamp(instant, "UTC", options, "en-US")).toBe(
-      "07/16/2026, 03:30",
-    );
+    expect(formatOperationalTimestamp(instant, "UTC", options, "en-US")).toBe("07/16/2026, 03:30");
     expect(formatOperationalTimestamp(instant, "America/Havana", options, "en-US")).toBe(
       "07/15/2026, 23:30",
     );

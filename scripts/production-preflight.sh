@@ -200,7 +200,7 @@ WITH runtime_role AS (
     ('UserCampaign'), ('Team'), ('DispositionCategory'), ('Disposition'),
     ('Agent'), ('Form'), ('Question'), ('QACategory'), ('FormCategory'),
     ('Response'), ('Answer'), ('AppSetting'), ('CampaignScoringSettings'),
-    ('LoginRateLimit'), ('Notification'), ('NotificationPreference')
+    ('LoginRateLimit')
 )
 SELECT
   EXISTS (

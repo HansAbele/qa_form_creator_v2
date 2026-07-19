@@ -8,10 +8,7 @@ export default async function TeamsPage() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") redirect("/");
 
-  const [rawTeams, rawCampaigns] = await Promise.all([
-    getTeams(),
-    getCampaigns(),
-  ]);
+  const [rawTeams, rawCampaigns] = await Promise.all([getTeams(), getCampaigns()]);
 
   const teams = rawTeams.map((t) => ({
     id: t.id,

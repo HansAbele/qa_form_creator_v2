@@ -5,36 +5,31 @@ test.use({ storageState: ADMIN_AUTH_STATE });
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: /Abrir men.* de usuario/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Open user menu/ })).toBeVisible();
 });
 
-test("user menu exposes profile and all supported appearance preferences", async ({ page }) => {
-  const trigger = page.getByRole("button", { name: /Abrir men.* de usuario/ });
+test("user menu exposes account and preferences without notifications or theme controls", async ({
+  page,
+}) => {
+  const trigger = page.getByRole("button", { name: /Open user menu/ });
   await trigger.focus();
   await page.keyboard.press("Enter");
 
-  const profileItem = page.getByRole("menuitem", { name: /Mi perfil/ });
-  await expect(profileItem).toBeFocused();
+  const accountItem = page.getByRole("menuitem", { name: /My account/ });
+  await expect(accountItem).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: /Preferences/ })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
+  await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+  await expect(page.getByText("Notifications", { exact: true })).toHaveCount(0);
 
-  await expect(page.getByText("Preferencias de apariencia", { exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitemradio", { name: "Claro" })).toBeVisible();
-  await expect(page.getByRole("menuitemradio", { name: "Oscuro" })).toBeVisible();
-  await expect(page.getByRole("menuitemradio", { name: "Sistema" })).toBeVisible();
-
-  await page.getByRole("menuitemradio", { name: "Oscuro" }).click();
-  await expect(page.locator("html")).toHaveClass(/dark/);
-
-  await page.getByRole("menuitemradio", { name: "Sistema" }).click();
-  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("theme"))).toBe("system");
-
-  await profileItem.click();
-  await expect(page).toHaveURL(/\/settings\?section=account$/);
-  await expect(page.getByRole("heading", { name: "Configuración" })).toBeVisible();
+  await accountItem.click();
+  await expect(page).toHaveURL(/\/account$/);
+  await expect(page.getByRole("heading", { name: "My account" })).toBeVisible();
 });
 
 test("user menu closes the authenticated session", async ({ page }) => {
-  await page.getByRole("button", { name: /Abrir men.* de usuario/ }).click();
-  await page.getByRole("menuitem", { name: /Cerrar sesi/ }).click();
+  await page.getByRole("button", { name: /Open user menu/ }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
 
   await expect(page).toHaveURL(/\/login$/);
 });

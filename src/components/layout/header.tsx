@@ -1,13 +1,12 @@
 "use client";
 
-import { ChevronDown, Loader2, LogOut, Monitor, Moon, Sun, UserRound } from "lucide-react";
+import { ChevronDown, Loader2, LogOut, Settings2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { MobileSidebar } from "@/components/layout/sidebar";
-import { NotificationCenter } from "@/components/notifications/notification-center";
-import { useTheme } from "@/components/theme-provider";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -15,35 +14,30 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { permitNextDocumentUnload, requestAppNavigation } from "@/lib/navigation-guard";
 import type { UiAccess } from "@/server/queries/ui-access";
 
-type UserTheme = "light" | "dark" | "system";
-
 function getUserInitials(name: string | null | undefined, email: string | null | undefined) {
-  const source = name?.trim() || email?.split("@")[0]?.trim() || "Usuario";
+  const source = name?.trim() || email?.split("@")[0]?.trim() || "User";
   const words = source.split(/\s+/).filter(Boolean);
 
-  if (words.length === 1) return words[0].slice(0, 2).toLocaleUpperCase("es");
-  return `${words[0][0]}${words.at(-1)?.[0] ?? ""}`.toLocaleUpperCase("es");
+  if (words.length === 1) return words[0].slice(0, 2).toLocaleUpperCase("en");
+  return `${words[0][0]}${words.at(-1)?.[0] ?? ""}`.toLocaleUpperCase("en");
 }
 
 export function Header({ access }: { access: UiAccess }) {
   const { data: session } = useSession();
-  const { theme, setTheme } = useTheme();
+  const { t } = useI18n();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const roleLabel =
     session?.user.role === "ADMIN"
       ? "QA Manager"
       : session?.user.role === "SUPERVISOR"
         ? "Supervisor"
-        : "QA";
-  const userName = session?.user.name?.trim() || session?.user.email || "Usuario";
+        : "Quality Analyst";
+  const userName = session?.user.name?.trim() || session?.user.email || t("User");
   const initials = getUserInitials(session?.user.name, session?.user.email);
 
   async function handleSignOut() {
@@ -56,7 +50,7 @@ export function Header({ access }: { access: UiAccess }) {
       window.location.assign(url);
     } catch {
       setIsSigningOut(false);
-      toast.error("No se pudo cerrar la sesión. Inténtalo de nuevo.");
+      toast.error(t("We couldn't sign you out. Try again."));
     }
   }
 
@@ -65,14 +59,12 @@ export function Header({ access }: { access: UiAccess }) {
       <MobileSidebar access={access} />
 
       {session?.user && (
-        <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2">
-          <NotificationCenter />
-
+        <div className="ml-auto flex min-w-0 items-center">
           <DropdownMenu>
             <DropdownMenuTrigger
               type="button"
-              aria-label={`Abrir menú de usuario: ${userName}`}
-              className="group flex min-h-10 min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              aria-label={`${t("Open user menu")}: ${userName}`}
+              className="group flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-transparent px-1.5 py-1 text-left transition-colors hover:border-border hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             >
               <Avatar className="bg-orange-100 dark:bg-orange-950">
                 {session.user.image && <AvatarImage src={session.user.image} alt="" />}
@@ -84,7 +76,7 @@ export function Header({ access }: { access: UiAccess }) {
                 <span className="block truncate text-sm font-medium text-foreground">
                   {userName}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">{roleLabel}</span>
+                <span className="block truncate text-xs text-muted-foreground">{t(roleLabel)}</span>
               </span>
               <ChevronDown
                 aria-hidden="true"
@@ -95,10 +87,10 @@ export function Header({ access }: { access: UiAccess }) {
             <DropdownMenuContent
               align="end"
               sideOffset={8}
-              className="w-72 max-w-[calc(100vw-1.5rem)]"
+              className="w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden p-0"
             >
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="p-2 font-normal">
+                <DropdownMenuLabel className="bg-sidebar p-4 font-normal text-sidebar-foreground">
                   <div className="flex min-w-0 items-center gap-3">
                     <Avatar size="lg" className="bg-orange-100 dark:bg-orange-950">
                       {session.user.image && <AvatarImage src={session.user.image} alt="" />}
@@ -107,86 +99,77 @@ export function Header({ access }: { access: UiAccess }) {
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-foreground">{userName}</p>
-                      <p className="truncate text-xs text-muted-foreground">Rol: {roleLabel}</p>
+                      <p className="truncate text-sm font-semibold text-sidebar-foreground">
+                        {userName}
+                      </p>
+                      <p className="truncate text-xs text-sidebar-foreground/75">{t(roleLabel)}</p>
                       {session.user.email && (
-                        <p className="truncate text-xs text-muted-foreground">
+                        <p className="truncate text-xs text-sidebar-foreground/60">
                           {session.user.email}
                         </p>
                       )}
                     </div>
                   </div>
                 </DropdownMenuLabel>
-
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  render={
-                    <Link
-                      href="/settings?section=account"
-                      onNavigate={(event) => {
-                        if (!requestAppNavigation()) event.preventDefault();
-                      }}
-                    />
-                  }
-                  nativeButton={false}
-                  className="min-h-10 gap-2 px-2 py-2"
-                >
-                  <UserRound aria-hidden="true" />
-                  <span>
-                    <span className="block font-medium">Mi perfil</span>
-                    <span className="block text-xs text-muted-foreground">Cuenta y seguridad</span>
-                  </span>
-                </DropdownMenuItem>
+                <div className="p-1">
+                  <DropdownMenuItem
+                    render={
+                      <Link
+                        href="/account"
+                        onNavigate={(event) => {
+                          if (!requestAppNavigation()) event.preventDefault();
+                        }}
+                      />
+                    }
+                    nativeButton={false}
+                    className="min-h-11 gap-3 px-3 py-2"
+                  >
+                    <UserRound aria-hidden="true" />
+                    <span>
+                      <span className="block font-medium">{t("My account")}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {t("Profile and security")}
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    render={
+                      <Link
+                        href="/preferences"
+                        onNavigate={(event) => {
+                          if (!requestAppNavigation()) event.preventDefault();
+                        }}
+                      />
+                    }
+                    nativeButton={false}
+                    className="min-h-11 gap-3 px-3 py-2"
+                  >
+                    <Settings2 aria-hidden="true" />
+                    <span>
+                      <span className="block font-medium">{t("Preferences")}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {t("Appearance and language")}
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                </div>
               </DropdownMenuGroup>
 
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup
-                value={theme}
-                onValueChange={(value) => setTheme(value as UserTheme)}
-              >
-                <DropdownMenuLabel className="px-2 pb-1 pt-1.5">
-                  Preferencias de apariencia
-                </DropdownMenuLabel>
-                <DropdownMenuRadioItem
-                  value="light"
-                  closeOnClick={false}
-                  className="min-h-9 gap-2 px-2 py-2"
+              <div className="border-t p-1">
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={isSigningOut}
+                  onClick={() => void handleSignOut()}
+                  className="min-h-11 gap-3 px-3 py-2"
                 >
-                  <Sun aria-hidden="true" />
-                  Claro
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem
-                  value="dark"
-                  closeOnClick={false}
-                  className="min-h-9 gap-2 px-2 py-2"
-                >
-                  <Moon aria-hidden="true" />
-                  Oscuro
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem
-                  value="system"
-                  closeOnClick={false}
-                  className="min-h-9 gap-2 px-2 py-2"
-                >
-                  <Monitor aria-hidden="true" />
-                  Sistema
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={isSigningOut}
-                onClick={() => void handleSignOut()}
-                className="min-h-10 gap-2 px-2 py-2"
-              >
-                {isSigningOut ? (
-                  <Loader2 aria-hidden="true" className="animate-spin" />
-                ) : (
-                  <LogOut aria-hidden="true" />
-                )}
-                {isSigningOut ? "Cerrando sesión..." : "Cerrar sesión"}
-              </DropdownMenuItem>
+                  {isSigningOut ? (
+                    <Loader2 aria-hidden="true" className="animate-spin" />
+                  ) : (
+                    <LogOut aria-hidden="true" />
+                  )}
+                  {isSigningOut ? t("Signing out…") : t("Sign out")}
+                </DropdownMenuItem>
+              </div>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

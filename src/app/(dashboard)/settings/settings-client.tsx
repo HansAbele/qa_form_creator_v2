@@ -1,43 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { motion } from "motion/react";
-import { toast } from "sonner";
 import {
-  Settings as SettingsIcon,
-  User,
-  UserCog,
-  Target,
-  KeyRound,
-  Mail,
-  Shield,
-  ShieldCheck,
-  Building2,
-  CalendarDays,
-  Save,
-  RotateCcw,
-  Loader2,
-  Info,
-  Search,
-  Users,
   BarChart3,
-  ClipboardCheck,
-  FileSpreadsheet,
-  History,
-  ListChecks,
-  MessageSquareWarning,
-  Eye,
-  Filter,
+  Building2,
   ChevronLeft,
   ChevronRight,
-  X,
+  ClipboardCheck,
+  Eye,
+  FileSpreadsheet,
+  Filter,
+  History,
+  Info,
+  ListChecks,
+  Loader2,
   Pencil,
   Plus,
   PowerOff,
+  RotateCcw,
+  Save,
+  Search,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  Target,
+  UserCog,
+  Users,
+  X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { motion } from "motion/react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { toast } from "sonner";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { useI18n } from "@/components/providers/i18n-provider";
+import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -57,9 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -68,40 +62,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { updateMyName, changeMyPassword, type ProfileInfo } from "@/server/actions/profile";
-import { updateCampaignAccess } from "@/server/actions/users";
-import { updateSettings, resetSettings } from "@/server/actions/settings";
-import { updateCampaignScoringSettings } from "@/server/actions/campaign-scoring";
-import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
-import { formatOperationalTimestamp } from "@/lib/date-display";
-import {
-  readOperationalAudit,
-  type OperationalAuditEvent,
-  type OperationalAuditPage,
-} from "@/server/actions/audit";
-import {
-  createQACategory,
-  deactivateQACategory,
-  updateQACategory,
-  type QACategoryMutationInput,
-  type QACategorySummary,
-} from "@/server/actions/qa-categories";
-import type { AppSettings, CampaignScoringSettings } from "@/lib/settings";
-import { getPasswordPolicyError, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
+import { Textarea } from "@/components/ui/textarea";
 import {
   CAMPAIGN_ACCESS_LABELS,
   CAMPAIGN_PERMISSION_GROUPS,
   CAMPAIGN_PERMISSION_KEYS,
   CAMPAIGN_PERMISSION_LABELS,
-  getCampaignAccessPreset,
   type CampaignAccessLevel,
   type CampaignPermissionKey,
   type CampaignPermissionState,
+  getCampaignAccessPreset,
 } from "@/lib/campaign-permissions";
+import { formatOperationalTimestamp } from "@/lib/date-display";
+import type { AppSettings, CampaignScoringSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import {
+  type OperationalAuditEvent,
+  type OperationalAuditPage,
+  readOperationalAudit,
+} from "@/server/actions/audit";
+import { updateCampaignScoringSettings } from "@/server/actions/campaign-scoring";
+import {
+  createQACategory,
+  deactivateQACategory,
+  type QACategoryMutationInput,
+  type QACategorySummary,
+  updateQACategory,
+} from "@/server/actions/qa-categories";
+import { resetSettings, updateSettings } from "@/server/actions/settings";
+import { updateCampaignAccess } from "@/server/actions/users";
 
 interface SettingsClientProps {
-  profile: ProfileInfo;
   settings: AppSettings;
   isAdmin: boolean;
   canViewAudit: boolean;
@@ -128,7 +119,6 @@ type AccessCampaign = {
 } & CampaignPermissionState;
 
 export type SettingsSectionId =
-  | "account"
   | "access"
   | "scoring"
   | "campaign-scoring"
@@ -137,8 +127,7 @@ export type SettingsSectionId =
   | "forms-config"
   | "dashboard-kpis"
   | "reports-export"
-  | "audit"
-  | "notifications";
+  | "audit";
 
 const SETTINGS_SECTIONS: {
   id: SettingsSectionId;
@@ -148,85 +137,71 @@ const SETTINGS_SECTIONS: {
   adminOnly?: boolean;
 }[] = [
   {
-    id: "account",
-    label: "Mi cuenta",
-    description: "Perfil, rol y seguridad personal",
-    icon: User,
-  },
-  {
     id: "access",
-    label: "Accesos y permisos",
-    description: "Usuarios, campañas y permisos efectivos",
+    label: "Access Control",
+    description: "Users, campaigns, and effective permissions",
     icon: UserCog,
     adminOnly: true,
   },
   {
     id: "scoring",
-    label: "Scoring global",
-    description: "Defaults operativos de calidad",
+    label: "Scoring & Targets",
+    description: "Organization-wide scoring standards",
     icon: Target,
     adminOnly: true,
   },
   {
     id: "campaign-scoring",
-    label: "Scoring por campaña",
-    description: "Overrides y metas por operación",
+    label: "Campaign Scoring",
+    description: "Campaign-specific targets and scoring rules",
     icon: Building2,
     adminOnly: true,
   },
   {
     id: "categories",
-    label: "Categorías QA",
-    description: "Catálogo para formularios y KPIs",
+    label: "QA Categories",
+    description: "Quality categories used by forms and KPIs",
     icon: ListChecks,
     adminOnly: true,
   },
   {
     id: "evaluations",
-    label: "Evaluaciones",
-    description: "Reglas de captura y validación",
+    label: "Evaluation Rules",
+    description: "Evaluation capture and validation rules",
     icon: ClipboardCheck,
     adminOnly: true,
   },
   {
     id: "forms-config",
-    label: "Formularios",
-    description: "Publicación, cambios pendientes y reglas QA",
+    label: "Form Rules",
+    description: "Publishing and quality form controls",
     icon: ClipboardCheck,
     adminOnly: true,
   },
   {
     id: "dashboard-kpis",
     label: "Dashboard & KPIs",
-    description: "Visibilidad operacional por rol",
+    description: "Operational visibility by role",
     icon: BarChart3,
     adminOnly: true,
   },
   {
     id: "reports-export",
-    label: "Reportes & Exportación",
-    description: "Privacidad y trazabilidad de salidas",
+    label: "Reports & Exports",
+    description: "Export privacy and traceability",
     icon: FileSpreadsheet,
     adminOnly: true,
   },
   {
     id: "audit",
-    label: "Auditoría operativa",
-    description: "Eventos sensibles del sistema",
+    label: "Audit Log",
+    description: "Security-sensitive system activity",
     icon: History,
-    adminOnly: true,
-  },
-  {
-    id: "notifications",
-    label: "Notificaciones",
-    description: "Alertas de riesgo QA",
-    icon: MessageSquareWarning,
     adminOnly: true,
   },
 ];
 
 export function SettingsClient({
-  profile,
   settings,
   isAdmin,
   canViewAudit,
@@ -235,8 +210,9 @@ export function SettingsClient({
   campaignScoring,
   auditPage,
   qaCategories,
-  initialSection = "account",
+  initialSection = "access",
 }: SettingsClientProps) {
+  const { t } = useI18n();
   const visibleSections = SETTINGS_SECTIONS.filter(
     (section) => !section.adminOnly || isAdmin || (section.id === "audit" && canViewAudit),
   );
@@ -256,10 +232,10 @@ export function SettingsClient({
       >
         <div className="flex items-center gap-2">
           <SettingsIcon className="h-5 w-5 text-orange-500" />
-          <h1 className="font-heading text-3xl font-bold tracking-tight">Configuración</h1>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">{t("Settings")}</h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          Centro operativo para cuenta, accesos por campaña y parámetros QA.
+          {t("Manage access, scoring, quality rules, and audit controls.")}
         </p>
       </motion.div>
 
@@ -271,7 +247,7 @@ export function SettingsClient({
       >
         <aside className="h-fit rounded-lg border bg-card p-2 lg:sticky lg:top-[82px]">
           <div className="px-2 py-2">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Secciones</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{t("Sections")}</p>
           </div>
           <nav className="space-y-1">
             {visibleSections.map((section) => {
@@ -294,9 +270,9 @@ export function SettingsClient({
                     className={cn("h-4 w-4 text-muted-foreground", selected && "text-orange-500")}
                   />
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{section.label}</span>
+                    <span className="block truncate text-sm font-medium">{t(section.label)}</span>
                     <span className="block truncate text-xs font-normal text-muted-foreground">
-                      {section.description}
+                      {t(section.description)}
                     </span>
                   </span>
                 </Button>
@@ -307,11 +283,10 @@ export function SettingsClient({
 
         <section className="min-w-0 space-y-4">
           <div className="flex flex-col gap-1 border-b pb-4">
-            <h2 className="text-xl font-semibold tracking-tight">{currentSection.label}</h2>
-            <p className="text-sm text-muted-foreground">{currentSection.description}</p>
+            <h2 className="text-xl font-semibold tracking-tight">{t(currentSection.label)}</h2>
+            <p className="text-sm text-muted-foreground">{t(currentSection.description)}</p>
           </div>
 
-          {currentSection.id === "account" && <AccountTab profile={profile} />}
           {isAdmin && currentSection.id === "access" && (
             <AccessTab users={accessUsers} campaigns={accessCampaigns} />
           )}
@@ -322,27 +297,16 @@ export function SettingsClient({
           {isAdmin && currentSection.id === "categories" && (
             <QACategoriesTab categories={qaCategories} />
           )}
-          {isAdmin && currentSection.id === "evaluations" && (
-            <EvaluationRulesTab />
-          )}
-          {isAdmin && currentSection.id === "forms-config" && (
-            <FormsConfigTab />
-          )}
-          {isAdmin && currentSection.id === "dashboard-kpis" && (
-            <DashboardKpisTab />
-          )}
-          {isAdmin && currentSection.id === "reports-export" && (
-            <ReportsExportTab />
-          )}
+          {isAdmin && currentSection.id === "evaluations" && <EvaluationRulesTab />}
+          {isAdmin && currentSection.id === "forms-config" && <FormsConfigTab />}
+          {isAdmin && currentSection.id === "dashboard-kpis" && <DashboardKpisTab />}
+          {isAdmin && currentSection.id === "reports-export" && <ReportsExportTab />}
           {(isAdmin || canViewAudit) && currentSection.id === "audit" && (
             <OperationalAuditTab
               initialPage={auditPage}
               users={accessUsers}
               campaigns={accessCampaigns}
             />
-          )}
-          {isAdmin && currentSection.id === "notifications" && (
-            <NotificationsTab />
           )}
         </section>
       </motion.div>
@@ -361,6 +325,7 @@ function AccessTab({
   campaigns: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | "ADMIN" | "QA" | "SUPERVISOR">("all");
   const [campaignFilter, setCampaignFilter] = useState("all");
@@ -446,7 +411,7 @@ function AccessTab({
   const handleSaveAccess = () => {
     if (!selectedUser || !selectedAccess || !permissionState) return;
     if (selectedUserIsSupervisor) {
-      toast.info("Supervisor mantiene permisos de solo lectura por campana.");
+      toast.info(t("Supervisors keep read-only campaign permissions."));
       return;
     }
 
@@ -458,11 +423,11 @@ function AccessTab({
           roleInCampaign,
           permissions: permissionState,
         });
-        toast.success("Permisos actualizados");
+        toast.success(t("Permissions updated"));
         setDraft(null);
         router.refresh();
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Error al guardar");
+        toast.error(error instanceof Error ? t(error.message) : t("Unable to save changes"));
       }
     });
   };
@@ -472,27 +437,32 @@ function AccessTab({
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <AccessMetricCard
           icon={<Users className="h-4 w-4 text-orange-500" />}
-          label="Usuarios activos"
+          label={t("Active users")}
           value={activeCount}
-          detail={`${users.length} registrados`}
+          detail={t("{count} registered", { count: users.length })}
         />
         <AccessMetricCard
           icon={<ShieldCheck className="h-4 w-4 text-orange-500" />}
-          label="QA Manager"
+          label={t("QA Manager")}
           value={adminCount}
-          detail="Acceso global"
+          detail={t("Global access")}
         />
         <AccessMetricCard
           icon={<UserCog className="h-4 w-4 text-orange-500" />}
-          label="QA campaña"
+          label={t("Campaign QA")}
           value={qaCount}
-          detail="Scope por campaña"
+          detail={t("Campaign scope")}
         />
         <AccessMetricCard
           icon={<Building2 className="h-4 w-4 text-orange-500" />}
-          label="Supervisores"
+          label={t("Supervisors")}
           value={supervisorCount}
-          detail={`${unassignedCount} usuarios sin campaña`}
+          detail={t(
+            unassignedCount === 1
+              ? "{count} user without a campaign"
+              : "{count} users without a campaign",
+            { count: unassignedCount },
+          )}
         />
       </div>
 
@@ -501,7 +471,7 @@ function AccessTab({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
               <UserCog className="h-4 w-4 text-orange-500" />
-              Accesos y permisos actuales
+              {t("Current access and permissions")}
             </CardTitle>
             <Button
               type="button"
@@ -509,7 +479,7 @@ function AccessTab({
               size="sm"
               onClick={() => router.push("/admin/users")}
             >
-              Administrar usuarios
+              {t("Manage users")}
             </Button>
           </div>
         </CardHeader>
@@ -520,7 +490,7 @@ function AccessTab({
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar usuario o email"
+                placeholder={t("Search by user or email")}
                 className="pl-8"
               />
             </div>
@@ -532,13 +502,21 @@ function AccessTab({
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Rol" />
+                <SelectValue placeholder={t("Role")}>
+                  {roleFilter === "all"
+                    ? t("All roles")
+                    : roleFilter === "ADMIN"
+                      ? "QA Manager"
+                      : roleFilter === "QA"
+                        ? t("Campaign QA")
+                        : t("Supervisor")}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos los roles</SelectItem>
+                <SelectItem value="all">{t("All roles")}</SelectItem>
                 <SelectItem value="ADMIN">QA Manager</SelectItem>
-                <SelectItem value="QA">QA campaña</SelectItem>
-                <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
+                <SelectItem value="QA">{t("Campaign QA")}</SelectItem>
+                <SelectItem value="SUPERVISOR">{t("Supervisor")}</SelectItem>
               </SelectContent>
             </Select>
             <Select
@@ -549,10 +527,15 @@ function AccessTab({
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Campaña" />
+                <SelectValue placeholder={t("Campaign")}>
+                  {campaignFilter === "all"
+                    ? t("All campaigns")
+                    : (campaigns.find((campaign) => campaign.id === campaignFilter)?.name ??
+                      t("Campaign"))}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todas las campañas</SelectItem>
+                <SelectItem value="all">{t("All campaigns")}</SelectItem>
                 {campaigns.map((campaign) => (
                   <SelectItem key={campaign.id} value={campaign.id}>
                     {campaign.name}
@@ -566,12 +549,12 @@ function AccessTab({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Usuario</TableHead>
-                  <TableHead>Rol base</TableHead>
-                  <TableHead>Campañas</TableHead>
-                  <TableHead>Nivel</TableHead>
-                  <TableHead>Permisos efectivos</TableHead>
-                  <TableHead>Estado</TableHead>
+                  <TableHead>{t("User")}</TableHead>
+                  <TableHead>{t("Base role")}</TableHead>
+                  <TableHead>{t("Campaigns")}</TableHead>
+                  <TableHead>{t("Access level")}</TableHead>
+                  <TableHead>{t("Effective permissions")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -583,13 +566,13 @@ function AccessTab({
                     </TableCell>
                     <TableCell>
                       <Badge variant={user.role === "ADMIN" ? "default" : "secondary"}>
-                        {getBaseRoleLabel(user.role)}
+                        {t(getBaseRoleLabel(user.role))}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex max-w-[260px] flex-wrap gap-1">
                         {user.role === "ADMIN" ? (
-                          <Badge variant="outline">Todas</Badge>
+                          <Badge variant="outline">{t("All")}</Badge>
                         ) : user.campaigns.length > 0 ? (
                           user.campaigns.map(({ campaign }) => (
                             <Badge key={campaign.id} variant="outline" className="text-xs">
@@ -597,25 +580,25 @@ function AccessTab({
                             </Badge>
                           ))
                         ) : (
-                          <span className="text-xs text-muted-foreground">Sin campañas</span>
+                          <span className="text-xs text-muted-foreground">{t("No campaigns")}</span>
                         )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm">{getAccessLevelLabelV2(user)}</span>
+                      <span className="text-sm">{t(getAccessLevelLabelV2(user))}</span>
                     </TableCell>
                     <TableCell>
                       <div className="flex max-w-[360px] flex-wrap gap-1">
                         {getEffectivePermissionsV2(user).map((permission) => (
                           <Badge key={permission} variant="secondary" className="text-xs">
-                            {permission}
+                            {t(permission)}
                           </Badge>
                         ))}
                       </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant={user.active ? "default" : "secondary"}>
-                        {user.active ? "Activo" : "Inactivo"}
+                        {user.active ? t("Active") : t("Inactive")}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -626,7 +609,7 @@ function AccessTab({
                       colSpan={6}
                       className="py-8 text-center text-sm text-muted-foreground"
                     >
-                      No hay usuarios con esos filtros.
+                      {t("No users match these filters.")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -641,10 +624,10 @@ function AccessTab({
           <div className="flex flex-col gap-1">
             <CardTitle className="flex items-center gap-2 text-base">
               <ShieldCheck className="h-4 w-4 text-orange-500" />
-              Detalle de permisos por campaña
+              {t("Campaign permission details")}
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Estos permisos se guardan en servidor y se aplican en acciones críticas.
+              {t("These permissions are stored on the server and enforced on sensitive actions.")}
             </p>
           </div>
         </CardHeader>
@@ -653,7 +636,7 @@ function AccessTab({
             <>
               <div className="grid gap-3 lg:grid-cols-[1fr_1fr_220px]">
                 <div className="space-y-2">
-                  <Label>Usuario</Label>
+                  <Label>{t("User")}</Label>
                   <Select
                     value={selectedUser.id}
                     onValueChange={(value) => {
@@ -664,7 +647,7 @@ function AccessTab({
                     }}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar usuario" />
+                      <SelectValue placeholder={t("Select user")}>{selectedUser.name}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {configurableUsers.map((user) => (
@@ -677,7 +660,7 @@ function AccessTab({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Campaña</Label>
+                  <Label>{t("Campaign")}</Label>
                   <Select
                     value={selectedAccess.campaign.id}
                     onValueChange={(value) => {
@@ -687,7 +670,9 @@ function AccessTab({
                     }}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar campaña" />
+                      <SelectValue placeholder={t("Select campaign")}>
+                        {selectedAccess.campaign.name}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {selectedUser.campaigns.map((access) => (
@@ -700,7 +685,7 @@ function AccessTab({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Nivel operativo</Label>
+                  <Label>{t("Operational access level")}</Label>
                   <Select
                     value={roleInCampaign}
                     onValueChange={(value) => {
@@ -712,12 +697,14 @@ function AccessTab({
                     disabled={selectedUserIsSupervisor}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Nivel" />
+                      <SelectValue placeholder={t("Access level")}>
+                        {t(CAMPAIGN_ACCESS_LABELS[roleInCampaign])}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(CAMPAIGN_ACCESS_LABELS).map(([value, label]) => (
                         <SelectItem key={value} value={value}>
-                          {label}
+                          {t(label)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -726,9 +713,9 @@ function AccessTab({
               </div>
 
               <div className="grid gap-4 lg:grid-cols-3">
-              {CAMPAIGN_PERMISSION_GROUPS.map((group) => (
+                {CAMPAIGN_PERMISSION_GROUPS.map((group) => (
                   <div key={group.title} className="rounded-lg border p-3">
-                    <div className="mb-3 text-sm font-medium">{group.title}</div>
+                    <div className="mb-3 text-sm font-medium">{t(group.title)}</div>
                     <div className="space-y-2">
                       {group.keys.map((permissionKey) => {
                         const checkboxId = `${selectedUser.id}-${selectedAccess.campaign.id}-${permissionKey}`;
@@ -746,7 +733,7 @@ function AccessTab({
                               }
                             />
                             <label htmlFor={checkboxId}>
-                              {CAMPAIGN_PERMISSION_LABELS[permissionKey]}
+                              {t(CAMPAIGN_PERMISSION_LABELS[permissionKey])}
                             </label>
                           </div>
                         );
@@ -759,10 +746,12 @@ function AccessTab({
               <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-xs text-muted-foreground">
                   {selectedUserIsSupervisor
-                    ? "Supervisor siempre conserva permisos de lectura: dashboards, KPIs, formularios y reportes."
+                    ? t(
+                        "Supervisors always keep read access to dashboards, KPIs, forms, and reports.",
+                      )
                     : hasDraft
-                      ? "Hay cambios pendientes para esta campa�a."
-                      : "Los permisos mostrados son los guardados actualmente."}
+                      ? t("This campaign has unsaved permission changes.")
+                      : t("The displayed permissions are currently saved.")}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -772,7 +761,7 @@ function AccessTab({
                     onClick={() => setDraft(null)}
                     disabled={!hasDraft || savingAccess}
                   >
-                    Descartar
+                    {t("Discard")}
                   </Button>
                   <Button
                     type="button"
@@ -785,14 +774,14 @@ function AccessTab({
                     ) : (
                       <Save className="h-3.5 w-3.5" />
                     )}
-                    Guardar permisos
+                    {t("Save permissions")}
                   </Button>
                 </div>
               </div>
             </>
           ) : (
             <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-              Asigna un usuario QA o Supervisor a una campaña para configurar permisos granulares.
+              {t("Assign a QA or Supervisor to a campaign to configure granular permissions.")}
             </div>
           )}
         </CardContent>
@@ -803,7 +792,7 @@ function AccessTab({
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Building2 className="h-4 w-4 text-orange-500" />
-              Cobertura por campaña
+              {t("Campaign coverage")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -814,11 +803,13 @@ function AccessTab({
                   className="flex items-center justify-between rounded-lg border px-3 py-2"
                 >
                   <span className="truncate text-sm font-medium">{campaign.name}</span>
-                  <Badge variant="outline">{campaign.assignedUsers} asignados</Badge>
+                  <Badge variant="outline">
+                    {t("{count} assigned", { count: campaign.assignedUsers })}
+                  </Badge>
                 </div>
               ))}
               {campaignStats.length === 0 && (
-                <p className="text-sm text-muted-foreground">No hay campañas registradas.</p>
+                <p className="text-sm text-muted-foreground">{t("No campaigns registered.")}</p>
               )}
             </div>
           </CardContent>
@@ -828,29 +819,31 @@ function AccessTab({
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <ShieldCheck className="h-4 w-4 text-orange-500" />
-              Mapa operativo
+              {t("Operational access map")}
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             <PermissionSummary
               icon={<BarChart3 className="h-4 w-4" />}
-              title="Dashboard & KPIs"
-              text="Global para QA Manager; campañas asignadas para QA y Supervisor."
+              title={t("Dashboard & KPIs")}
+              text={t("Global for QA Managers; assigned campaigns for QA and Supervisors.")}
             />
             <PermissionSummary
               icon={<ClipboardCheck className="h-4 w-4" />}
-              title="Evaluaciones"
-              text="QA puede evaluar, consultar historial y preparar coaching solo dentro de sus campañas."
+              title={t("Evaluations")}
+              text={t(
+                "QA can evaluate, review history, and prepare coaching only within assigned campaigns.",
+              )}
             />
             <PermissionSummary
               icon={<FileSpreadsheet className="h-4 w-4" />}
-              title="Reportes"
-              text="Supervisor puede ver reportes de sus campañas sin exportar."
+              title={t("Reports")}
+              text={t("Supervisors can view reports for assigned campaigns without exporting.")}
             />
             <PermissionSummary
               icon={<Target className="h-4 w-4" />}
-              title="Scoring"
-              text="El scoring global permanece reservado a QA Manager."
+              title={t("Scoring")}
+              text={t("Global scoring remains restricted to QA Managers.")}
             />
           </CardContent>
         </Card>
@@ -907,29 +900,29 @@ function PermissionSummary({
 function getAccessLevelLabelV2(user: AccessUser): string {
   if (user.role === "ADMIN") return "Global";
   if (user.role === "SUPERVISOR") return "Supervisor";
-  if (user.campaigns.length === 0) return "Sin campaña";
+  if (user.campaigns.length === 0) return "No campaign";
 
   const labels = [
     ...new Set(user.campaigns.map((access) => CAMPAIGN_ACCESS_LABELS[access.roleInCampaign])),
   ];
 
-  return labels.length === 1 ? labels[0] : "Mixto";
+  return labels.length === 1 ? labels[0] : "Mixed";
 }
 
 function getBaseRoleLabel(role: AccessUser["role"]): string {
   if (role === "ADMIN") return "QA Manager";
   if (role === "SUPERVISOR") return "Supervisor";
-  return "QA campaña";
+  return "Campaign QA";
 }
 
 function getEffectivePermissionsV2(user: AccessUser): string[] {
-  if (!user.active) return ["Sin acceso activo"];
+  if (!user.active) return ["No active access"];
   if (user.role === "ADMIN") {
-    return ["Usuarios", "Todas las campañas", "Scoring global", "Exportación"];
+    return ["Users", "All campaigns", "Global scoring", "Exports"];
   }
-  if (user.campaigns.length === 0) return ["Sin campaña asignada"];
+  if (user.campaigns.length === 0) return ["No assigned campaign"];
   if (user.role === "SUPERVISOR") {
-    return ["Dashboard/KPIs", "Formularios lectura", "Evaluaciones", "Reportes", "Solo lectura"];
+    return ["Dashboard/KPIs", "Read-only forms", "Evaluations", "Reports", "Read only"];
   }
 
   const hasAny = (permission: CampaignPermissionKey) =>
@@ -940,18 +933,18 @@ function getEffectivePermissionsV2(user: AccessUser): string[] {
     permissions.push("Dashboard/KPIs");
   }
   if (hasAny("canCreateForms") || hasAny("canEditForms")) {
-    permissions.push("Formularios");
+    permissions.push("Forms");
   }
   if (hasAny("canEvaluate") || hasAny("canViewEvaluations")) {
-    permissions.push("Evaluaciones");
+    permissions.push("Evaluations");
   }
-  if (hasAny("canViewReports")) permissions.push("Reportes");
-  if (hasAny("canExport")) permissions.push("Exportación");
+  if (hasAny("canViewReports")) permissions.push("Reports");
+  if (hasAny("canExport")) permissions.push("Exports");
   if (hasAny("canManageAgents") || hasAny("canManageDispositions")) {
-    permissions.push("Operación");
+    permissions.push("Operations");
   }
 
-  return permissions.length > 0 ? permissions : ["Solo asignación"];
+  return permissions.length > 0 ? permissions : ["Assignment only"];
 }
 
 function getPermissionStateFromAccess(access: AccessCampaign): CampaignPermissionState {
@@ -960,243 +953,9 @@ function getPermissionStateFromAccess(access: AccessCampaign): CampaignPermissio
   ) as CampaignPermissionState;
 }
 
-function AccountTab({ profile }: { profile: ProfileInfo }) {
-  const router = useRouter();
-  const [name, setName] = useState(profile.name);
-  const [savingName, startSaveName] = useTransition();
-
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [savingPassword, startSavePassword] = useTransition();
-
-  const nameChanged = name.trim() !== profile.name && name.trim().length >= 2;
-  const createdAtDate = new Date(profile.createdAt);
-
-  const handleSaveName = () => {
-    if (!nameChanged) return;
-    startSaveName(async () => {
-      try {
-        await updateMyName(name);
-        toast.success("Nombre actualizado");
-        router.refresh();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error al actualizar");
-      }
-    });
-  };
-
-  const handleChangePassword = () => {
-    if (!currentPassword) {
-      toast.error("Ingresa tu contraseña actual");
-      return;
-    }
-    const passwordPolicyError = getPasswordPolicyError(newPassword);
-    if (passwordPolicyError) {
-      toast.error(passwordPolicyError);
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("Las contraseñas no coinciden");
-      return;
-    }
-    startSavePassword(async () => {
-      try {
-        await changeMyPassword(currentPassword, newPassword);
-        toast.success("Contraseña actualizada");
-        setCurrentPassword("");
-        setNewPassword("");
-        setConfirmPassword("");
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error al cambiar contrase�a");
-      }
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Profile overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <User className="h-4 w-4 text-orange-500" />
-            Información personal
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {/* Read-only identity row */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <InfoRow icon={<Mail className="h-3.5 w-3.5" />} label="Email" value={profile.email} />
-            <InfoRow
-              icon={<Shield className="h-3.5 w-3.5" />}
-              label="Rol"
-              value={
-                <Badge variant={profile.role === "ADMIN" ? "default" : "secondary"}>
-                  {getBaseRoleLabel(profile.role)}
-                </Badge>
-              }
-            />
-            <InfoRow
-              icon={<Building2 className="h-3.5 w-3.5" />}
-              label="Campañas asignadas"
-              value={
-                profile.role === "ADMIN" ? (
-                  <Badge variant="outline">Todas las campañas</Badge>
-                ) : profile.campaigns.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {profile.campaigns.map((campaign) => (
-                      <Badge key={campaign.id} variant="outline" className="text-xs">
-                        {campaign.name}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-muted-foreground">Sin campañas</span>
-                )
-              }
-            />
-            <InfoRow
-              icon={<CalendarDays className="h-3.5 w-3.5" />}
-              label="Miembro desde"
-              value={createdAtDate.toLocaleDateString("es-ES", {
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-              })}
-            />
-          </div>
-
-          <Separator />
-
-          {/* Editable name */}
-          <div className="space-y-2">
-            <Label htmlFor="profile-name">Nombre completo</Label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                id="profile-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={100}
-                className="sm:max-w-sm"
-              />
-              <Button onClick={handleSaveName} disabled={!nameChanged || savingName} size="sm">
-                {savingName ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Guardar
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Entre 2 y 100 caracteres.</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Change password */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <KeyRound className="h-4 w-4 text-orange-500" />
-            Cambiar contraseña
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {!profile.hasPassword ? (
-            <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>Esta cuenta usa inicio de sesión externo (SSO) y no tiene contraseña.</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2 sm:col-span-2 sm:max-w-sm">
-                  <Label htmlFor="current-password">Contraseña actual</Label>
-                  <Input
-                    id="current-password"
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    autoComplete="current-password"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="new-password">Nueva contraseña</Label>
-                  <Input
-                    id="new-password"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    autoComplete="new-password"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirmar contraseña</Label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    autoComplete="new-password"
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {MIN_PASSWORD_LENGTH}+ caracteres y al menos tres tipos entre mayúsculas,
-                minúsculas, números y símbolos.
-              </p>
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleChangePassword}
-                  disabled={
-                    savingPassword ||
-                    !currentPassword ||
-                    Boolean(getPasswordPolicyError(newPassword)) ||
-                    newPassword !== confirmPassword
-                  }
-                  size="sm"
-                >
-                  {savingPassword ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <KeyRound className="h-3.5 w-3.5" />
-                  )}
-                  Actualizar contraseña
-                </Button>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function InfoRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <div className="text-sm font-medium">{value}</div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-//   Scoring tab (admin only)
-// ══════════════════════════════════════════════════════════════════════════
 function ScoringTab({ settings }: { settings: AppSettings }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [passThreshold, setPassThreshold] = useState(settings.passThreshold);
   const [targetPassRate, setTargetPassRate] = useState(settings.targetPassRate);
   const [targetAvgScore, setTargetAvgScore] = useState(settings.targetAvgScore);
@@ -1219,10 +978,10 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
           targetAvgScore,
           targetDailyRate,
         });
-        toast.success("Parámetros de scoring actualizados");
+        toast.success(t("Scoring parameters updated"));
         router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error al guardar");
+        toast.error(e instanceof Error ? t(e.message) : t("Unable to save changes"));
       }
     });
   };
@@ -1235,10 +994,10 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
         setTargetPassRate(fresh.targetPassRate);
         setTargetAvgScore(fresh.targetAvgScore);
         setTargetDailyRate(fresh.targetDailyRate);
-        toast.success("Valores restaurados a los predeterminados");
+        toast.success(t("Default values restored"));
         router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error al restaurar");
+        toast.error(e instanceof Error ? t(e.message) : t("Unable to restore defaults"));
       }
     });
   };
@@ -1249,11 +1008,11 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
       <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="space-y-1">
-          <p className="font-medium">Estos valores afectan a toda la aplicación</p>
+          <p className="font-medium">{t("These values affect the entire application")}</p>
           <p className="text-xs opacity-90">
-            Los cambios se aplican inmediatamente en Dashboard, Reports y KPIs. Las evaluaciones
-            anteriores no se recalculan - el umbral solo afecta a cómo se cuentan de ahora en
-            adelante.
+            {t(
+              "Changes apply immediately to Dashboard, Reports, and KPIs. Previous evaluations are not recalculated; the threshold only affects future reporting.",
+            )}
           </p>
         </div>
       </div>
@@ -1263,14 +1022,14 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Target className="h-4 w-4 text-orange-500" />
-            Umbral de aprobación (Pass Threshold)
+            {t("Pass Threshold")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-end gap-4">
             <div className="flex-1 space-y-2">
               <Label htmlFor="pass-threshold">
-                Score mínimo para considerar una evaluación como <b>Pass</b>
+                {t("Minimum score required for an evaluation to pass")}
               </Label>
               <div className="flex items-center gap-3">
                 <input
@@ -1298,7 +1057,7 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
               </div>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">Por defecto: 70%. Rango válido: 0-100.</p>
+          <p className="text-xs text-muted-foreground">{t("Default: 70%. Valid range: 0-100.")}</p>
         </CardContent>
       </Card>
 
@@ -1307,28 +1066,30 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Target className="h-4 w-4 text-orange-500" />
-            Targets globales
+            {t("Global targets")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           <PctTargetField
             id="target-pass-rate"
-            label="Target Pass Rate"
-            description="% mínimo de evaluaciones que deben ser Pass. Dispara badge verde en KPIs."
+            label={t("Target Pass Rate")}
+            description={t(
+              "Minimum percentage of evaluations that must pass for KPI target status.",
+            )}
             value={targetPassRate}
             onChange={setTargetPassRate}
             defaultValue={85}
           />
           <PctTargetField
             id="target-avg-score"
-            label="Target Score Promedio"
-            description="Score promedio global mínimo esperado."
+            label={t("Target Average Score")}
+            description={t("Minimum expected organization-wide average score.")}
             value={targetAvgScore}
             onChange={setTargetAvgScore}
             defaultValue={80}
           />
           <div className="space-y-2">
-            <Label htmlFor="target-daily-rate">Target evaluaciones diarias</Label>
+            <Label htmlFor="target-daily-rate">{t("Daily evaluation target")}</Label>
             <div className="flex items-center gap-2">
               <Input
                 id="target-daily-rate"
@@ -1341,11 +1102,10 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
                 }
                 className="w-28 text-right tabular-nums"
               />
-              <span className="text-sm text-muted-foreground">/ día</span>
+              <span className="text-sm text-muted-foreground">{t("/ day")}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Por defecto: 20. Número mínimo de evaluaciones que el equipo debe realizar
-              diariamente.
+              {t("Default: 20. Minimum number of evaluations the team should complete each day.")}
             </p>
           </div>
         </CardContent>
@@ -1359,7 +1119,7 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
           ) : (
             <RotateCcw className="h-3.5 w-3.5" />
           )}
-          Restaurar valores por defecto
+          {t("Restore defaults")}
         </Button>
         <Button onClick={handleSave} disabled={!dirty || saving || resetting}>
           {saving ? (
@@ -1367,7 +1127,7 @@ function ScoringTab({ settings }: { settings: AppSettings }) {
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          Guardar cambios
+          {t("Save changes")}
         </Button>
       </div>
     </div>
@@ -1382,6 +1142,7 @@ function CampaignScoringTab({
   scoring: CampaignScoringSettings[];
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [selectedCampaignId, setSelectedCampaignId] = useState(campaigns[0]?.id ?? "");
   const [drafts, setDrafts] = useState<Record<string, CampaignScoringSettings>>(() =>
     Object.fromEntries(scoring.map((item) => [item.campaignId, item])),
@@ -1422,10 +1183,10 @@ function CampaignScoringTab({
           complianceCeaTarget: draft.complianceCeaTarget,
         });
         setDrafts((current) => ({ ...current, [selectedCampaignId]: saved }));
-        toast.success("Scoring de campaña actualizado");
+        toast.success(t("Campaign scoring updated"));
         router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error al guardar");
+        toast.error(e instanceof Error ? t(e.message) : t("Unable to save changes"));
       }
     });
   };
@@ -1434,7 +1195,7 @@ function CampaignScoringTab({
     return (
       <Card>
         <CardContent className="py-8 text-sm text-muted-foreground">
-          No hay campañas disponibles para configurar.
+          {t("No campaigns are available for configuration.")}
         </CardContent>
       </Card>
     );
@@ -1445,8 +1206,9 @@ function CampaignScoringTab({
       <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-200">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p className="text-xs leading-relaxed">
-          Los overrides aplican solo a la campaña seleccionada. Si usa defaults globales, Dashboard,
-          KPIs y reportes toman los valores del scoring global.
+          {t(
+            "Overrides apply only to the selected campaign. When global defaults are enabled, Dashboard, KPIs, and Reports use organization-wide scoring values.",
+          )}
         </p>
       </div>
 
@@ -1454,13 +1216,13 @@ function CampaignScoringTab({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Building2 className="h-4 w-4 text-orange-500" />
-            Configuración por campaña
+            {t("Campaign scoring configuration")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
             <div className="space-y-2">
-              <Label>Campaña</Label>
+              <Label>{t("Campaign")}</Label>
               <Select
                 value={selectedCampaignId}
                 onValueChange={(value) => {
@@ -1469,7 +1231,9 @@ function CampaignScoringTab({
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar campaña" />
+                  <SelectValue placeholder={t("Select campaign")}>
+                    {selectedCampaign?.name ?? t("Select campaign")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {campaigns.map((campaign) => (
@@ -1484,13 +1248,15 @@ function CampaignScoringTab({
             <div className="rounded-lg border p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-medium">{selectedCampaign?.name ?? "Campa�a"}</div>
+                  <div className="text-sm font-medium">
+                    {selectedCampaign?.name ?? t("Campaign")}
+                  </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Controla thresholds y metas operativas para esta campaña.
+                    {t("Controls scoring thresholds and operational targets for this campaign.")}
                   </p>
                 </div>
                 <Badge variant={usesGlobalDefaults ? "secondary" : "default"}>
-                  {usesGlobalDefaults ? "Usa global" : "Override activo"}
+                  {usesGlobalDefaults ? t("Uses global defaults") : t("Custom override active")}
                 </Badge>
               </div>
               <div className="mt-4 flex items-center gap-2 text-sm">
@@ -1502,7 +1268,7 @@ function CampaignScoringTab({
                   }
                 />
                 <Label htmlFor="campaign-custom-scoring" className="text-sm font-normal">
-                  Esta campaña usa valores personalizados
+                  {t("This campaign uses custom scoring values")}
                 </Label>
               </div>
             </div>
@@ -1512,15 +1278,15 @@ function CampaignScoringTab({
             <PctTargetField
               id="campaign-pass-threshold"
               label="Pass Threshold"
-              description="Score mínimo para aprobar evaluaciones de esta campaña."
+              description={t("Minimum score required to pass evaluations in this campaign.")}
               value={draft.passThreshold}
               onChange={(value) => setDraftValue("passThreshold", value)}
               defaultValue={70}
             />
             <PctTargetField
               id="campaign-target-score"
-              label="Target Score Promedio"
-              description="Score promedio esperado para la campaña."
+              label={t("Target Average Score")}
+              description={t("Expected average score for the campaign.")}
               value={draft.targetAvgScore}
               onChange={(value) => setDraftValue("targetAvgScore", value)}
               defaultValue={80}
@@ -1528,14 +1294,14 @@ function CampaignScoringTab({
             <PctTargetField
               id="campaign-target-pass-rate"
               label="Target Pass Rate"
-              description="Porcentaje objetivo de evaluaciones aprobadas."
+              description={t("Target percentage of evaluations that pass.")}
               value={draft.targetPassRate}
               onChange={(value) => setDraftValue("targetPassRate", value)}
               defaultValue={85}
             />
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="campaign-target-daily">Evaluaciones diarias</Label>
+                <Label htmlFor="campaign-target-daily">{t("Daily evaluations")}</Label>
                 <Input
                   id="campaign-target-daily"
                   type="number"
@@ -1552,7 +1318,7 @@ function CampaignScoringTab({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="campaign-fatal-allowed">Fallas fatales permitidas</Label>
+                <Label htmlFor="campaign-fatal-allowed">{t("Allowed critical failures")}</Label>
                 <Input
                   id="campaign-fatal-allowed"
                   type="number"
@@ -1572,10 +1338,13 @@ function CampaignScoringTab({
 
             <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
               <div className="space-y-0.5">
-                <Label htmlFor="campaign-fatal-zeroes">Falla fatal pone el score en 0%</Label>
+                <Label htmlFor="campaign-fatal-zeroes">
+                  {t("Critical failure sets the score to 0%")}
+                </Label>
                 <p className="text-xs text-muted-foreground">
-                  Si se activa, una pregunta critica fallida fuerza el score a 0. Si no, se conserva
-                  el score calculado y solo se marca FAIL.
+                  {t(
+                    "When enabled, a failed critical question forces the score to 0. Otherwise, the calculated score is preserved and the evaluation is marked FAIL.",
+                  )}
                 </p>
               </div>
               <Switch
@@ -1589,10 +1358,11 @@ function CampaignScoringTab({
 
           <div className="space-y-3 rounded-lg border p-4">
             <div className="space-y-0.5">
-              <Label>Precisión de Error Crítico (CEA) — benchmarks por familia</Label>
+              <Label>{t("Critical Error Accuracy (CEA) targets by family")}</Label>
               <p className="text-xs text-muted-foreground">
-                Objetivos (%) para Customer, Business y Compliance. Alimentan los medidores CEA del
-                dashboard.
+                {t(
+                  "Percentage targets for Customer, Business, and Compliance CEA dashboard gauges.",
+                )}
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -1663,7 +1433,7 @@ function CampaignScoringTab({
               ) : (
                 <Save className="h-3.5 w-3.5" />
               )}
-              Guardar scoring de campaña
+              {t("Save campaign scoring")}
             </Button>
           </div>
         </CardContent>
@@ -1674,6 +1444,7 @@ function CampaignScoringTab({
 
 function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<QACategorySummary | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1717,28 +1488,30 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
     try {
       if (editing) {
         await updateQACategory(editing.id, draft);
-        toast.success("Categoría QA actualizada");
+        toast.success(t("QA category updated"));
       } else {
         await createQACategory(draft);
-        toast.success("Categoría QA creada");
+        toast.success(t("QA category created"));
       }
       setOpen(false);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo guardar la categoría");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to save QA category"));
     } finally {
       setSaving(false);
     }
   };
 
   const deactivateCategory = async (category: QACategorySummary) => {
-    if (!confirm(`¿Desactivar la categoría "${category.name}"?`)) return;
+    if (!confirm(t('Deactivate QA category "{name}"?', { name: category.name }))) return;
     try {
       await deactivateQACategory(category.id);
-      toast.success("Categoría QA desactivada");
+      toast.success(t("QA category deactivated"));
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo desactivar la categoría");
+      toast.error(
+        error instanceof Error ? t(error.message) : t("Unable to deactivate QA category"),
+      );
     }
   };
 
@@ -1749,29 +1522,30 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <ListChecks className="h-4 w-4 text-orange-500" />
-              Categorías QA
+              {t("QA Categories")}
             </CardTitle>
             <Button size="sm" onClick={showCreate}>
               <Plus className="h-3.5 w-3.5" />
-              Nueva categoría
+              {t("New category")}
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Categorías globales para estructurar formularios, pesos, fallas fatales y KPIs críticos.
-            El color e icono quedan controlados por sistema.
+            {t(
+              "Organization-wide categories structure forms, weights, critical failures, and critical KPIs. Colors and icons are managed by the system.",
+            )}
           </p>
           <div className="rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Uso</TableHead>
-                  <TableHead>Reglas</TableHead>
-                  <TableHead>Visibilidad</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-24">Acciones</TableHead>
+                  <TableHead>{t("Category")}</TableHead>
+                  <TableHead>{t("Usage")}</TableHead>
+                  <TableHead>{t("Rules")}</TableHead>
+                  <TableHead>{t("Visibility")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
+                  <TableHead className="w-24">{t("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1791,15 +1565,15 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>{category.usageCount} formularios</TableCell>
+                    <TableCell>{t("{count} forms", { count: category.usageCount })}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {category.canBeFatal && <Badge variant="destructive">Fatal</Badge>}
                         {category.requiresCommentOnFail && (
-                          <Badge variant="secondary">Comentario requerido</Badge>
+                          <Badge variant="secondary">{t("Comment required")}</Badge>
                         )}
                         {!category.canBeFatal && !category.requiresCommentOnFail && (
-                          <span className="text-xs text-muted-foreground">Operativa</span>
+                          <span className="text-xs text-muted-foreground">{t("Operational")}</span>
                         )}
                       </div>
                     </TableCell>
@@ -1811,7 +1585,7 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
                     </TableCell>
                     <TableCell>
                       <Badge variant={category.isActive ? "default" : "secondary"}>
-                        {category.isActive ? "Activa" : "Inactiva"}
+                        {category.isActive ? t("Active") : t("Inactive")}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -1819,7 +1593,7 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          aria-label={`Editar ${category.name}`}
+                          aria-label={t("Edit {name}", { name: category.name })}
                           onClick={() => showEdit(category)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -1829,11 +1603,11 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
                             variant="ghost"
                             size="icon-xs"
                             disabled={category.usageCount > 0}
-                            aria-label={`Desactivar ${category.name}`}
+                            aria-label={t("Deactivate {name}", { name: category.name })}
                             title={
                               category.usageCount > 0
-                                ? "No se puede desactivar mientras esté en uso"
-                                : "Desactivar categoría"
+                                ? t("Cannot deactivate a category while it is in use")
+                                : t("Deactivate category")
                             }
                             onClick={() => deactivateCategory(category)}
                           >
@@ -1850,7 +1624,7 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
                       colSpan={6}
                       className="py-8 text-center text-sm text-muted-foreground"
                     >
-                      No hay categorías QA registradas.
+                      {t("No QA categories registered.")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1863,11 +1637,11 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar categoría QA" : "Nueva categoría QA"}</DialogTitle>
+            <DialogTitle>{editing ? t("Edit QA category") : t("New QA category")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="qa-category-name">Nombre</Label>
+              <Label htmlFor="qa-category-name">{t("Name")}</Label>
               <Input
                 id="qa-category-name"
                 value={draft.name}
@@ -1876,7 +1650,7 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="qa-category-description">Descripción</Label>
+              <Label htmlFor="qa-category-description">{t("Description")}</Label>
               <Textarea
                 id="qa-category-description"
                 value={draft.description ?? ""}
@@ -1885,16 +1659,16 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
               />
             </div>
             {[
-              ["canBeFatal", "Permite falla fatal"],
-              ["requiresCommentOnFail", "Exige comentario al fallar"],
-              ["visibleInDashboard", "Visible en Dashboard"],
-              ["visibleInKPIs", "Visible en KPIs"],
+              ["canBeFatal", "Allows critical failures"],
+              ["requiresCommentOnFail", "Requires a comment on failure"],
+              ["visibleInDashboard", "Visible in Dashboard"],
+              ["visibleInKPIs", "Visible in KPIs"],
             ].map(([key, label]) => (
               <div
                 key={key}
                 className="flex items-center justify-between gap-4 rounded-lg border p-3"
               >
-                <Label>{label}</Label>
+                <Label>{t(label)}</Label>
                 <Switch
                   checked={Boolean(draft[key as keyof QACategoryMutationInput])}
                   onCheckedChange={(checked) => setDraft({ ...draft, [key]: Boolean(checked) })}
@@ -1904,11 +1678,11 @@ function QACategoriesTab({ categories }: { categories: QACategorySummary[] }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
-              Cancelar
+              {t("Cancel")}
             </Button>
             <Button onClick={saveCategory} disabled={saving || draft.name.trim().length < 2}>
               {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Guardar categoría
+              {t("Save category")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1921,28 +1695,30 @@ function EvaluationRulesTab() {
   return (
     <OperationalConfigSection
       icon={<ClipboardCheck className="h-4 w-4 text-orange-500" />}
-      title="Evaluaciones"
-      description="Reglas server-side y controles operativos que gobiernan el envío de evaluaciones."
+      title="Evaluations"
+      description="Server-side rules and operational controls that govern evaluation submission."
       items={[
         {
           key: "campaignConsistency",
-          label: "Consistencia de campaña",
-          detail: "Formulario, agente y disposición deben pertenecer a la misma campaña.",
+          label: "Campaign consistency",
+          detail: "The form, agent, and disposition must belong to the same campaign.",
           badge: "Enforced",
           locked: true,
         },
         {
           key: "answerValidation",
-          label: "Validación de respuestas",
-          detail: "Preguntas requeridas, opciones válidas y duplicados se validan en servidor.",
+          label: "Response validation",
+          detail:
+            "Required questions, valid options, and duplicate submissions are validated on the server.",
           badge: "Enforced",
           locked: true,
         },
         {
           key: "answerScoring",
-          label: "Score por respuesta",
-          detail: "El modelo guarda score, comentario y falla fatal por respuesta.",
-          badge: "Modelo listo",
+          label: "Response-level scoring",
+          detail:
+            "The system stores score, comments, and critical-failure status for each response.",
+          badge: "Model ready",
           locked: true,
         },
       ]}
@@ -1954,36 +1730,35 @@ function FormsConfigTab() {
   return (
     <OperationalConfigSection
       icon={<ClipboardCheck className="h-4 w-4 text-orange-500" />}
-      title="Formularios"
-      description="Defaults y reglas de publicación para el builder de formularios."
+      title="Forms"
+      description="Defaults and publishing rules for the form builder."
       items={[
         {
           key: "formStates",
-          label: "Estados de formulario",
-          detail: "El flujo soporta borrador, publicación, archivo e historial seguro.",
-          badge: "Modelo listo",
+          label: "Form lifecycle",
+          detail:
+            "The workflow supports drafts, publishing, archiving, and safe evaluation history.",
+          badge: "Model ready",
           locked: true,
         },
         {
           key: "qaStructure",
-          label: "Estructura QA",
+          label: "QA structure",
           detail:
-            "Cada pregunta puede ligar categoría QA, peso, regla fatal y comentario requerido.",
-          badge: "Modelo listo",
+            "Each question can define a QA category, weight, critical rule, and required comment.",
+          badge: "Model ready",
           locked: true,
         },
         {
           key: "publishedChanges",
-          label: "Edición de formularios activos",
-          detail:
-            "Los cambios quedan pendientes hasta su publicación sin alterar evaluaciones anteriores.",
+          label: "Published form editing",
+          detail: "Changes remain pending until publication and never alter previous evaluations.",
           badge: "Enforced",
         },
         {
           key: "weightValidation",
-          label: "Validación de pesos",
-          detail:
-            "La publicación valida pesos completos y vista previa antes de activar el formulario.",
+          label: "Weight validation",
+          detail: "Publishing validates complete weights and preview readiness before activation.",
           badge: "Enforced",
         },
       ]}
@@ -1996,26 +1771,26 @@ function DashboardKpisTab() {
     <OperationalConfigSection
       icon={<BarChart3 className="h-4 w-4 text-orange-500" />}
       title="Dashboard & KPIs"
-      description="Visibilidad operativa por rol y widgets que deben mantenerse bajo control de backend."
+      description="Role-based operational visibility and widgets enforced by the backend."
       items={[
         {
           key: "managerGlobalView",
-          label: "Vista QA Manager",
-          detail: "Acceso global a campañas, comparativos y alertas operativas.",
+          label: "QA Manager view",
+          detail: "Global access to campaigns, comparisons, and operational alerts.",
           badge: "Enforced",
           locked: true,
         },
         {
           key: "campaignQaView",
-          label: "Vista QA de campaña",
-          detail: "Lectura limitada a campañas asignadas y permisos efectivos.",
+          label: "Campaign QA view",
+          detail: "Read access limited to assigned campaigns and effective permissions.",
           badge: "Enforced",
           locked: true,
         },
         {
           key: "supervisorView",
-          label: "Vista Supervisor",
-          detail: "Lectura de tendencias, coaching y evaluaciones dentro de su campaña.",
+          label: "Supervisor view",
+          detail: "Read access to trends, coaching, and evaluations within assigned campaigns.",
           badge: "Enforced",
           locked: true,
         },
@@ -2028,34 +1803,34 @@ function ReportsExportTab() {
   return (
     <OperationalConfigSection
       icon={<FileSpreadsheet className="h-4 w-4 text-orange-500" />}
-      title="Reportes & Exportación"
-      description="Reglas de privacidad y trazabilidad para reportes operativos."
+      title="Reports & Exports"
+      description="Privacy and traceability rules for operational reports."
       items={[
         {
           key: "scopedExports",
-          label: "Scope de exportación",
-          detail: "Un usuario solo exporta lo que puede ver según permisos de campaña.",
+          label: "Export scope",
+          detail: "Users can export only the data allowed by their campaign permissions.",
           badge: "Enforced",
           locked: true,
         },
         {
           key: "exportAudit",
-          label: "Auditoría de salidas",
-          detail: "Exportaciones CSV, Excel y JSON quedan registradas en auditoría operativa.",
+          label: "Export audit trail",
+          detail: "CSV, Excel, and JSON exports are recorded in the operational audit log.",
           badge: "Enforced",
           locked: true,
         },
         {
           key: "supervisorExports",
-          label: "Exportación supervisor",
-          detail: "Supervisor no exporta datos; conserva lectura por campaña.",
+          label: "Supervisor exports",
+          detail: "Supervisors can view campaign reports but cannot export data.",
           badge: "Enforced",
           locked: true,
         },
         {
           key: "fieldSelection",
-          label: "Campos exportables",
-          detail: "La selección de campos respeta privacidad de agente, evaluador y comentarios.",
+          label: "Exportable fields",
+          detail: "Field selection preserves the privacy of agents, evaluators, and comments.",
           badge: "Configurable",
         },
       ]}
@@ -2073,6 +1848,7 @@ function OperationalAuditTab({
   campaigns: { id: string; name: string }[];
 }) {
   const operationalTimeZone = useOperationalTimeZone();
+  const { t } = useI18n();
   const [auditPage, setAuditPage] = useState(initialPage);
   const [filters, setFilters] = useState({
     query: "",
@@ -2109,7 +1885,7 @@ function OperationalAuditTab({
         if (generation === auditRequestGeneration.current) setAuditPage(nextPage);
       } catch (error) {
         if (generation === auditRequestGeneration.current) {
-          toast.error(error instanceof Error ? error.message : "Error al leer auditoría");
+          toast.error(error instanceof Error ? t(error.message) : t("Unable to load audit log"));
         }
       }
     });
@@ -2138,7 +1914,7 @@ function OperationalAuditTab({
         if (generation === auditRequestGeneration.current) setAuditPage(nextPage);
       } catch (error) {
         if (generation === auditRequestGeneration.current) {
-          toast.error(error instanceof Error ? error.message : "Error al leer auditoría");
+          toast.error(error instanceof Error ? t(error.message) : t("Unable to load audit log"));
         }
       }
     });
@@ -2149,13 +1925,14 @@ function OperationalAuditTab({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <History className="h-4 w-4 text-orange-500" />
-          Auditoría operativa
+          {t("Operational audit")}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Eventos sensibles registrados desde servidor: permisos, scoring, formularios,
-          evaluaciones, exportaciones y operación de campaña.
+          {t(
+            "Sensitive server-recorded events: permissions, scoring, forms, evaluations, exports, and campaign operations.",
+          )}
         </p>
 
         <div className="grid gap-3 rounded-lg border p-3 lg:grid-cols-[1.2fr_150px_150px]">
@@ -2166,7 +1943,7 @@ function OperationalAuditTab({
               onChange={(event) =>
                 setFilters((current) => ({ ...current, query: event.target.value }))
               }
-              placeholder="Buscar usuario, campaña, entidad o impacto"
+              placeholder={t("Search user, campaign, entity, or impact")}
               className="pl-8"
             />
           </div>
@@ -2177,10 +1954,12 @@ function OperationalAuditTab({
             }
           >
             <SelectTrigger>
-              <SelectValue placeholder="Módulo" />
+              <SelectValue placeholder={t("Module")}>
+                {filters.module === "all" ? t("All modules") : filters.module}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los módulos</SelectItem>
+              <SelectItem value="all">{t("All modules")}</SelectItem>
               {moduleOptions.map((module) => (
                 <SelectItem key={module} value={module}>
                   {module}
@@ -2195,10 +1974,12 @@ function OperationalAuditTab({
             }
           >
             <SelectTrigger>
-              <SelectValue placeholder="Acción" />
+              <SelectValue placeholder={t("Action")}>
+                {filters.action === "all" ? t("All actions") : filters.action}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas las acciones</SelectItem>
+              <SelectItem value="all">{t("All actions")}</SelectItem>
               {actionOptions.map((action) => (
                 <SelectItem key={action} value={action}>
                   {action}
@@ -2213,10 +1994,15 @@ function OperationalAuditTab({
             }
           >
             <SelectTrigger>
-              <SelectValue placeholder="Campaña" />
+              <SelectValue placeholder={t("Campaign")}>
+                {filters.campaignId === "all"
+                  ? t("All campaigns")
+                  : (campaigns.find((campaign) => campaign.id === filters.campaignId)?.name ??
+                    t("Campaign"))}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas las campañas</SelectItem>
+              <SelectItem value="all">{t("All campaigns")}</SelectItem>
               {campaigns.map((campaign) => (
                 <SelectItem key={campaign.id} value={campaign.id}>
                   {campaign.name}
@@ -2231,10 +2017,14 @@ function OperationalAuditTab({
             }
           >
             <SelectTrigger>
-              <SelectValue placeholder="Usuario" />
+              <SelectValue placeholder={t("User")}>
+                {filters.userId === "all"
+                  ? t("All users")
+                  : (users.find((user) => user.id === filters.userId)?.name ?? t("User"))}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los usuarios</SelectItem>
+              <SelectItem value="all">{t("All users")}</SelectItem>
               {users.map((user) => (
                 <SelectItem key={user.id} value={user.id}>
                   {user.name}
@@ -2244,7 +2034,7 @@ function OperationalAuditTab({
           </Select>
           <DateRangeFilter
             id="audit-period"
-            label="Periodo"
+            label={t("Period")}
             from={filters.dateFrom}
             to={filters.dateTo}
             onApply={(dateFrom, dateTo) =>
@@ -2259,11 +2049,11 @@ function OperationalAuditTab({
               ) : (
                 <Filter className="h-3.5 w-3.5" />
               )}
-              Aplicar filtros
+              {t("Apply filters")}
             </Button>
             <Button type="button" variant="outline" onClick={resetFilters}>
               <X className="h-3.5 w-3.5" />
-              Limpiar
+              {t("Clear")}
             </Button>
           </div>
         </div>
@@ -2272,13 +2062,13 @@ function OperationalAuditTab({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Usuario</TableHead>
-                <TableHead>Campaña</TableHead>
-                <TableHead>Módulo</TableHead>
-                <TableHead>Acción</TableHead>
-                <TableHead>Impacto</TableHead>
-                <TableHead className="text-right">Detalle</TableHead>
+                <TableHead>{t("Date")}</TableHead>
+                <TableHead>{t("User")}</TableHead>
+                <TableHead>{t("Campaign")}</TableHead>
+                <TableHead>{t("Module")}</TableHead>
+                <TableHead>{t("Action")}</TableHead>
+                <TableHead>{t("Impact")}</TableHead>
+                <TableHead className="text-right">{t("Details")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -2287,7 +2077,7 @@ function OperationalAuditTab({
                   <TableCell className="whitespace-nowrap text-xs">
                     {formatAuditDate(event.createdAt, operationalTimeZone)}
                   </TableCell>
-                  <TableCell>{event.userName ?? "Sistema"}</TableCell>
+                  <TableCell>{event.userName ?? t("System")}</TableCell>
                   <TableCell>{event.campaignName ?? "Global"}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{event.module}</Badge>
@@ -2304,7 +2094,7 @@ function OperationalAuditTab({
                       onClick={() => setSelectedEvent(event)}
                     >
                       <Eye className="h-3.5 w-3.5" />
-                      Ver
+                      {t("View")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -2312,7 +2102,7 @@ function OperationalAuditTab({
               {auditPage.events.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                    No hay eventos para los filtros seleccionados.
+                    {t("No events match the selected filters.")}
                   </TableCell>
                 </TableRow>
               )}
@@ -2322,7 +2112,11 @@ function OperationalAuditTab({
 
         <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <span>
-            Página {auditPage.page} de {auditPage.pageCount} · {auditPage.total} evento(s)
+            {t("Page {page} of {pageCount} · {count} events", {
+              page: auditPage.page,
+              pageCount: auditPage.pageCount,
+              count: auditPage.total,
+            })}
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -2333,7 +2127,7 @@ function OperationalAuditTab({
               onClick={() => loadPage(auditPage.page - 1)}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-              Anterior
+              {t("Previous")}
             </Button>
             <Button
               type="button"
@@ -2342,7 +2136,7 @@ function OperationalAuditTab({
               disabled={auditPage.page >= auditPage.pageCount || loading}
               onClick={() => loadPage(auditPage.page + 1)}
             >
-              Siguiente
+              {t("Next")}
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -2351,7 +2145,7 @@ function OperationalAuditTab({
         <Dialog open={Boolean(selectedEvent)} onOpenChange={() => setSelectedEvent(null)}>
           <DialogContent className="max-w-4xl">
             <DialogHeader>
-              <DialogTitle>Detalle de auditoría</DialogTitle>
+              <DialogTitle>{t("Audit event details")}</DialogTitle>
             </DialogHeader>
             {selectedEvent && (
               <AuditEventDetail event={selectedEvent} timeZone={operationalTimeZone} />
@@ -2360,24 +2154,6 @@ function OperationalAuditTab({
         </Dialog>
       </CardContent>
     </Card>
-  );
-}
-
-function NotificationsTab() {
-  return (
-    <OperationalConfigSection
-      icon={<MessageSquareWarning className="h-4 w-4 text-orange-500" />}
-      title="Notificaciones"
-      description="Alertas operativas para riesgos de calidad por campaña."
-      items={[
-        {
-          key: "criticalEvaluation",
-          label: "Criticidad de evaluación",
-          detail: "Falla fatal o evaluación enviada por debajo del umbral configurado.",
-          badge: "In-app",
-        },
-      ]}
-    />
   );
 }
 
@@ -2400,31 +2176,34 @@ function OperationalConfigSection({
   description: string;
   items: OperationalConfigItem[];
 }) {
+  const { t } = useI18n();
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           {icon}
-          {title}
+          {t(title)}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <p className="text-sm text-muted-foreground">{t(description)}</p>
         <div className="flex items-start gap-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            Inventario de controles activos. Su estado proviene del comportamiento verificado del
-            servidor y de la base de datos; no son preferencias decorativas.
+            {t(
+              "Inventory of active controls. Their status comes from verified server and database behavior; these are not decorative preferences.",
+            )}
           </p>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {items.map((item) => (
             <div key={item.key} className="rounded-lg border p-3">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="text-sm font-medium">{item.label}</div>
-                <Badge variant="secondary">{item.badge}</Badge>
+                <div className="text-sm font-medium">{t(item.label)}</div>
+                <Badge variant="secondary">{t(item.badge)}</Badge>
               </div>
-              <p className="text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{t(item.detail)}</p>
             </div>
           ))}
         </div>
@@ -2433,28 +2212,24 @@ function OperationalConfigSection({
   );
 }
 
-function AuditEventDetail({
-  event,
-  timeZone,
-}: {
-  event: OperationalAuditEvent;
-  timeZone: string;
-}) {
+function AuditEventDetail({ event, timeZone }: { event: OperationalAuditEvent; timeZone: string }) {
+  const { t } = useI18n();
+
   return (
     <div className="space-y-4">
       <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <DetailItem label="Fecha" value={formatAuditDate(event.createdAt, timeZone)} />
-        <DetailItem label="Usuario" value={event.userName ?? "Sistema"} />
-        <DetailItem label="Campaña" value={event.campaignName ?? "Global"} />
-        <DetailItem label="Entidad" value={event.entityType ?? "-"} />
+        <DetailItem label={t("Date")} value={formatAuditDate(event.createdAt, timeZone)} />
+        <DetailItem label={t("User")} value={event.userName ?? t("System")} />
+        <DetailItem label={t("Campaign")} value={event.campaignName ?? "Global"} />
+        <DetailItem label={t("Entity")} value={event.entityType ?? "-"} />
       </div>
       <div className="rounded-lg border p-3">
-        <div className="text-xs font-medium uppercase text-muted-foreground">Impacto</div>
-        <p className="mt-1 text-sm">{event.impact ?? "Sin impacto registrado."}</p>
+        <div className="text-xs font-medium uppercase text-muted-foreground">{t("Impact")}</div>
+        <p className="mt-1 text-sm">{event.impact ?? t("No impact recorded.")}</p>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <JsonPanel title="Antes" value={event.beforeValue} />
-        <JsonPanel title="Después" value={event.afterValue} />
+        <JsonPanel title={t("Before")} value={event.beforeValue} />
+        <JsonPanel title={t("After")} value={event.afterValue} />
       </div>
     </div>
   );
@@ -2471,6 +2246,7 @@ function DetailItem({ label, value }: { label: string; value: string }) {
 
 function JsonPanel({ title, value }: { title: string; value: unknown }) {
   const text = value === null || value === undefined ? "" : JSON.stringify(value, null, 2);
+  const { t } = useI18n();
 
   return (
     <div className="min-w-0 rounded-lg border">
@@ -2478,7 +2254,7 @@ function JsonPanel({ title, value }: { title: string; value: unknown }) {
       {text ? (
         <pre className="max-h-80 overflow-auto p-3 text-xs leading-relaxed">{text}</pre>
       ) : (
-        <div className="p-3 text-sm text-muted-foreground">Sin datos registrados.</div>
+        <div className="p-3 text-sm text-muted-foreground">{t("No recorded data.")}</div>
       )}
     </div>
   );
@@ -2513,6 +2289,8 @@ function PctTargetField({
   onChange: (v: number) => void;
   defaultValue: number;
 }) {
+  const { t } = useI18n();
+
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
@@ -2540,7 +2318,7 @@ function PctTargetField({
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        {description} Por defecto: {defaultValue}%.
+        {description} {t("Default: {value}%.", { value: defaultValue })}
       </p>
     </div>
   );

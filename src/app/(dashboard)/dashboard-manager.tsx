@@ -33,9 +33,11 @@ import {
   type EvaluatorRow,
 } from "@/components/dashboard/evaluator-calibration-table";
 import { NeedsAttentionStrip } from "@/components/dashboard/needs-attention-strip";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KpiCard } from "@/components/ui/kpi-card";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { getDashboardManagerBundle } from "@/server/queries/analytics";
 import type { UiAccess } from "@/server/queries/ui-access";
 
@@ -55,6 +57,7 @@ export function DashboardManager({
   access: UiAccess;
   campaigns: { id: string; name: string }[];
 }) {
+  const { t } = useI18n();
   const router = useRouter();
   const [campaignId, setCampaignId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -113,15 +116,51 @@ export function DashboardManager({
 
   if (loadStatus === "loading" && !stats) return <DashboardSpinner />;
   if (loadStatus === "error") {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar el dashboard" />;
+    return <DataLoadError onRetry={() => void loadData()} title={t("Unable to load dashboard")} />;
   }
   if (!stats) {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar el dashboard" />;
+    return <DataLoadError onRetry={() => void loadData()} title={t("Unable to load dashboard")} />;
   }
 
   const canOpenKpiDetails = access.canViewKPIs;
   const countTrend = trends.map((t) => ({ value: t.count }));
   const scoreTrend = trends.map((t) => ({ value: t.avgScore }));
+  const hasData = stats.responseCount > 0;
+  const responseCountDisplay = getMetricDisplay({
+    kind: "count",
+    value: stats.responseCount,
+    hasData,
+    status: loadStatus,
+  });
+  const averageScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: stats.avgScore,
+    hasData,
+    status: loadStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const passRateDisplay = getMetricDisplay({
+    kind: "measure",
+    value: stats.passRate,
+    hasData,
+    status: loadStatus,
+    suffix: "%",
+  });
+  const dailyRateDisplay = getMetricDisplay({
+    kind: "measure",
+    value: stats.dailyRate,
+    hasData,
+    status: loadStatus,
+    decimals: 1,
+  });
+  const criticalFailuresDisplay = getMetricDisplay({
+    kind: "count",
+    value: stats.fatalFailCount,
+    hasData,
+    status: loadStatus,
+  });
+  const metricStatusLabel = loadStatus === "empty" ? t("No data") : undefined;
 
   const sortedCampaignPerf = [...campaignPerf].sort((a, b) => {
     const aActive = a.totalEvaluations > 0;
@@ -148,10 +187,10 @@ export function DashboardManager({
   return (
     <div className="space-y-6">
       <ContextBar
-        title="Dashboard"
+        title={t("Dashboard")}
         subtitle={
           <>
-            Bienvenido de vuelta, <span className="font-medium text-foreground">{userName}</span>
+            {t("Welcome back,")} <span className="font-medium text-foreground">{userName}</span>
           </>
         }
         campaigns={campaigns}
@@ -171,7 +210,7 @@ export function DashboardManager({
           aria-live="polite"
           className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground"
         >
-          No hay evaluaciones para los filtros seleccionados. Los indicadores se muestran en cero.
+          {t("No evaluations match the selected filters. Count metrics are shown as zero.")}
         </div>
       ) : null}
 
@@ -182,55 +221,75 @@ export function DashboardManager({
         }`}
       >
         <KpiCard
-          label="Evaluaciones"
+          label={t("Evaluated Calls")}
           value={stats.responseCount}
+          display={responseCountDisplay}
+          statusLabel={metricStatusLabel}
           icon={ClipboardCheck}
           tone="orange"
           trend={countTrend}
           index={0}
         />
         <KpiCard
-          label={`Score promedio (target ${stats.targetAvgScore}%)`}
+          label={t("Average Score (target {target}%)", { target: stats.targetAvgScore })}
           value={stats.avgScore}
+          display={averageScoreDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={stats.avgScore >= stats.targetAvgScore ? "emerald" : "rose"}
+          tone={hasData ? (stats.avgScore >= stats.targetAvgScore ? "emerald" : "rose") : "navy"}
           trend={scoreTrend}
           index={1}
         />
         <KpiCard
-          label={`Pass Rate (target ${stats.targetPassRate}%)`}
+          label={t("Pass Rate (target {target}%)", { target: stats.targetPassRate })}
           value={stats.passRate}
+          display={passRateDisplay}
+          statusLabel={metricStatusLabel}
           suffix="%"
           icon={Award}
           tone={
-            stats.passRate >= stats.targetPassRate
-              ? "emerald"
-              : stats.passRate >= stats.passThreshold
-                ? "amber"
-                : "rose"
+            !hasData
+              ? "navy"
+              : stats.passRate >= stats.targetPassRate
+                ? "emerald"
+                : stats.passRate >= stats.passThreshold
+                  ? "amber"
+                  : "rose"
           }
           index={2}
         />
         <KpiCard
-          label={`Tasa diaria (target ${stats.targetDailyRate}/d)`}
+          label={t("Daily Rate (target {target}/day)", { target: stats.targetDailyRate })}
           value={stats.dailyRate}
+          display={dailyRateDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           icon={Calendar}
-          tone={stats.dailyRate >= stats.targetDailyRate ? "emerald" : "amber"}
+          tone={hasData ? (stats.dailyRate >= stats.targetDailyRate ? "emerald" : "amber") : "navy"}
           index={3}
         />
         <KpiCard
-          label={`Fatales permitidas ${stats.fatalFailuresAllowed}`}
+          label={t("Critical Failures (allowed {allowed})", {
+            allowed: stats.fatalFailuresAllowed,
+          })}
           value={stats.fatalFailCount}
+          display={criticalFailuresDisplay}
+          statusLabel={metricStatusLabel}
           icon={ShieldAlert}
-          tone={stats.fatalFailCount <= stats.fatalFailuresAllowed ? "emerald" : "rose"}
+          tone={
+            hasData
+              ? stats.fatalFailCount <= stats.fatalFailuresAllowed
+                ? "emerald"
+                : "rose"
+              : "navy"
+          }
           index={4}
         />
         {outcomeKpis.classifiedTotal > 0 ? (
           <KpiCard
-            label="Resolución (FCR) · derivado de monitoreo"
+            label={t("Resolution (FCR) · monitoring-derived")}
             value={outcomeKpis.resolutionRate}
             decimals={1}
             suffix="%"
@@ -258,7 +317,7 @@ export function DashboardManager({
       {/* Distribution + volume trend (coverage signals) */}
       <Section delay={0.12}>
         <div className="grid gap-6 lg:grid-cols-2">
-          <DistributionCard title="Distribución de scores" data={distribution} />
+          <DistributionCard title={t("Score distribution")} data={distribution} />
           <VolumeTrendCard trends={trends} icon={Calendar} />
         </div>
       </Section>
@@ -269,7 +328,7 @@ export function DashboardManager({
           <ScoreTrendCard trends={trends} targetAvgScore={stats.targetAvgScore} icon={TrendingUp} />
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Errores por categoría QA</CardTitle>
+              <CardTitle className="text-base">{t("Errors by QA category")}</CardTitle>
             </CardHeader>
             <CardContent>
               {rootCauseCategories.length > 0 ? (
@@ -286,7 +345,12 @@ export function DashboardManager({
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
                       {c.fatalFailCount > 0 && (
                         <span className="shrink-0 rounded-full bg-rose-500/10 px-2 py-0.5 text-[11px] font-semibold text-rose-600 tabular-nums dark:text-rose-400">
-                          {c.fatalFailCount} fatal
+                          {t(
+                            c.fatalFailCount === 1
+                              ? "{count} critical failure"
+                              : "{count} critical failures",
+                            { count: c.fatalFailCount },
+                          )}
                         </span>
                       )}
                       <Badge variant="destructive" className="tabular-nums">
@@ -296,7 +360,7 @@ export function DashboardManager({
                   ))}
                 </div>
               ) : (
-                <EmptyState label="Todas las categorías en target" />
+                <EmptyState label={t("All categories are on target")} />
               )}
             </CardContent>
           </Card>
@@ -328,21 +392,21 @@ export function DashboardManager({
             <CardHeader className="pb-3">
               <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                 <UsersRound className="h-4 w-4 text-violet-500" />
-                Rendimiento por campaña
+                {t("Campaign performance")}
                 <span className="ml-auto text-[10px] font-normal text-muted-foreground">
-                  Click para filtrar
+                  {t("Click to filter")}
                 </span>
               </CardTitle>
               {campaignPerf.length > 0 && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Badge variant="secondary" className="font-normal">
-                    {activeCampaignCount} con datos
+                    {activeCampaignCount} {t("with data")}
                   </Badge>
                   <Badge variant="outline" className="font-normal">
-                    {campaignPerf.length - activeCampaignCount} sin datos
+                    {campaignPerf.length - activeCampaignCount} {t("without data")}
                   </Badge>
                   <Badge variant="outline" className="font-normal">
-                    {campaignPerf.length} campañas
+                    {campaignPerf.length} {t("campaigns")}
                   </Badge>
                 </div>
               )}
@@ -364,7 +428,10 @@ export function DashboardManager({
                               : "hover:bg-muted/40"
                           }`}
                           onClick={() => setCampaignId(isSelected ? "" : entry.id)}
-                          title={`${entry.name} · ${entry.totalEvaluations} evaluaciones`}
+                          title={t("{name} · {count} evaluations", {
+                            name: entry.name,
+                            count: entry.totalEvaluations,
+                          })}
                         >
                           <span
                             className={`w-[140px] shrink-0 truncate text-xs ${
@@ -388,21 +455,27 @@ export function DashboardManager({
                           <div className="flex w-[190px] shrink-0 items-center justify-end gap-1.5">
                             <Badge
                               variant={
-                                entry.avgScore >= entry.targetAvgScore ? "default" : "destructive"
+                                !hasData
+                                  ? "outline"
+                                  : entry.avgScore >= entry.targetAvgScore
+                                    ? "default"
+                                    : "destructive"
                               }
                               className="tabular-nums"
                             >
                               {hasData
                                 ? `${entry.avgScore.toFixed(1)}/${entry.targetAvgScore}%`
-                                : "-"}
+                                : "—"}
                             </Badge>
                             <Badge
                               variant={
-                                entry.passRate >= entry.targetPassRate ? "outline" : "destructive"
+                                !hasData || entry.passRate >= entry.targetPassRate
+                                  ? "outline"
+                                  : "destructive"
                               }
                               className="tabular-nums"
                             >
-                              PR {entry.passRate}%
+                              PR {hasData ? `${entry.passRate}%` : "—"}
                             </Badge>
                             <Badge
                               variant={
@@ -411,8 +484,9 @@ export function DashboardManager({
                                   : "destructive"
                               }
                               className="tabular-nums"
+                              title={t("Critical Failures")}
                             >
-                              F {entry.fatalFailCount}/{entry.fatalFailuresAllowed}
+                              CF {entry.fatalFailCount}/{entry.fatalFailuresAllowed}
                             </Badge>
                           </div>
                         </button>
@@ -421,7 +495,7 @@ export function DashboardManager({
                   </div>
                 </div>
               ) : (
-                <EmptyState label="Sin campañas con evaluaciones" />
+                <EmptyState label={t("No campaigns with evaluations")} />
               )}
             </CardContent>
           </Card>
@@ -430,9 +504,9 @@ export function DashboardManager({
             <CardHeader className="pb-3">
               <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                 <Tag className="h-4 w-4 text-cyan-500" />
-                Disposiciones frecuentes
+                {t("Frequent Dispositions")}
                 <span className="ml-auto text-[10px] font-normal text-muted-foreground">
-                  derivado de monitoreo
+                  {t("monitoring-derived")}
                 </span>
               </CardTitle>
             </CardHeader>
@@ -441,9 +515,14 @@ export function DashboardManager({
                 <div className="flex h-full min-h-0 flex-col gap-3">
                   <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                     <span>
-                      Top {topDispositions.length} de {dispAnalytics.length}
+                      {t("Top {shown} of {total}", {
+                        shown: topDispositions.length,
+                        total: dispAnalytics.length,
+                      })}
                     </span>
-                    <span className="tabular-nums">{totalDispositionEvaluations} evaluaciones</span>
+                    <span className="tabular-nums">
+                      {t("{count} evaluations", { count: totalDispositionEvaluations })}
+                    </span>
                   </div>
                   <div className="grid min-h-0 flex-1 auto-rows-fr gap-2">
                     {topDispositions.map((entry, i) => {
@@ -466,7 +545,10 @@ export function DashboardManager({
                               ? () => router.push(`/analytics/dispositions/${entry.id}`)
                               : undefined
                           }
-                          title={`${entry.name} · ${entry.totalEvaluations} evaluaciones`}
+                          title={t("{name} · {count} evaluations", {
+                            name: entry.name,
+                            count: entry.totalEvaluations,
+                          })}
                         >
                           <div className="mb-2 flex items-center gap-3">
                             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground tabular-nums">
@@ -475,7 +557,7 @@ export function DashboardManager({
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-medium">{entry.name}</div>
                               <div className="truncate text-xs text-muted-foreground">
-                                {entry.categoryName ?? entry.code ?? "Sin categoría"}
+                                {entry.categoryName ?? entry.code ?? t("Uncategorized")}
                               </div>
                             </div>
                             <div className="text-right">
@@ -502,7 +584,7 @@ export function DashboardManager({
                   </div>
                 </div>
               ) : (
-                <EmptyState label="Sin disposiciones con evaluaciones" />
+                <EmptyState label={t("No Dispositions with evaluations")} />
               )}
             </CardContent>
           </Card>

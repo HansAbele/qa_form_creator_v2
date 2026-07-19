@@ -76,7 +76,7 @@ describe("admin user security controls", () => {
         role: "QA",
         campaignIds: [],
       }),
-    ).rejects.toThrow("al menos 12 caracteres");
+    ).rejects.toThrow("Password must contain at least 12 characters");
     expect(prismaMock.user.create).not.toHaveBeenCalled();
   });
 
@@ -139,7 +139,7 @@ describe("admin user security controls", () => {
         active: true,
         campaignIds: [],
       }),
-    ).rejects.toThrow("propia cuenta");
+    ).rejects.toThrow("your own QA Manager account");
     expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 
@@ -152,7 +152,7 @@ describe("admin user security controls", () => {
     });
     prismaMock.user.count.mockResolvedValue(0);
 
-    await expect(deleteUser("admin-2")).rejects.toThrow("último QA Manager");
+    await expect(deleteUser("admin-2")).rejects.toThrow("The last active QA Manager");
     expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 
@@ -165,7 +165,9 @@ describe("admin user security controls", () => {
       active: true,
     });
 
-    await expect(deleteUser("user-1")).rejects.toThrow("ya no esta activa");
+    await expect(deleteUser("user-1")).rejects.toThrow(
+      "the QA Manager account is no longer active",
+    );
 
     expect(prismaMock.$executeRaw).toHaveBeenCalledOnce();
     expect(prismaMock.user.findUnique).not.toHaveBeenCalled();

@@ -19,6 +19,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Logo } from "@/components/brand/logo";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -46,20 +47,20 @@ const primaryItems: NavigationItem[] = [
   },
   {
     href: "/forms",
-    label: "Formularios",
+    label: "Forms",
     icon: FileText,
     isVisible: (access: UiAccess) => access.canViewForms,
   },
   {
     href: "/evaluations",
-    label: "Evaluaciones",
+    label: "Evaluations",
     icon: ClipboardCheck,
     isVisible: (access: UiAccess) =>
       access.canViewDashboard || access.canViewEvaluations || access.canViewReports,
   },
   {
     href: "/reports",
-    label: "Reportes",
+    label: "Reports",
     icon: BarChart3,
     isVisible: (access: UiAccess) => access.canViewReports,
   },
@@ -74,19 +75,19 @@ const analyticsItems: NavigationItem[] = [
   },
   {
     href: "/analytics/agents",
-    label: "Rendimiento de agentes",
+    label: "Agents",
     icon: Users,
     isVisible: (access: UiAccess) => access.canViewKPIs,
   },
   {
     href: "/analytics/teams",
-    label: "Rendimiento por equipos",
+    label: "Teams",
     icon: Building2,
     isVisible: (access: UiAccess) => access.canViewKPIs,
   },
   {
     href: "/analytics/dispositions",
-    label: "Resultados por disposici\u00f3n",
+    label: "Dispositions",
     icon: Tags,
     isVisible: (access: UiAccess) => access.canViewKPIs,
   },
@@ -95,7 +96,7 @@ const analyticsItems: NavigationItem[] = [
 const configurationItems: NavigationItem[] = [
   {
     href: "/settings",
-    label: "Configuración de calidad",
+    label: "Settings",
     icon: Settings,
     isVisible: (access: UiAccess) => access.canOpenSettings,
   },
@@ -104,13 +105,13 @@ const configurationItems: NavigationItem[] = [
 const adminItems: NavigationItem[] = [
   {
     href: "/admin/users",
-    label: "Usuarios",
+    label: "Users",
     icon: UserCog,
     isVisible: (access: UiAccess) => access.isAdmin,
   },
   {
     href: "/admin/campaigns",
-    label: "Campañas",
+    label: "Campaigns",
     icon: Building2,
     isVisible: (access: UiAccess) => access.isAdmin,
   },
@@ -119,30 +120,30 @@ const adminItems: NavigationItem[] = [
 const operationsItems: NavigationItem[] = [
   {
     href: "/operations/agents",
-    label: "Gestionar agentes",
+    label: "Manage agents",
     icon: Users,
     isVisible: (access: UiAccess) => access.canManageAgents,
   },
   {
     href: "/operations/teams",
-    label: "Gestionar equipos",
+    label: "Manage teams",
     icon: Building2,
     isVisible: (access: UiAccess) => access.canManageAgents,
   },
   {
     href: "/operations/dispositions",
-    label: "Gestionar disposiciones",
+    label: "Manage dispositions",
     icon: Tags,
     isVisible: (access: UiAccess) => access.canManageDispositions,
   },
 ];
 
 const navigationSections: NavigationSection[] = [
-  { label: "Principal", items: primaryItems },
-  { label: "Analítica", items: analyticsItems },
-  { label: "Operación", items: operationsItems },
-  { label: "Administración", items: adminItems },
-  { label: "Configuración", items: configurationItems },
+  { label: "Workspace", items: primaryItems },
+  { label: "Performance", items: analyticsItems },
+  { label: "Operations", items: operationsItems },
+  { label: "Administration", items: adminItems },
+  { label: "Settings", items: configurationItems },
 ];
 
 function isPathActive(pathname: string, href: string) {
@@ -161,6 +162,8 @@ function NavigationLink({
   onNavigate?: () => void;
 }) {
   const isActive = isPathActive(pathname, item.href);
+  const { t } = useI18n();
+  const label = t(item.label);
 
   return (
     <Link
@@ -172,7 +175,7 @@ function NavigationLink({
           ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
           : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground",
       )}
-      title={!expanded ? item.label : undefined}
+      title={!expanded ? label : undefined}
       onClick={onNavigate}
     >
       {isActive && (
@@ -182,7 +185,7 @@ function NavigationLink({
         />
       )}
       <item.icon aria-hidden="true" className="h-5 w-5 shrink-0" />
-      <span className={cn(!expanded && "sr-only")}>{item.label}</span>
+      <span className={cn(!expanded && "sr-only")}>{label}</span>
     </Link>
   );
 }
@@ -221,6 +224,7 @@ function SidebarNavigation({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const { t } = useI18n();
   const visibleSections = navigationSections
     .map((section) => ({
       ...section,
@@ -229,7 +233,11 @@ function SidebarNavigation({
     .filter((section) => section.items.length > 0);
 
   return (
-    <nav id={id} aria-label="Navegación principal" className="flex-1 space-y-1 overflow-y-auto p-3">
+    <nav
+      id={id}
+      aria-label={t("Primary navigation")}
+      className="flex-1 space-y-1 overflow-y-auto p-3"
+    >
       {visibleSections.map((section, index) => {
         const sectionLabelId = `${id ?? "mobile-primary-navigation"}-section-${index}`;
 
@@ -239,7 +247,7 @@ function SidebarNavigation({
               <div aria-hidden="true" className="my-3 border-t border-sidebar-border" />
             )}
             <NavigationSectionLabel id={sectionLabelId} expanded={expanded}>
-              {section.label}
+              {t(section.label)}
             </NavigationSectionLabel>
             <div className="space-y-1">
               {section.items.map((item) => (
@@ -261,6 +269,7 @@ function SidebarNavigation({
 
 export function Sidebar({ access }: { access: UiAccess }) {
   const { sidebarOpen, toggleSidebar } = useAppStore();
+  const { t } = useI18n();
 
   return (
     <aside
@@ -285,7 +294,7 @@ export function Sidebar({ access }: { access: UiAccess }) {
           onClick={toggleSidebar}
           aria-controls="desktop-primary-navigation"
           aria-expanded={sidebarOpen}
-          aria-label={sidebarOpen ? "Colapsar sidebar" : "Expandir sidebar"}
+          aria-label={sidebarOpen ? t("Collapse sidebar") : t("Expand sidebar")}
           className="rounded-md p-1.5 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring motion-reduce:transition-none"
         >
           {sidebarOpen ? (
@@ -311,12 +320,13 @@ export function Sidebar({ access }: { access: UiAccess }) {
 
 export function MobileSidebar({ access }: { access: UiAccess }) {
   const [open, setOpen] = useState(false);
+  const { t } = useI18n();
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         type="button"
-        aria-label="Abrir menú principal"
+        aria-label={t("Open main menu")}
         className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "md:hidden")}
       >
         <Menu aria-hidden="true" className="h-5 w-5" />
@@ -326,7 +336,7 @@ export function MobileSidebar({ access }: { access: UiAccess }) {
         className="w-[min(20rem,calc(100vw-2rem))] gap-0 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground sm:max-w-80"
       >
         <SheetHeader className="h-16 justify-center border-b border-sidebar-border px-4 py-0">
-          <SheetTitle className="sr-only">Menú principal</SheetTitle>
+          <SheetTitle className="sr-only">{t("Main menu")}</SheetTitle>
           <Logo
             size="md"
             showText

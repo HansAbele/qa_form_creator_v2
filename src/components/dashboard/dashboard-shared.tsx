@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { FilterSelect } from "@/components/filters/filter-select";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   type ChartConfig,
@@ -29,12 +30,12 @@ import { formatDateOnlyForDisplay } from "@/lib/date-display";
 
 // ─── Chart configs (theme-aware via CSS vars) ─────────────
 export const TREND_CONFIG = {
-  count: { label: "Evaluaciones", color: "#ff6600" },
-  avgScore: { label: "Score Promedio", color: "#1a2b45" },
+  count: { label: "Evaluations", color: "#ff6600" },
+  avgScore: { label: "Average Score", color: "#1a2b45" },
 } satisfies ChartConfig;
 
 export const DIST_CONFIG = {
-  count: { label: "Evaluaciones", color: "#ff6600" },
+  count: { label: "Evaluations", color: "#ff6600" },
 } satisfies ChartConfig;
 
 export const BAR_COLORS = [
@@ -59,10 +60,11 @@ export function Section({ children, delay = 0 }: { children: React.ReactNode; de
   );
 }
 
-export function EmptyState({ label = "Sin datos" }: { label?: string }) {
+export function EmptyState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
+      {label ?? t("No data")}
     </div>
   );
 }
@@ -91,8 +93,9 @@ export function ContextBar({
   onApplyDates: (from: string, to: string) => void;
   showCampaignFilter?: boolean;
 }) {
+  const { t } = useI18n();
   const campaignOptions = [
-    { value: "all", label: "Todas" },
+    { value: "all", label: t("All") },
     ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
   ];
   return (
@@ -114,11 +117,11 @@ export function ContextBar({
           {showCampaignFilter && campaigns.length > 1 ? (
             <FilterSelect
               id="dashboard-campaign"
-              label="Campaña"
+              label={t("Campaign")}
               value={campaignId || "all"}
               options={campaignOptions}
               onValueChange={(value) => onCampaignChange(value === "all" ? "" : value)}
-              placeholder="Todas"
+              placeholder={t("All")}
               icon={Megaphone}
               className="w-full sm:w-44"
             />
@@ -148,9 +151,9 @@ export function ContextBar({
           >
             <Filter className="h-3 w-3" />
             <span>
-              Filtrando por:{" "}
+              {t("Filtering by:")}{" "}
               <span className="font-semibold">
-                {campaigns.find((c) => c.id === campaignId)?.name ?? "Campaña"}
+                {campaigns.find((c) => c.id === campaignId)?.name ?? t("Campaign")}
               </span>
             </span>
             <X className="h-3 w-3 transition-transform group-hover:scale-125" />
@@ -163,26 +166,36 @@ export function ContextBar({
 
 // ─── Score distribution bar card (shared) ─────────────────
 export function DistributionCard({
-  title = "Distribución de scores",
+  title,
   data,
 }: {
   title?: string;
   data: { range: string; count: number }[];
 }) {
+  const { t } = useI18n();
   const chartAnimation = useChartAnimation();
+  const resolvedTitle = title ?? t("Score distribution");
+  const config = {
+    count: { label: t("Evaluations"), color: "#ff6600" },
+  } satisfies ChartConfig;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle className="text-base">{resolvedTitle}</CardTitle>
       </CardHeader>
       <CardContent>
         {data.some((d) => d.count > 0) ? (
           <ChartContainer
-            config={DIST_CONFIG}
-            accessibilityLabel={title}
+            config={config}
+            accessibilityLabel={resolvedTitle}
             accessibilityDescription={data
-              .map((item) => `${item.range}: ${item.count} evaluaciones`)
+              .map((item) =>
+                t("{range}: {count} evaluations", {
+                  range: item.range,
+                  count: item.count,
+                }),
+              )
               .join("; ")}
             className="h-[250px] w-full"
           >
@@ -230,25 +243,31 @@ export function ScoreTrendCard({
   targetAvgScore: number;
   icon?: LucideIcon;
 }) {
+  const { locale, t } = useI18n();
   const chartAnimation = useChartAnimation();
+  const displayLocale = locale === "es" ? "es" : "en";
+  const config = {
+    count: { label: t("Evaluations"), color: "#ff6600" },
+    avgScore: { label: t("Average Score"), color: "#1a2b45" },
+  } satisfies ChartConfig;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           {Icon ? <Icon className="h-4 w-4 text-slate-600 dark:text-slate-400" /> : null}
-          Tendencia de score promedio
+          {t("Average Score trend")}
         </CardTitle>
       </CardHeader>
       <CardContent>
         {trends.length > 0 ? (
           <ChartContainer
-            config={TREND_CONFIG}
-            accessibilityLabel="Tendencia de score promedio"
+            config={config}
+            accessibilityLabel={t("Average Score trend")}
             accessibilityDescription={`${trends
               .map(
                 (item) =>
-                  `${formatDateOnlyForDisplay(item.date)}: ${item.avgScore.toFixed(1)}%`,
+                  `${formatDateOnlyForDisplay(item.date, undefined, displayLocale)}: ${item.avgScore.toFixed(1)}%`,
               )
               .join("; ")}. Target: ${targetAvgScore}%.`}
             className="h-[250px] w-full"
@@ -261,7 +280,11 @@ export function ScoreTrendCard({
                 axisLine={false}
                 tickMargin={8}
                 tickFormatter={(v) =>
-                  formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                  formatDateOnlyForDisplay(
+                    String(v),
+                    { day: "2-digit", month: "short" },
+                    displayLocale,
+                  )
                 }
                 className="text-xs"
               />
@@ -288,7 +311,9 @@ export function ScoreTrendCard({
                 content={
                   <ChartTooltipContent
                     indicator="line"
-                    labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                    labelFormatter={(label) =>
+                      formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                    }
                     formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
                   />
                 }
@@ -321,24 +346,33 @@ export function VolumeTrendCard({
   trends: { date: string; count: number }[];
   icon?: LucideIcon;
 }) {
+  const { locale, t } = useI18n();
   const chartAnimation = useChartAnimation();
+  const displayLocale = locale === "es" ? "es" : "en";
+  const config = {
+    count: { label: t("Evaluations"), color: "#ff6600" },
+    avgScore: { label: t("Average Score"), color: "#1a2b45" },
+  } satisfies ChartConfig;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           {Icon ? <Icon className="h-4 w-4 text-orange-500" /> : null}
-          Tendencia de evaluaciones
+          {t("Evaluation trend")}
         </CardTitle>
       </CardHeader>
       <CardContent>
         {trends.length > 0 ? (
           <ChartContainer
-            config={TREND_CONFIG}
-            accessibilityLabel="Tendencia de evaluaciones"
+            config={config}
+            accessibilityLabel={t("Evaluation trend")}
             accessibilityDescription={trends
-              .map(
-                (item) => `${formatDateOnlyForDisplay(item.date)}: ${item.count} evaluaciones`,
+              .map((item) =>
+                t("{date}: {count} evaluations", {
+                  date: formatDateOnlyForDisplay(item.date, undefined, displayLocale),
+                  count: item.count,
+                }),
               )
               .join("; ")}
             className="h-[250px] w-full"
@@ -357,7 +391,11 @@ export function VolumeTrendCard({
                 axisLine={false}
                 tickMargin={8}
                 tickFormatter={(v) =>
-                  formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                  formatDateOnlyForDisplay(
+                    String(v),
+                    { day: "2-digit", month: "short" },
+                    displayLocale,
+                  )
                 }
                 className="text-xs"
               />
@@ -373,7 +411,9 @@ export function VolumeTrendCard({
                 content={
                   <ChartTooltipContent
                     indicator="dot"
-                    labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                    labelFormatter={(label) =>
+                      formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                    }
                   />
                 }
               />
@@ -398,21 +438,20 @@ export function VolumeTrendCard({
 
 // ─── Full-screen spinner ─────────────────────────────────
 export function DashboardSpinner() {
+  const { t } = useI18n();
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="flex h-[50vh] items-center justify-center"
-    >
+    <div role="status" aria-live="polite" className="flex h-[50vh] items-center justify-center">
       <motion.div
         aria-hidden="true"
         animate={shouldReduceMotion ? undefined : { rotate: 360 }}
-        transition={shouldReduceMotion ? undefined : { duration: 1.2, repeat: Infinity, ease: "linear" }}
+        transition={
+          shouldReduceMotion ? undefined : { duration: 1.2, repeat: Infinity, ease: "linear" }
+        }
         className="h-8 w-8 rounded-full border-2 border-orange-500/30 border-t-orange-500"
       />
-      <span className="sr-only">Cargando dashboard</span>
+      <span className="sr-only">{t("Loading dashboard")}</span>
     </div>
   );
 }

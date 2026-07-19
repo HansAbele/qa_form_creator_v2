@@ -35,7 +35,7 @@ export class ExportNoDataError extends Error {
   readonly code = "NO_EXPORT_DATA";
 
   constructor() {
-    super("No hay evaluaciones que coincidan con los filtros seleccionados.");
+    super("No evaluations match the selected filters.");
     this.name = "ExportNoDataError";
   }
 }
@@ -44,7 +44,7 @@ export class ExportRateLimitError extends Error {
   readonly code = "EXPORT_RATE_LIMITED";
 
   constructor(readonly retryAfterSeconds = 60) {
-    super("Se alcanzo el limite de exportaciones. Espera un momento e intenta nuevamente.");
+    super("The export rate limit was reached. Wait a moment and try again.");
     this.name = "ExportRateLimitError";
   }
 }
@@ -53,7 +53,7 @@ export class ExportBusyError extends Error {
   readonly code = "EXPORT_BUSY";
 
   constructor(readonly retryAfterSeconds = 30) {
-    super("Ya hay una exportacion en proceso para este usuario.");
+    super("An export is already in progress for this user.");
     this.name = "ExportBusyError";
   }
 }
@@ -63,7 +63,7 @@ export class ExportGlobalBusyError extends Error {
 
   constructor(readonly retryAfterSeconds = 30) {
     super(
-      "La capacidad global de exportacion esta ocupada. Espera un momento e intenta nuevamente.",
+      "Global export capacity is busy. Wait a moment and try again.",
     );
     this.name = "ExportGlobalBusyError";
   }
@@ -74,7 +74,7 @@ function readExportLimit(name: string, fallback: number, hardMaximum: number, ha
   if (!raw) return fallback;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < hardMinimum || parsed > hardMaximum) {
-    throw new Error(`${name} debe ser un entero entre ${hardMinimum} y ${hardMaximum}.`);
+    throw new Error(`${name} must be an integer between ${hardMinimum} and ${hardMaximum}.`);
   }
   return parsed;
 }

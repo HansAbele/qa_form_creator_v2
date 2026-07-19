@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { EvaluationsListClient } from "@/components/evaluations/evaluations-list-client";
 import { auth } from "@/lib/auth";
+import { reportOperationalError } from "@/lib/observability";
 import {
   getEvaluationHistoryCampaigns,
   getOwnEvaluationHistoryCampaigns,
@@ -8,6 +9,7 @@ import {
 import {
   type EvaluationHistoryFilterOptions,
   type EvaluationHistoryScope,
+  getEvaluationHistory,
   getEvaluationHistoryFilterOptions,
 } from "@/server/queries/analytics";
 import { getCurrentUserUiAccess } from "@/server/queries/ui-access";
@@ -98,9 +100,63 @@ export default async function EvaluationsPage({
   const parsedPage = Number(query.page);
   const initialPage =
     Number.isInteger(parsedPage) && parsedPage > 0 && parsedPage <= 10_000 ? parsedPage : 1;
+  const parseScore = (value: string | undefined) => {
+    if (!value) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : undefined;
+  };
+  const initialMinScore = parseScore(query.minScore);
+  const initialMaxScore = parseScore(query.maxScore);
+  const initialResultStatus =
+    query.status?.trim().toUpperCase() === "PASS"
+      ? "PASS"
+      : query.status?.trim().toUpperCase() === "FAIL"
+        ? "FAIL"
+        : undefined;
+  const initialFatalOnly = query.fatalOnly === "true" || query.fatalOnly === "1";
+  let initialData: Awaited<ReturnType<typeof getEvaluationHistory>> | null = null;
+  let initialLoadStatus: "success" | "empty" | "error" = "error";
+  let resolvedInitialPage = initialPage;
+
+  try {
+    const initialFilters = {
+      scope: initialScope,
+      minScore: initialMinScore,
+      maxScore: initialMaxScore,
+      campaignId: initialCampaignId,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      resultStatus: initialResultStatus,
+      agentId: initialAgentId,
+      evaluatorId: initialEvaluatorId,
+      formId: initialFormId,
+      dispositionId: initialDispositionId,
+      fatalOnly: initialFatalOnly,
+      pageSize: 25,
+    } satisfies Omit<Parameters<typeof getEvaluationHistory>[0], "page">;
+    initialData = await getEvaluationHistory({ ...initialFilters, page: resolvedInitialPage });
+    if (initialData.page > initialData.totalPages) {
+      resolvedInitialPage = initialData.totalPages;
+      initialData = await getEvaluationHistory({ ...initialFilters, page: resolvedInitialPage });
+    }
+    initialLoadStatus = initialData.summary.totalEvaluations === 0 ? "empty" : "success";
+  } catch (error) {
+    const reason = error instanceof Error ? error : new Error("Unknown evaluation history error");
+    await reportOperationalError({
+      source: "next-server",
+      name: reason.name,
+      message: `evaluation-history-initial: ${reason.message}`,
+      stack: reason.stack,
+      routePath: "/evaluations",
+      userId: session.user.id,
+      metadata: { scope: initialScope },
+    });
+  }
 
   return (
     <EvaluationsListClient
+      initialData={initialData}
+      initialLoadStatus={initialLoadStatus}
       ownCampaigns={ownCampaigns}
       managedCampaigns={managedCampaigns}
       ownFilterOptions={ownFilterOptions}
@@ -110,18 +166,18 @@ export default async function EvaluationsPage({
       canViewOwn={canViewOwn}
       canViewManaged={canViewManaged}
       initialScope={initialScope}
-      initialMinScore={query.minScore}
-      initialMaxScore={query.maxScore}
+      initialMinScore={initialMinScore}
+      initialMaxScore={initialMaxScore}
       initialCampaignId={initialCampaignId}
       initialDateFrom={query.dateFrom}
       initialDateTo={query.dateTo}
-      initialResultStatus={query.status}
+      initialResultStatus={initialResultStatus}
       initialAgentId={initialAgentId}
       initialEvaluatorId={initialEvaluatorId}
       initialFormId={initialFormId}
       initialDispositionId={initialDispositionId}
-      initialFatalOnly={query.fatalOnly === "true" || query.fatalOnly === "1"}
-      initialPage={initialPage}
+      initialFatalOnly={initialFatalOnly}
+      initialPage={resolvedInitialPage}
     />
   );
 }

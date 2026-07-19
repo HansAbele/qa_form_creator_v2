@@ -1,6 +1,8 @@
 "use client";
 
+import type { QuestionType } from "@prisma/client";
 import { Trash2 } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +26,6 @@ import {
   type RatingStyleValue,
   SELECTABLE_QUESTION_TYPES,
 } from "@/types/form-builder";
-import type { QuestionType } from "@prisma/client";
 import type { QACategoryOption } from "./form-builder";
 
 export interface QuestionData {
@@ -46,8 +47,8 @@ export interface QuestionData {
 }
 
 const RATING_STYLE_LABELS: Record<RatingStyleValue, string> = {
-  numeric: "Numerica (con color)",
-  stars: "Estrellas",
+  numeric: "Numeric (color coded)",
+  stars: "Stars",
 };
 
 const CRITICAL_TYPE_LABELS: Record<CriticalTypeValue, string> = {
@@ -76,6 +77,7 @@ export function QuestionPanel({
   onSubmit,
   onCancel,
 }: QuestionPanelProps) {
+  const { t } = useI18n();
   const showOptions = isOptionQuestionType(draft.type);
   const selectedCategory = qaCategories.find((category) => category.id === draft.qaCategoryId);
   const canConfigureFatalOptions = showOptions && draft.fatal;
@@ -84,15 +86,15 @@ export function QuestionPanel({
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
       <p className="font-heading text-sm font-semibold">
-        {mode === "edit" ? "Editar pregunta" : "Agregar pregunta"}
+        {mode === "edit" ? t("Edit question") : t("Add question")}
       </p>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Texto de la pregunta</Label>
+        <Label className="text-xs text-muted-foreground">{t("Question text")}</Label>
         <Textarea
           rows={2}
           maxLength={MAX_LABEL}
-          placeholder="Escribe la pregunta..."
+          placeholder={t("Enter the question...")}
           value={draft.label}
           onChange={(event) => onChange({ ...draft, label: event.target.value })}
           className="resize-none"
@@ -104,13 +106,13 @@ export function QuestionPanel({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Tipo</Label>
+          <Label className="text-xs text-muted-foreground">{t("Type")}</Label>
           <Select
             value={draft.type}
             onValueChange={(val) => {
               if (!val) return;
               const seedBoolean = val === "BOOLEAN" && draft.options.length < 2;
-              const nextOptions = seedBoolean ? ["Si", "No"] : draft.options;
+              const nextOptions = seedBoolean ? [t("Yes"), t("No")] : draft.options;
               const nextOptionPoints = seedBoolean ? [1, 0] : draft.optionPoints;
               onChange({
                 ...draft,
@@ -128,14 +130,14 @@ export function QuestionPanel({
             <SelectTrigger className="w-full">
               <SelectValue>
                 {(value: string | null) =>
-                  value ? (QUESTION_TYPE_LABELS[value as QuestionType] ?? value) : "Tipo"
+                  value ? t(QUESTION_TYPE_LABELS[value as QuestionType] ?? value) : t("Type")
                 }
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {SELECTABLE_QUESTION_TYPES.map((type) => (
                 <SelectItem key={type} value={type}>
-                  {QUESTION_TYPE_LABELS[type]}
+                  {t(QUESTION_TYPE_LABELS[type])}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -143,7 +145,7 @@ export function QuestionPanel({
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Categoria QA</Label>
+          <Label className="text-xs text-muted-foreground">{t("QA Category")}</Label>
           <Select
             value={draft.qaCategoryId}
             onValueChange={(value) => {
@@ -162,11 +164,11 @@ export function QuestionPanel({
             }}
           >
             <SelectTrigger className="w-full">
-              <SelectValue placeholder="Seleccionar categoria">
+              <SelectValue placeholder={t("Select a category")}>
                 {(value: string | null) =>
                   value
-                    ? (qaCategories.find((c) => c.id === value)?.name ?? "Seleccionar categoria")
-                    : "Seleccionar categoria"
+                    ? (qaCategories.find((c) => c.id === value)?.name ?? t("Select a category"))
+                    : t("Select a category")
                 }
               </SelectValue>
             </SelectTrigger>
@@ -184,7 +186,7 @@ export function QuestionPanel({
       {isScoredQuestionType(draft.type) && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground">Peso de la pregunta</Label>
+            <Label className="text-xs text-muted-foreground">{t("Question weight")}</Label>
             <span className="font-heading text-sm font-bold tabular-nums text-primary">
               {draft.weight}%
             </span>
@@ -195,7 +197,7 @@ export function QuestionPanel({
             max={100}
             step={5}
             value={draft.weight}
-            aria-label="Peso de la pregunta"
+            aria-label={t("Question weight")}
             onChange={(event) => onChange({ ...draft, weight: Number(event.target.value) || 0 })}
             className="w-full cursor-pointer accent-primary"
           />
@@ -205,7 +207,7 @@ export function QuestionPanel({
       {draft.type === "RATING" && (
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Escala maxima</Label>
+            <Label className="text-xs text-muted-foreground">{t("Maximum rating")}</Label>
             <Input
               type="number"
               min={2}
@@ -223,7 +225,7 @@ export function QuestionPanel({
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Estilo</Label>
+            <Label className="text-xs text-muted-foreground">{t("Style")}</Label>
             <Select
               value={draft.ratingStyle ?? "numeric"}
               onValueChange={(val) =>
@@ -233,14 +235,14 @@ export function QuestionPanel({
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {(value: string | null) =>
-                    RATING_STYLE_LABELS[(value as RatingStyleValue) ?? "numeric"] ?? "Numerica"
+                    t(RATING_STYLE_LABELS[(value as RatingStyleValue) ?? "numeric"] ?? "Numeric")
                   }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {RATING_STYLES.map((style) => (
                   <SelectItem key={style} value={style}>
-                    {RATING_STYLE_LABELS[style]}
+                    {t(RATING_STYLE_LABELS[style])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -251,12 +253,12 @@ export function QuestionPanel({
 
       <div className="grid gap-2">
         <SwitchField
-          label="Obligatoria"
+          label={t("Required")}
           checked={draft.required}
           onChange={(checked) => onChange({ ...draft, required: checked })}
         />
         <SwitchField
-          label="Falla fatal / impacta FAIL"
+          label={t("Critical failure / forces FAIL")}
           checked={draft.fatal}
           disabled={!selectedCategory?.canBeFatal}
           onChange={(checked) =>
@@ -268,7 +270,7 @@ export function QuestionPanel({
           }
         />
         <SwitchField
-          label="Requiere comentario al fallar"
+          label={t("Require comment on failure")}
           checked={draft.requiresCommentOnFail}
           onChange={(checked) => onChange({ ...draft, requiresCommentOnFail: checked })}
         />
@@ -277,7 +279,9 @@ export function QuestionPanel({
       {draft.fatal && (
         <div className="space-y-3 rounded-md border border-destructive/30 bg-destructive-tint/40 p-3">
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Tipo de error critico (COPC)</Label>
+            <Label className="text-xs text-muted-foreground">
+              {t("Critical error type (COPC)")}
+            </Label>
             <Select
               value={draft.criticalType ?? "none"}
               onValueChange={(val) =>
@@ -291,16 +295,16 @@ export function QuestionPanel({
                 <SelectValue>
                   {(value: string | null) =>
                     !value || value === "none"
-                      ? "Sin clasificar"
-                      : (CRITICAL_TYPE_LABELS[value as CriticalTypeValue] ?? value)
+                      ? t("Unclassified")
+                      : t(CRITICAL_TYPE_LABELS[value as CriticalTypeValue] ?? value)
                   }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Sin clasificar</SelectItem>
+                <SelectItem value="none">{t("Unclassified")}</SelectItem>
                 {CRITICAL_TYPES.map((ct) => (
                   <SelectItem key={ct} value={ct}>
-                    {CRITICAL_TYPE_LABELS[ct]}
+                    {t(CRITICAL_TYPE_LABELS[ct])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -308,7 +312,9 @@ export function QuestionPanel({
           </div>
           {draft.type === "RATING" && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Falla fatal si la nota es &lt;</Label>
+              <Label className="text-xs text-muted-foreground">
+                {t("Critical failure when rating is below")}
+              </Label>
               <Input
                 type="number"
                 min={1}
@@ -325,14 +331,14 @@ export function QuestionPanel({
 
       {showOptions && (
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Opciones de respuesta</Label>
+          <Label className="text-xs text-muted-foreground">{t("Answer options")}</Label>
           {draft.options.map((opt, i) => {
             const optionValue = opt.trim();
             return (
               <div key={getOptionKey(draft.id, opt, i)} className="flex items-center gap-2">
                 <Input
                   value={opt}
-                  placeholder={`Opcion ${i + 1}`}
+                  placeholder={t("Option {number}", { number: i + 1 })}
                   onChange={(event) => {
                     const newOptions = [...draft.options];
                     const previousOption = newOptions[i];
@@ -355,7 +361,7 @@ export function QuestionPanel({
                   min={0}
                   max={100}
                   value={draft.optionPoints[i] ?? 0}
-                  aria-label={`Puntos opcion ${i + 1}`}
+                  aria-label={t("Points for option {number}", { number: i + 1 })}
                   onChange={(event) => {
                     const newPoints = [...draft.optionPoints];
                     newPoints[i] = Number(event.target.value) || 0;
@@ -363,10 +369,10 @@ export function QuestionPanel({
                   }}
                   className="w-16"
                 />
-                <span className="text-xs text-muted-foreground">pts</span>
+                <span className="text-xs text-muted-foreground">{t("pts")}</span>
                 {canConfigureFatalOptions && (
                   <Switch
-                    aria-label={`Opcion fatal ${i + 1}`}
+                    aria-label={t("Critical option {number}", { number: i + 1 })}
                     checked={Boolean(optionValue) && draft.fatalOptions.includes(optionValue)}
                     disabled={!optionValue}
                     onCheckedChange={(checked) => {
@@ -415,11 +421,11 @@ export function QuestionPanel({
               })
             }
           >
-            + Agregar opcion
+            {t("+ Add option")}
           </Button>
           {canConfigureFatalOptions && (
             <p className="text-[11px] text-muted-foreground">
-              Activa el switch en las opciones que cuentan como falla fatal.
+              {t("Enable the options that count as critical failures.")}
             </p>
           )}
         </div>
@@ -427,10 +433,10 @@ export function QuestionPanel({
 
       <div className="flex justify-end gap-2 border-t border-border pt-3">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          Cancelar
+          {t("Cancel")}
         </Button>
         <Button type="button" size="sm" disabled={!canSubmit} onClick={onSubmit}>
-          {mode === "edit" ? "Guardar cambios" : "+ Agregar pregunta"}
+          {mode === "edit" ? t("Save changes") : t("+ Add question")}
         </Button>
       </div>
     </div>

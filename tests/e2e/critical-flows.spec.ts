@@ -1,11 +1,10 @@
 import { expect, type Page, type Route, test } from "@playwright/test";
-import { PrismaClient } from "@prisma/client";
 import { QA_AUTH_STATE } from "./auth-state";
 
 async function openDefaultEvaluation(page: Page) {
   await page.goto("/forms");
   await expect(page.getByText("Customer Service QA Form", { exact: true }).first()).toBeVisible();
-  const evaluateLink = page.getByRole("link", { name: "Evaluar" });
+  const evaluateLink = page.getByRole("link", { name: "Evaluate" });
   await expect(evaluateLink).toBeVisible();
   const evaluationHref = await evaluateLink.getAttribute("href");
   expect(evaluationHref).toMatch(/^\/forms\/[^/?]+$/);
@@ -13,7 +12,7 @@ async function openDefaultEvaluation(page: Page) {
   // transitions. A direct navigation keeps its setup isolated from the
   // outgoing form-card animation while still verifying the rendered href.
   await page.goto(evaluationHref as string);
-  await expect(page.getByRole("heading", { name: "Nueva evaluacion" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "New Evaluation" })).toBeVisible();
 }
 
 async function selectEvaluationContext(page: Page, beforeDispositionSelect?: () => Promise<void>) {
@@ -54,14 +53,14 @@ test.describe("Critical evaluation persistence", () => {
     });
 
     const draftStatus = page.locator('[role="alert"], [role="status"]').filter({
-      hasText: /Borrador|Guardando|Cambios/,
+      hasText: /Draft|Saving|Changes/,
     });
-    await expect(draftStatus).toContainText("Borrador sin guardar");
+    await expect(draftStatus).toContainText("Unsaved draft");
     expect(failedAutosave).toBe(true);
 
     const firstRating = page.getByRole("radiogroup").first();
     await firstRating.getByRole("radio").last().click();
-    await expect(draftStatus).toContainText("Borrador guardado");
+    await expect(draftStatus).toContainText("Draft saved");
     await expect(page).toHaveURL(/\/forms\/[^?]+\?responseId=[^&]+$/);
 
     const draftUrl = page.url();
@@ -76,7 +75,7 @@ test.describe("Critical evaluation persistence", () => {
     let guardDialogSeen = false;
     page.once("dialog", async (dialog) => {
       guardDialogSeen = true;
-      expect(dialog.message()).toContain("Hay cambios sin guardar");
+      expect(dialog.message()).toContain("You have unsaved changes");
       await dialog.dismiss();
     });
     await page.getByRole("radiogroup").first().getByRole("radio").nth(3).click();
@@ -85,40 +84,5 @@ test.describe("Critical evaluation persistence", () => {
     await expect(page).toHaveURL(draftUrl);
 
     await page.unroute("**/*", failFirstServerAction);
-  });
-});
-
-test.describe("Notification visibility and lifecycle", () => {
-  test.use({ storageState: QA_AUTH_STATE });
-
-  test.beforeEach(async () => {
-    const prisma = new PrismaClient();
-    try {
-      const fixture = await prisma.notification.updateMany({
-        where: { id: "e2e-notification-visible" },
-        data: { readAt: null, archivedAt: null },
-      });
-      expect(fixture.count, "the deterministic notification fixture must be seeded").toBe(1);
-    } finally {
-      await prisma.$disconnect();
-    }
-  });
-
-  test("shows only assigned-campaign notifications and supports read/archive", async ({ page }) => {
-    await page.goto("/");
-    const notifications = page.getByRole("button", { name: /Notificaciones/ });
-    await expect(notifications).toHaveAccessibleName(/1 sin leer/);
-    await notifications.click();
-
-    const visibleNotice = page.getByText("E2E Customer Service notice", { exact: true });
-    await expect(visibleNotice).toBeVisible();
-    await expect(page.getByText("E2E Backoffice secret notice", { exact: true })).not.toBeVisible();
-
-    await page.getByRole("button", { name: /^E2E Customer Service notice/ }).click();
-    await expect(notifications).toHaveAccessibleName(/ninguna sin leer/);
-    await page
-      .getByRole("button", { name: /Archivar notificaci.*E2E Customer Service notice/ })
-      .click();
-    await expect(visibleNotice).not.toBeVisible();
   });
 });

@@ -50,7 +50,7 @@ describe("disposition mutations RBAC", () => {
 
     await expect(
       createDisposition({ name: "Completed", campaignId: "campaign-1" }),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    ).rejects.toThrow("Unauthorized for this action in this campaign");
     expect(prismaMock.disposition.create).not.toHaveBeenCalled();
   });
 
@@ -62,7 +62,7 @@ describe("disposition mutations RBAC", () => {
 
     await expect(
       createDispositionInline({ name: "Completed", campaignId: "campaign-1" }),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    ).rejects.toThrow("Unauthorized for this action in this campaign");
     expect(prismaMock.disposition.create).not.toHaveBeenCalled();
   });
 
@@ -114,10 +114,10 @@ describe("disposition mutations RBAC", () => {
     });
 
     await expect(getDispositionCategories("campaign-1")).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+      "Unauthorized for this action in this campaign",
     );
     await expect(getDispositions("campaign-1")).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+      "Unauthorized for this action in this campaign",
     );
   });
 
@@ -243,7 +243,7 @@ describe("disposition mutations RBAC", () => {
         categoryId: "category-2",
         campaignId: "campaign-1",
       }),
-    ).rejects.toThrow("Categoria invalida para esta campana");
+    ).rejects.toThrow("Invalid category for this campaign");
     expect(prismaMock.disposition.create).not.toHaveBeenCalled();
   });
 });

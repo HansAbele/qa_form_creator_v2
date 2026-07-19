@@ -5,6 +5,7 @@ import { AlertTriangle, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -151,6 +152,7 @@ export function FormViewer({
   canManageDispositions,
   initialResponse = null,
 }: FormViewerProps) {
+  const { locale, t } = useI18n();
   const router = useRouter();
   const operationalTimeZone = useOperationalTimeZone();
   const initialAnswers = Object.fromEntries(
@@ -225,7 +227,10 @@ export function FormViewer({
     [scoreResult],
   );
 
-  const categoryGroups = useMemo(() => groupByCategory(form.questions), [form.questions]);
+  const categoryGroups = useMemo(
+    () => groupByCategory(form.questions, t("No category")),
+    [form.questions, t],
+  );
   const categoryInfos = useMemo(
     () =>
       categoryGroups.map((group) => ({
@@ -344,7 +349,7 @@ export function FormViewer({
     ({ silent = false }: { silent?: boolean } = {}): Promise<string | null> => {
       if (isEditingSubmitted) return Promise.resolve(null);
       if (!agentId || !dispositionId) {
-        if (!silent) toast.error("Selecciona agente y disposicion antes de guardar borrador");
+        if (!silent) toast.error(t("Select an agent and disposition before saving a draft"));
         return Promise.resolve(null);
       }
       if (draftSavePromiseRef.current) return draftSavePromiseRef.current;
@@ -374,22 +379,25 @@ export function FormViewer({
             }
             if (!response.replayed) {
               setLastSavedAt(
-                formatOperationalTimestamp(new Date(), operationalTimeZone, {
-                  timeStyle: "short",
-                }),
+                formatOperationalTimestamp(
+                  new Date(),
+                  operationalTimeZone,
+                  { timeStyle: "short" },
+                  locale === "es" ? "es-ES" : "en-US",
+                ),
               );
             }
             if (!silent) {
               toast.success(
                 response.replayed
-                  ? "Borrador recuperado; confirmando los cambios actuales"
-                  : "Borrador guardado",
+                  ? t("Draft recovered; confirming current changes")
+                  : t("Draft saved"),
               );
             }
           }
           return savedDraftId;
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Error al guardar borrador";
+          const message = error instanceof Error ? t(error.message) : t("Unable to save draft");
           if (mountedRef.current) {
             setDraftSaveError(message);
             if (!silent) {
@@ -414,7 +422,16 @@ export function FormViewer({
 
       return operation;
     },
-    [agentId, buildPayload, dispositionId, form.id, isEditingSubmitted, operationalTimeZone],
+    [
+      agentId,
+      buildPayload,
+      dispositionId,
+      form.id,
+      isEditingSubmitted,
+      locale,
+      operationalTimeZone,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -467,17 +484,14 @@ export function FormViewer({
 
     const guardAppNavigation = (event: Event) => {
       const request = event as AppNavigationRequestEvent;
-      if (
-        request.detail.allowed &&
-        !window.confirm("Hay cambios sin guardar. ¿Deseas salir de todos modos?")
-      ) {
+      if (request.detail.allowed && !window.confirm(t("You have unsaved changes. Leave anyway?"))) {
         request.detail.allowed = false;
       }
     };
 
     window.addEventListener(APP_NAVIGATION_REQUEST_EVENT, guardAppNavigation);
     return () => window.removeEventListener(APP_NAVIGATION_REQUEST_EVENT, guardAppNavigation);
-  }, [hasUnsavedChanges]);
+  }, [hasUnsavedChanges, t]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -522,23 +536,24 @@ export function FormViewer({
     const newContextErrors: { agent?: string; disposition?: string } = {};
 
     if (!agentId) {
-      newContextErrors.agent = "Selecciona un agente.";
+      newContextErrors.agent = t("Select an agent.");
     }
 
     if (!dispositionId && !preservesMissingHistoricalDisposition) {
-      newContextErrors.disposition = "Selecciona una disposición.";
+      newContextErrors.disposition = t("Select a disposition.");
     }
 
     for (const question of form.questions) {
       if (question.required && !notApplicable[question.id] && !answers[question.id]?.trim()) {
-        newErrors[question.id] = "Este campo es obligatorio";
+        newErrors[question.id] = t("This field is required");
       }
     }
 
     for (const questionScore of scoreResult.questions) {
       if (questionScore.needsComment) {
-        newCommentErrors[questionScore.questionId] =
-          "Este comentario es obligatorio cuando la regla falla";
+        newCommentErrors[questionScore.questionId] = t(
+          "A comment is required when this rule fails",
+        );
       }
     }
 
@@ -551,7 +566,7 @@ export function FormViewer({
       Object.keys(newCommentErrors).length === 0;
 
     if (!valid) {
-      toast.error("Revisa los campos marcados antes de enviar.");
+      toast.error(t("Review the highlighted fields before submitting."));
       const firstInvalidId = newContextErrors.agent
         ? "evaluation-agent"
         : newContextErrors.disposition
@@ -586,7 +601,7 @@ export function FormViewer({
         if (pendingSave) {
           const pendingDraftId = await pendingSave;
           if (!pendingDraftId) {
-            throw new Error("No se pudo confirmar el borrador antes de enviar");
+            throw new Error(t("The draft could not be confirmed before submission"));
           }
           responseId = pendingDraftId;
         }
@@ -594,7 +609,7 @@ export function FormViewer({
         if (hasUnsavedChanges || !responseId) {
           const flushedDraftId = await handleSaveDraft({ silent: true });
           if (!flushedDraftId) {
-            throw new Error("No se pudo guardar el borrador antes de enviar");
+            throw new Error(t("The draft could not be saved before submission"));
           }
           responseId = flushedDraftId;
         }
@@ -607,11 +622,11 @@ export function FormViewer({
       const response = result.data;
       responseVersionRef.current = response.updatedAt;
       setLastSavedPayload(JSON.stringify(buildPayload(response.id)));
-      toast.success(isEditingSubmitted ? "Evaluacion actualizada" : "Evaluacion enviada");
+      toast.success(isEditingSubmitted ? t("Evaluation updated") : t("Evaluation submitted"));
       router.push(isEditingSubmitted ? `/evaluations/${initialResponse?.id}` : "/forms");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al enviar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to submit evaluation"));
     } finally {
       setSubmitting(false);
     }
@@ -619,13 +634,10 @@ export function FormViewer({
 
   const handleCancel = () => {
     if (draftSavePromiseRef.current) {
-      toast.info("Espera a que termine el guardado del borrador");
+      toast.info(t("Wait for the draft to finish saving"));
       return;
     }
-    if (
-      hasUnsavedChanges &&
-      !window.confirm("Hay cambios sin guardar. ¿Deseas salir de todos modos?")
-    ) {
+    if (hasUnsavedChanges && !window.confirm(t("You have unsaved changes. Leave anyway?"))) {
       return;
     }
     router.push("/forms");
@@ -643,7 +655,7 @@ export function FormViewer({
         <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="evaluation-agent" className="text-xs text-muted-foreground">
-              Agente evaluado
+              {t("Evaluated Agent")}
             </Label>
             <Select
               value={agentId}
@@ -660,11 +672,11 @@ export function FormViewer({
                 aria-required="true"
                 className="h-10 w-full"
               >
-                <SelectValue placeholder="Seleccionar agente...">
+                <SelectValue placeholder={t("Select an agent...")}>
                   {(value: string | null) => {
-                    if (!value) return "Seleccionar agente...";
+                    if (!value) return t("Select an agent...");
                     const agent = agents.find((a) => a.id === value);
-                    if (!agent) return "Seleccionar agente...";
+                    if (!agent) return t("Select an agent...");
                     return agent.agentCode ? `${agent.name} (${agent.agentCode})` : agent.name;
                   }}
                 </SelectValue>
@@ -700,19 +712,20 @@ export function FormViewer({
             />
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Campaña</p>
+            <p className="text-xs text-muted-foreground">{t("Campaign")}</p>
             <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm">
               {form.campaign.name}
             </div>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Fecha</p>
+            <p className="text-xs text-muted-foreground">{t("Date")}</p>
             <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm capitalize">
-              {formatOperationalTimestamp(new Date(), operationalTimeZone, {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })}
+              {formatOperationalTimestamp(
+                new Date(),
+                operationalTimeZone,
+                { day: "numeric", month: "short", year: "numeric" },
+                locale === "es" ? "es-ES" : "en-US",
+              )}
             </div>
           </div>
         </div>
@@ -723,11 +736,12 @@ export function FormViewer({
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
             <div>
               <p className="font-heading font-semibold text-destructive">
-                Se detecto una falla fatal
+                {t("Critical failure detected")}
               </p>
               <p className="text-sm text-muted-foreground">
-                La evaluacion se enviara como FAIL. Revisa las preguntas marcadas y agrega los
-                comentarios requeridos.
+                {t(
+                  "The evaluation will be submitted as FAIL. Review the flagged questions and add the required comments.",
+                )}
               </p>
             </div>
           </div>
@@ -752,7 +766,7 @@ export function FormViewer({
                 <span className="font-heading text-sm font-semibold">{group.name}</span>
                 {weightPct > 0 && (
                   <span className="rounded-full bg-background/70 px-2 py-0.5 text-xs font-medium tabular-nums">
-                    Peso {weightPct.toFixed(0)}%
+                    {t("Weight {weight}%", { weight: weightPct.toFixed(0) })}
                   </span>
                 )}
                 {weightPct > 0 && (
@@ -795,15 +809,15 @@ export function FormViewer({
             aria-live="polite"
           >
             {!isEditingSubmitted && draftSaveError
-              ? `Borrador sin guardar: ${draftSaveError}`
+              ? t("Unsaved draft: {error}", { error: draftSaveError })
               : savingDraft
-                ? "Guardando borrador..."
+                ? t("Saving draft...")
                 : hasUnsavedChanges
                   ? canPersistDraft
-                    ? "Cambios pendientes de guardar"
-                    : "Selecciona agente y disposición para guardar los cambios"
+                    ? t("Changes waiting to be saved")
+                    : t("Select an agent and disposition to save changes")
                   : lastSavedAt
-                    ? `Borrador guardado ${lastSavedAt}`
+                    ? t("Draft saved at {time}", { time: lastSavedAt })
                     : null}
           </span>
           {!isEditingSubmitted && (
@@ -814,7 +828,7 @@ export function FormViewer({
               className="gap-2"
             >
               <Save className="h-4 w-4" />
-              {savingDraft ? "Guardando..." : "Guardar borrador"}
+              {savingDraft ? t("Saving...") : t("Save draft")}
             </Button>
           )}
         </div>
@@ -846,7 +860,7 @@ interface CategoryGroup {
   questions: ViewerQuestion[];
 }
 
-function groupByCategory(questions: ViewerQuestion[]): CategoryGroup[] {
+function groupByCategory(questions: ViewerQuestion[], uncategorizedLabel: string): CategoryGroup[] {
   const groups = new Map<string, CategoryGroup>();
   for (const question of questions) {
     const id =
@@ -858,7 +872,7 @@ function groupByCategory(questions: ViewerQuestion[]): CategoryGroup[] {
       groups.set(id, {
         id,
         index: groups.size,
-        name: question.formCategory?.qaCategory?.name ?? "Sin categoria",
+        name: question.formCategory?.qaCategory?.name ?? uncategorizedLabel,
         color: question.formCategory?.qaCategory?.systemColor ?? null,
         questions: [question],
       });

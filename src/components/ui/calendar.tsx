@@ -10,11 +10,43 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { es } from "date-fns/locale";
+import { enUS, es } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
+import type { Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-const WEEKDAYS = ["L", "M", "X", "J", "V", "S", "D"];
+const WEEKDAY_REFERENCE = new Date(2024, 0, 1);
+const WEEKDAYS = [
+  { key: "monday", offset: 0 },
+  { key: "tuesday", offset: 1 },
+  { key: "wednesday", offset: 2 },
+  { key: "thursday", offset: 3 },
+  { key: "friday", offset: 4 },
+  { key: "saturday", offset: 5 },
+  { key: "sunday", offset: 6 },
+] as const;
+
+function dateFnsLocale(locale: Locale) {
+  return locale === "es" ? es : enUS;
+}
+
+export function getCalendarWeekdays(locale: Locale) {
+  const localized = dateFnsLocale(locale);
+  return WEEKDAYS.map(({ key, offset }) => ({
+    key,
+    label: format(addDays(WEEKDAY_REFERENCE, offset), "EEEEEE", { locale: localized }),
+  }));
+}
+
+export function formatCalendarMonth(month: Date, locale: Locale) {
+  return format(month, "LLLL yyyy", { locale: dateFnsLocale(locale) });
+}
+
+export function formatCalendarDayLabel(day: Date, locale: Locale) {
+  const pattern = locale === "es" ? "d 'de' MMMM 'de' yyyy" : "MMMM d, yyyy";
+  return format(day, pattern, { locale: dateFnsLocale(locale) });
+}
 
 interface CalendarProps {
   month: Date;
@@ -30,8 +62,10 @@ interface CalendarProps {
  * this component only renders and reports day clicks.
  */
 export function Calendar({ month, from, to, onMonthChange, onSelectDay }: CalendarProps) {
+  const { locale, t } = useI18n();
   const gridStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
   const days = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+  const weekdays = getCalendarWeekdays(locale);
   const today = new Date();
 
   return (
@@ -39,18 +73,18 @@ export function Calendar({ month, from, to, onMonthChange, onSelectDay }: Calend
       <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
-          aria-label="Mes anterior"
+          aria-label={t("Previous month")}
           onClick={() => onMonthChange(addMonths(month, -1))}
           className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
         <span className="font-heading text-sm font-semibold capitalize">
-          {format(month, "LLLL yyyy", { locale: es })}
+          {formatCalendarMonth(month, locale)}
         </span>
         <button
           type="button"
-          aria-label="Mes siguiente"
+          aria-label={t("Next month")}
           onClick={() => onMonthChange(addMonths(month, 1))}
           className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
@@ -58,12 +92,12 @@ export function Calendar({ month, from, to, onMonthChange, onSelectDay }: Calend
         </button>
       </div>
       <div className="grid grid-cols-7 gap-y-1">
-        {WEEKDAYS.map((w) => (
+        {weekdays.map((weekday) => (
           <span
-            key={w}
+            key={weekday.key}
             className="pb-1 text-center text-[11px] font-semibold uppercase text-muted-foreground"
           >
-            {w}
+            {weekday.label}
           </span>
         ))}
         {days.map((day) => {
@@ -75,7 +109,7 @@ export function Calendar({ month, from, to, onMonthChange, onSelectDay }: Calend
             <button
               key={day.toISOString()}
               type="button"
-              aria-label={format(day, "d 'de' MMMM yyyy", { locale: es })}
+              aria-label={formatCalendarDayLabel(day, locale)}
               aria-pressed={Boolean(isEndpoint)}
               onClick={() => onSelectDay(day)}
               className={cn(

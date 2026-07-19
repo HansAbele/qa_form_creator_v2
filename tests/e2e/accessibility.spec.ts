@@ -37,14 +37,14 @@ test.describe("WCAG 2.1 A/AA - QA", () => {
 
   test("dashboard and forms list have no detectable violations", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: /^Periodo:/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Period:/ })).toBeVisible();
     const mainContent = page.locator("#main-content");
     await expect(mainContent).toHaveCount(1);
     await expect(mainContent).toBeVisible();
     await expectNoWcagViolations(page);
 
     await page.goto("/forms");
-    await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Forms" })).toBeVisible();
     await expect(page.locator("#main-content")).toHaveCount(1);
     await expectNoWcagViolations(page);
   });
@@ -53,8 +53,8 @@ test.describe("WCAG 2.1 A/AA - QA", () => {
     page,
   }) => {
     await page.goto("/forms");
-    await page.getByRole("link", { name: "Evaluar" }).click();
-    await expect(page.getByRole("heading", { name: "Nueva evaluacion" })).toBeVisible();
+    await page.getByRole("link", { name: "Evaluate" }).click();
+    await expect(page.getByRole("heading", { name: "New Evaluation" })).toBeVisible();
 
     const rating = page.getByRole("radiogroup").first();
     const firstOption = rating.getByRole("radio").first();
@@ -87,7 +87,7 @@ test.describe("WCAG 2.1 A/AA - QA elevado", () => {
 
   test("KPI charts expose text alternatives without detectable violations", async ({ page }) => {
     await page.goto("/kpis");
-    await expect(page.getByRole("heading", { name: /KPIs por Campa/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Campaign KPIs" })).toBeVisible();
     await expectNoWcagViolations(page);
   });
 });

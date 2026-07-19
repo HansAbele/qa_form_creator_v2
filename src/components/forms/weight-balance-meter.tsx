@@ -1,7 +1,8 @@
 "use client";
 
-import { isScoredQuestionType } from "@/types/form-builder";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { cn } from "@/lib/utils";
+import { isScoredQuestionType } from "@/types/form-builder";
 import type { QACategoryOption } from "./form-builder";
 import type { QuestionData } from "./question-panel";
 
@@ -16,6 +17,7 @@ interface WeightBalanceMeterProps {
  * status message.
  */
 export function WeightBalanceMeter({ questions, qaCategories }: WeightBalanceMeterProps) {
+  const { t } = useI18n();
   const scoredQuestions = questions.filter((q) => isScoredQuestionType(q.type));
   const total = scoredQuestions.reduce((sum, q) => sum + q.weight, 0);
 
@@ -29,7 +31,7 @@ export function WeightBalanceMeter({ questions, qaCategories }: WeightBalanceMet
       const cat = qaCategories.find((c) => c.id === id);
       return {
         id,
-        name: cat?.name ?? "Sin categoria",
+        name: cat?.name ?? t("No category"),
         color: cat?.systemColor ?? null,
         weight,
       };
@@ -40,15 +42,15 @@ export function WeightBalanceMeter({ questions, qaCategories }: WeightBalanceMet
   const stateClass = { ok: "text-success", under: "text-warning", over: "text-destructive" }[state];
   const message =
     state === "ok"
-      ? "Balance completo"
+      ? t("Weight balance complete")
       : state === "under"
-        ? `Asigna ${100 - total}% mas para llegar al 100%`
-        : `Excede en ${total - 100}%`;
+        ? t("Assign {remaining}% more to reach 100%", { remaining: 100 - total })
+        : t("Exceeds 100% by {excess}%", { excess: total - 100 });
 
   if (scoredQuestions.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-        Agrega preguntas puntuables para balancear los pesos.
+        {t("Add scored questions to balance their weights.")}
       </div>
     );
   }
@@ -57,7 +59,7 @@ export function WeightBalanceMeter({ questions, qaCategories }: WeightBalanceMet
     <div className="space-y-3 rounded-xl border border-border bg-card p-4">
       <div className="flex items-baseline justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Balance de pesos
+          {t("Weight Balance")}
         </span>
         <span className={cn("font-heading text-2xl font-extrabold tabular-nums", stateClass)}>
           {total}%

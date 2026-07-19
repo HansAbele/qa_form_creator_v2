@@ -45,7 +45,7 @@ confiable para QA y QA Manager:
 - Editar, enviar y anular exige `expectedUpdatedAt`, obtenido de la version que vio el
   cliente.
 - El `UPDATE` compara atomicamente `id + status + updatedAt`; una version obsoleta falla
-  con un mensaje para recargar y no genera audit log ni notificacion falsa.
+  con un mensaje para recargar y no genera un audit log falso.
 - Cada evaluacion nueva recibe un `clientResponseId` UUID estable. Se usa como
   `Response.id`, por lo que CUID historicos y UUID nuevos pueden coexistir sin migracion.
 - Un retry despues de un commit cuya respuesta se perdio recupera el mismo registro en
@@ -59,7 +59,7 @@ confiable para QA y QA Manager:
 
 - El estado visual distingue guardando, guardado, pendiente y error.
 - El submit suspende autosave y bloquea todos los controles de la evaluacion.
-- Clics en enlaces, notificaciones, cierre de sesion y Back/Forward consultan un guard
+- Clics en enlaces, cierre de sesion y Back/Forward consultan un guard
   comun si existen cambios pendientes.
 - `beforeunload` mantiene cobertura para recarga, cierre de pestana y navegacion fuera
   del documento.
@@ -110,10 +110,10 @@ confiable para QA y QA Manager:
   las correcciones preservan snapshots y registran los cambios auditables. Si un registro
   legacy no tiene `settingsSnapshot`, se materializan los valores efectivos, no los
   defaults actuales que podrian cambiar una correccion posterior.
-- Las notificaciones de envio se emiten por transicion real, no por cada guardado de una
-  evaluacion ya enviada.
-- CSV, XLSX y JSON registran auditoria/notificacion de exito despues de construir el
-  artefacto. Un fallo de serializacion no deja un exito falso.
+- Los envios, correcciones y anulaciones conservan trazabilidad durable mediante
+  auditoria, sin depender de efectos secundarios de interfaz.
+- CSV, XLSX y JSON registran la auditoria de exito despues de construir el artefacto.
+  Un fallo de serializacion no deja un exito falso.
 
 ## Validacion de P2.1
 
@@ -245,13 +245,11 @@ compuesto: la medicion no justifico una migracion adicional.
   Supervisor permanece en lectura y con alcance de su campana; QA Manager conserva el
   control global.
 - Las pruebas cubren autosave tras una falla de red, recuperacion del borrador despues
-  de recarga, guard de cambios sin guardar, notificaciones por campana, marcado como
-  leido y archivado, y aislamiento de auditoria.
+  de recarga, guard de cambios sin guardar y aislamiento de auditoria.
 - Playwright incluye Desktop Chrome y un proyecto Pixel 7 para navegacion responsive,
   teclado, etiquetas y ausencia de overflow horizontal.
-- La suite final paso 31 de 31 pruebas contra PostgreSQL 16: 4 preparaciones de sesion
-  y 27 escenarios en Desktop Chrome/Pixel 7. El fixture de notificaciones se restaura
-  antes de cada intento, por lo que los retries no heredan estado leido o archivado.
+- La matriz de navegador valida los flujos criticos de roles y evaluaciones en Desktop
+  Chrome/Pixel 7 sin fixtures de estado global en el header.
 
 ### 2. Concurrencia real
 
@@ -262,14 +260,14 @@ compuesto: la medicion no justifico una migracion adicional.
   evaluacion enviada, con respuestas/score/version coherentes con el ganador y un solo
   snapshot de auditoria.
 - La ejecucion registrada en PostgreSQL 16.14 paso 1 de 1 prueba en 1.18 s y limpio los
-  fixtures de respuesta, notificacion y auditoria.
+  fixtures de respuesta y auditoria.
 - La integracion `test:integration:export-admission` cubre concurrencia del mismo
   usuario y de usuarios distintos con el rol runtime restringido. Paso 2 de 2: el
   limite por usuario y el limite global aceptan exactamente el cupo disponible,
   rechazan el competidor esperado y dejan auditoria durable sin fixtures residuales.
 - `test:integration:export-download` ejecuta la Server Action real, consume un CSV con
   respuestas hasta EOF y verifica RBAC, `reserved -> started -> generated`, metadata,
-  notificacion y cleanup. Paso 1 de 1 contra PostgreSQL 16.14.
+  auditoria y cleanup. Paso 1 de 1 contra PostgreSQL 16.14.
 
 ### 3. Accesibilidad, responsive y estados
 

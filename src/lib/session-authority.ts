@@ -1,4 +1,5 @@
 import type { Session } from "next-auth";
+import { DEFAULT_LOCALE, isLocale } from "./i18n";
 import { logger } from "./logger";
 import { prisma } from "./prisma";
 
@@ -27,6 +28,7 @@ export async function revalidateSession(session: Session | null): Promise<Sessio
       role: true,
       active: true,
       sessionVersion: true,
+      locale: true,
       campaigns: { select: { campaignId: true } },
     },
   });
@@ -55,6 +57,7 @@ export async function revalidateSession(session: Session | null): Promise<Sessio
       role: user.role,
       campaignIds: user.campaigns.map(({ campaignId }) => campaignId),
       sessionVersion: user.sessionVersion,
+      locale: isLocale(user.locale) ? user.locale : DEFAULT_LOCALE,
     },
   };
 }

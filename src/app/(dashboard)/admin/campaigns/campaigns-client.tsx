@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CampaignForm } from "@/components/admin/campaign-form";
 import { TeamForm } from "@/components/admin/team-form";
 import { DispositionForm } from "@/components/admin/disposition-form";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { deactivateCampaign } from "@/server/actions/campaigns";
 import {
   getTeams,
@@ -113,6 +114,7 @@ interface CategoryItem {
 
 export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
   const router = useRouter();
+  const { t } = useI18n();
 
   // Campaign CRUD state
   const [formOpen, setFormOpen] = useState(false);
@@ -131,25 +133,26 @@ export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
   };
 
   const handleDeactivate = async (id: string, name: string) => {
-    if (!confirm(`¿Desactivar la campaña "${name}"? El historial se conservará.`)) return;
+    if (!confirm(t('Deactivate campaign "{name}"? Its history will be preserved.', { name })))
+      return;
     try {
       await deactivateCampaign(id);
-      toast.success("Campaña desactivada");
+      toast.success(t("Campaign deactivated"));
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al desactivar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to deactivate campaign"));
     }
   };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">Gestión de Campañas</h1>
+      <h1 className="text-3xl font-bold tracking-tight">{t("Campaign Management")}</h1>
 
       <Tabs defaultValue="campaigns" className="gap-4">
         <TabsList variant="line">
-          <TabsTrigger value="campaigns">Campañas</TabsTrigger>
-          <TabsTrigger value="teams">Equipos</TabsTrigger>
-          <TabsTrigger value="dispositions">Disposiciones</TabsTrigger>
+          <TabsTrigger value="campaigns">{t("Campaigns")}</TabsTrigger>
+          <TabsTrigger value="teams">{t("Teams")}</TabsTrigger>
+          <TabsTrigger value="dispositions">{t("Dispositions")}</TabsTrigger>
         </TabsList>
 
         {/* ─── Campaigns Tab ───────────────────────────── */}
@@ -158,20 +161,20 @@ export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
             <div className="flex justify-end">
               <Button onClick={handleCreate}>
                 <Plus className="mr-1 h-4 w-4" />
-                Nueva campaña
+                {t("New campaign")}
               </Button>
             </div>
 
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Descripción</TableHead>
-                  <TableHead className="text-center">Usuarios</TableHead>
-                  <TableHead className="text-center">Formularios</TableHead>
-                  <TableHead className="text-center">Agentes</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-24">Acciones</TableHead>
+                  <TableHead>{t("Name")}</TableHead>
+                  <TableHead>{t("Description")}</TableHead>
+                  <TableHead className="text-center">{t("Users")}</TableHead>
+                  <TableHead className="text-center">{t("Forms")}</TableHead>
+                  <TableHead className="text-center">{t("Agents")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
+                  <TableHead className="w-24">{t("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -186,19 +189,24 @@ export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
                     <TableCell className="text-center">{c.agentCount}</TableCell>
                     <TableCell>
                       <Badge variant={c.active ? "default" : "secondary"}>
-                        {c.active ? "Activa" : "Inactiva"}
+                        {c.active ? t("Active") : t("Inactive")}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon-xs" onClick={() => handleEdit(c)}>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={t("Edit {name}", { name: c.name })}
+                          onClick={() => handleEdit(c)}
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         {c.active && (
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            aria-label={`Desactivar ${c.name}`}
+                            aria-label={t("Deactivate {name}", { name: c.name })}
                             onClick={() => handleDeactivate(c.id, c.name)}
                           >
                             <PowerOff className="h-3.5 w-3.5 text-destructive" />
@@ -211,7 +219,7 @@ export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
                 {campaigns.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted-foreground">
-                      No hay campañas registradas
+                      {t("No campaigns registered")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -248,6 +256,7 @@ export function CampaignsClient({ campaigns }: { campaigns: CampaignItem[] }) {
 // ═══════════════════════════════════════════════════════
 
 function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) {
+  const { t } = useI18n();
   const [selectedCampaign, setSelectedCampaign] = useState(campaigns[0]?.id ?? "");
   const [teams, setTeams] = useState<TeamItem[]>([]);
   const [agents, setAgents] = useState<AgentItem[]>([]);
@@ -261,36 +270,39 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
   const [assigningAgent, setAssigningAgent] = useState<string | null>(null);
 
   // ─── Load data when campaign changes ─────────────
-  const loadData = useCallback(async (campaignId: string) => {
-    if (!campaignId) return;
-    setLoading(true);
-    try {
-      const [teamsData, agentsData] = await Promise.all([
-        getTeams(campaignId),
-        getAgents(campaignId),
-      ]);
-      setTeams(
-        teamsData.map((t) => ({
-          id: t.id,
-          name: t.name,
-          campaignId: t.campaignId ?? (t.campaign?.id || ""),
-          agentCount: t._count.agents,
-        })),
-      );
-      setAgents(
-        agentsData.map((a) => ({
-          id: a.id,
-          name: a.name,
-          agentCode: a.agentCode,
-          team: a.team,
-        })),
-      );
-    } catch {
-      toast.error("Error al cargar datos de equipos");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadData = useCallback(
+    async (campaignId: string) => {
+      if (!campaignId) return;
+      setLoading(true);
+      try {
+        const [teamsData, agentsData] = await Promise.all([
+          getTeams(campaignId),
+          getAgents(campaignId),
+        ]);
+        setTeams(
+          teamsData.map((t) => ({
+            id: t.id,
+            name: t.name,
+            campaignId: t.campaignId ?? (t.campaign?.id || ""),
+            agentCount: t._count.agents,
+          })),
+        );
+        setAgents(
+          agentsData.map((a) => ({
+            id: a.id,
+            name: a.name,
+            agentCode: a.agentCode,
+            team: a.team,
+          })),
+        );
+      } catch {
+        toast.error(t("Unable to load team data"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     if (selectedCampaign) loadData(selectedCampaign);
@@ -311,13 +323,13 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
   };
 
   const handleDeleteTeam = async (id: string, name: string) => {
-    if (!confirm(`¿Eliminar el equipo "${name}"? Los agentes serán desvinculados.`)) return;
+    if (!confirm(t('Delete team "{name}"? Its agents will be unassigned.', { name }))) return;
     try {
       await deleteTeam(id);
-      toast.success("Equipo eliminado");
+      toast.success(t("Team deleted"));
       loadData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     }
   };
 
@@ -326,14 +338,14 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
     try {
       if (teamId === "none") {
         await removeAgentFromTeam(agentId);
-        toast.success("Agente desvinculado del equipo");
+        toast.success(t("Agent removed from team"));
       } else {
         await assignAgentsToTeam(teamId, [agentId]);
-        toast.success("Agente asignado al equipo");
+        toast.success(t("Agent assigned to team"));
       }
       loadData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al asignar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to assign agent"));
     } finally {
       setAssigningAgent(null);
     }
@@ -342,7 +354,7 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
   if (campaigns.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-        No hay campañas disponibles. Crea una campaña primero.
+        {t("No campaigns are available. Create a campaign first.")}
       </div>
     );
   }
@@ -352,7 +364,7 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
       {/* Header with campaign selector */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Campaña:</span>
+          <span className="text-sm text-muted-foreground">{t("Campaign:")}</span>
           <Select value={selectedCampaign} onValueChange={(v) => v && handleCampaignChange(v)}>
             <SelectTrigger className="w-52">
               <SelectValue>
@@ -370,44 +382,50 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
         </div>
         <Button onClick={handleCreateTeam}>
           <Plus className="mr-1 h-4 w-4" />
-          Nuevo equipo
+          {t("New team")}
         </Button>
       </div>
 
       {/* Teams table */}
       {loading ? (
         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Cargando...
+          {t("Loading...")}
         </div>
       ) : (
         <>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead className="text-center">Agentes</TableHead>
-                <TableHead className="w-24">Acciones</TableHead>
+                <TableHead>{t("Name")}</TableHead>
+                <TableHead className="text-center">{t("Agents")}</TableHead>
+                <TableHead className="w-24">{t("Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {teams.map((t) => (
-                <TableRow key={t.id}>
+              {teams.map((team) => (
+                <TableRow key={team.id}>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       <Users className="h-4 w-4 text-muted-foreground" />
-                      {t.name}
+                      {team.name}
                     </div>
                   </TableCell>
-                  <TableCell className="text-center">{t.agentCount}</TableCell>
+                  <TableCell className="text-center">{team.agentCount}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="icon-xs" onClick={() => handleEditTeam(t)}>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={t("Edit {name}", { name: team.name })}
+                        onClick={() => handleEditTeam(team)}
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        onClick={() => handleDeleteTeam(t.id, t.name)}
+                        aria-label={t("Delete {name}", { name: team.name })}
+                        onClick={() => handleDeleteTeam(team.id, team.name)}
                       >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
@@ -418,7 +436,7 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
               {teams.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={3} className="text-center text-muted-foreground">
-                    No hay equipos en esta campaña
+                    {t("No teams in this campaign")}
                   </TableCell>
                 </TableRow>
               )}
@@ -428,14 +446,14 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
           {/* Agent assignment section */}
           {agents.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-medium">Asignación de agentes a equipos</h3>
+              <h3 className="text-sm font-medium">{t("Agent team assignments")}</h3>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Agente</TableHead>
-                    <TableHead>Código</TableHead>
-                    <TableHead>Equipo actual</TableHead>
-                    <TableHead className="w-56">Asignar equipo</TableHead>
+                    <TableHead>{t("Agent")}</TableHead>
+                    <TableHead>{t("Code")}</TableHead>
+                    <TableHead>{t("Current team")}</TableHead>
+                    <TableHead className="w-56">{t("Assign team")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -449,7 +467,7 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
                         {agent.team ? (
                           <Badge variant="outline">{agent.team.name}</Badge>
                         ) : (
-                          <span className="text-xs text-muted-foreground">Sin equipo</span>
+                          <span className="text-xs text-muted-foreground">{t("No team")}</span>
                         )}
                       </TableCell>
                       <TableCell>
@@ -466,13 +484,15 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
                             <SelectTrigger className="w-44">
                               <SelectValue>
                                 {(value: string | null) => {
-                                  if (!value || value === "none") return "Sin equipo";
-                                  return teams.find((t) => t.id === value)?.name ?? "Sin equipo";
+                                  if (!value || value === "none") return t("No team");
+                                  return (
+                                    teams.find((team) => team.id === value)?.name ?? t("No team")
+                                  );
                                 }}
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="none">Sin equipo</SelectItem>
+                              <SelectItem value="none">{t("No team")}</SelectItem>
                               {teams.map((t) => (
                                 <SelectItem key={t.id} value={t.id}>
                                   {t.name}
@@ -486,7 +506,8 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
                               size="icon-xs"
                               onClick={() => handleAssignAgent(agent.id, "none")}
                               disabled={assigningAgent === agent.id}
-                              title="Desvincular del equipo"
+                              aria-label={t("Remove {name} from team", { name: agent.name })}
+                              title={t("Remove from team")}
                             >
                               <UserMinus className="h-3.5 w-3.5 text-muted-foreground" />
                             </Button>
@@ -532,6 +553,7 @@ function TeamsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) 
 // ═══════════════════════════════════════════════════════
 
 function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string }[] }) {
+  const { t } = useI18n();
   // Campaign selection
   const [selectedCampaign, setSelectedCampaign] = useState(campaigns[0]?.id ?? "");
   const [dispositions, setDispositions] = useState<DispositionItem[]>([]);
@@ -558,22 +580,25 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
   const [filterCategory, setFilterCategory] = useState("all");
 
   // ─── Data loading ────────────────────────────────
-  const loadCampaignData = useCallback(async (campaignId: string) => {
-    if (!campaignId) return;
-    setLoadingData(true);
-    try {
-      const [d, c] = await Promise.all([
-        getDispositions(campaignId),
-        getDispositionCategories(campaignId),
-      ]);
-      setDispositions(d);
-      setCategories(c);
-    } catch {
-      toast.error("Error al cargar datos");
-    } finally {
-      setLoadingData(false);
-    }
-  }, []);
+  const loadCampaignData = useCallback(
+    async (campaignId: string) => {
+      if (!campaignId) return;
+      setLoadingData(true);
+      try {
+        const [d, c] = await Promise.all([
+          getDispositions(campaignId),
+          getDispositionCategories(campaignId),
+        ]);
+        setDispositions(d);
+        setCategories(c);
+      } catch {
+        toast.error(t("Unable to load data"));
+      } finally {
+        setLoadingData(false);
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     if (selectedCampaign) loadCampaignData(selectedCampaign);
@@ -604,13 +629,13 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
   };
 
   const handleDeleteDisposition = async (id: string, name: string) => {
-    if (!confirm(`¿Eliminar/desactivar la disposición "${name}"?`)) return;
+    if (!confirm(t('Delete or deactivate disposition "{name}"?', { name }))) return;
     try {
       await deleteDisposition(id);
-      toast.success("Disposición eliminada");
+      toast.success(t("Disposition deleted"));
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     }
   };
 
@@ -629,25 +654,25 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!categoryName.trim()) {
-      toast.error("El nombre es obligatorio");
+      toast.error(t("Name is required"));
       return;
     }
     setSavingCategory(true);
     try {
       if (editCategoryId) {
         await updateDispositionCategory(editCategoryId, { name: categoryName.trim() });
-        toast.success("Categoría actualizada");
+        toast.success(t("Category updated"));
       } else {
         await createDispositionCategory({
           name: categoryName.trim(),
           campaignId: selectedCampaign,
         });
-        toast.success("Categoría creada");
+        toast.success(t("Category created"));
       }
       setCategoryDialogOpen(false);
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     } finally {
       setSavingCategory(false);
     }
@@ -656,16 +681,16 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
   const handleDeleteCategory = async (id: string, name: string) => {
     if (
       !confirm(
-        `¿Eliminar la categoría "${name}"? Las disposiciones se desvinculan pero no se borran.`,
+        t('Delete category "{name}"? Dispositions will be unassigned but not deleted.', { name }),
       )
     )
       return;
     try {
       await deleteDispositionCategory(id);
-      toast.success("Categoría eliminada");
+      toast.success(t("Category deleted"));
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error");
+      toast.error(error instanceof Error ? t(error.message) : t("Unexpected error"));
     }
   };
 
@@ -678,7 +703,7 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
       .filter(Boolean);
 
     if (names.length === 0) {
-      toast.error("Pega al menos un nombre por línea");
+      toast.error(t("Paste at least one name per line"));
       return;
     }
 
@@ -689,12 +714,17 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
         categoryId: bulkCategoryId === "none" ? undefined : bulkCategoryId,
         names,
       });
-      toast.success(`${result.created} creadas, ${result.skipped} duplicadas omitidas`);
+      toast.success(
+        t("{created} created, {skipped} duplicates skipped", {
+          created: result.created,
+          skipped: result.skipped,
+        }),
+      );
       setBulkDialogOpen(false);
       setBulkText("");
       loadCampaignData(selectedCampaign);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error en importación");
+      toast.error(error instanceof Error ? t(error.message) : t("Import failed"));
     } finally {
       setImporting(false);
     }
@@ -703,7 +733,7 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
   if (campaigns.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-        No hay campañas disponibles. Crea una campaña primero.
+        {t("No campaigns are available. Create a campaign first.")}
       </div>
     );
   }
@@ -715,7 +745,7 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
         <div className="flex flex-wrap items-center gap-4">
           {/* Campaign selector */}
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Campaña:</span>
+            <span className="text-sm text-muted-foreground">{t("Campaign:")}</span>
             <Select value={selectedCampaign} onValueChange={(v) => v && handleCampaignChange(v)}>
               <SelectTrigger className="w-52">
                 <SelectValue>
@@ -734,20 +764,20 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
 
           {/* Category filter */}
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Categoría:</span>
+            <span className="text-sm text-muted-foreground">{t("Category:")}</span>
             <Select value={filterCategory} onValueChange={(v) => v && setFilterCategory(v)}>
               <SelectTrigger className="w-48">
                 <SelectValue>
                   {(value: string | null) => {
-                    if (!value || value === "all") return "Todas";
-                    if (value === "uncategorized") return "Sin categoría";
+                    if (!value || value === "all") return t("All");
+                    if (value === "uncategorized") return t("No category");
                     return categories.find((c) => c.id === value)?.name ?? "";
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                <SelectItem value="uncategorized">Sin categoría</SelectItem>
+                <SelectItem value="all">{t("All")}</SelectItem>
+                <SelectItem value="uncategorized">{t("No category")}</SelectItem>
                 {categories.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name} ({c._count.dispositions})
@@ -762,15 +792,15 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
             <Upload className="mr-1 h-4 w-4" />
-            Importar
+            {t("Import")}
           </Button>
           <Button variant="outline" onClick={() => openCategoryDialog()}>
             <FolderPlus className="mr-1 h-4 w-4" />
-            Nueva categoría
+            {t("New category")}
           </Button>
           <Button onClick={handleCreateDisposition}>
             <Plus className="mr-1 h-4 w-4" />
-            Nueva disposición
+            {t("New disposition")}
           </Button>
         </div>
       </div>
@@ -784,16 +814,22 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{cat.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {cat._count.dispositions} disposiciones
+                    {t("{count} dispositions", { count: cat._count.dispositions })}
                   </p>
                 </div>
                 <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Button variant="ghost" size="icon-xs" onClick={() => openCategoryDialog(cat)}>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={t("Edit {name}", { name: cat.name })}
+                    onClick={() => openCategoryDialog(cat)}
+                  >
                     <Pencil className="h-3 w-3" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    aria-label={t("Delete {name}", { name: cat.name })}
                     onClick={() => handleDeleteCategory(cat.id, cat.name)}
                   >
                     <Trash2 className="h-3 w-3 text-destructive" />
@@ -808,18 +844,18 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
       {/* Dispositions table */}
       {loadingData ? (
         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Cargando...
+          {t("Loading...")}
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nombre</TableHead>
-              <TableHead>Código</TableHead>
-              <TableHead>Categoría</TableHead>
-              <TableHead className="text-center">Usos</TableHead>
-              <TableHead>Estado</TableHead>
-              <TableHead className="w-24">Acciones</TableHead>
+              <TableHead>{t("Name")}</TableHead>
+              <TableHead>{t("Code")}</TableHead>
+              <TableHead>{t("Category")}</TableHead>
+              <TableHead className="text-center">{t("Uses")}</TableHead>
+              <TableHead>{t("Status")}</TableHead>
+              <TableHead className="w-24">{t("Actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -842,17 +878,23 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
                 <TableCell className="text-center">{d._count.responses}</TableCell>
                 <TableCell>
                   <Badge variant={d.active ? "default" : "secondary"}>
-                    {d.active ? "Activa" : "Inactiva"}
+                    {d.active ? t("Active") : t("Inactive")}
                   </Badge>
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon-xs" onClick={() => handleEditDisposition(d)}>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={t("Edit {name}", { name: d.name })}
+                      onClick={() => handleEditDisposition(d)}
+                    >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-xs"
+                      aria-label={t("Delete {name}", { name: d.name })}
                       onClick={() => handleDeleteDisposition(d.id, d.name)}
                     >
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -864,7 +906,7 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
             {filtered.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-muted-foreground">
-                  No hay disposiciones en esta campaña
+                  {t("No dispositions in this campaign")}
                 </TableCell>
               </TableRow>
             )}
@@ -902,24 +944,24 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
       <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>{editCategoryId ? "Editar categoría" : "Nueva categoría"}</DialogTitle>
+            <DialogTitle>{editCategoryId ? t("Edit category") : t("New category")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSaveCategory} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="cat-name">Nombre</Label>
+              <Label htmlFor="cat-name">{t("Name")}</Label>
               <Input
                 id="cat-name"
                 value={categoryName}
                 onChange={(e) => setCategoryName(e.target.value)}
-                placeholder="Ej: Ventas"
+                placeholder={t("Example: Sales")}
               />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCategoryDialogOpen(false)}>
-                Cancelar
+                {t("Cancel")}
               </Button>
               <Button type="submit" disabled={savingCategory}>
-                {savingCategory ? "Guardando..." : editCategoryId ? "Actualizar" : "Crear"}
+                {savingCategory ? t("Saving...") : editCategoryId ? t("Update") : t("Create")}
               </Button>
             </DialogFooter>
           </form>
@@ -930,37 +972,37 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
       <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Importar Disposiciones</DialogTitle>
+            <DialogTitle>{t("Import dispositions")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleBulkImport} className="space-y-4">
             <div className="space-y-2">
-              <Label>Pega un nombre por línea (desde Excel, CSV o texto plano)</Label>
+              <Label>{t("Paste one name per line from Excel, CSV, or plain text")}</Label>
               <Textarea
                 rows={10}
                 value={bulkText}
                 onChange={(e) => setBulkText(e.target.value)}
-                placeholder={
-                  "Venta Cerrada\nCliente No Interesado\nEscalación\nProblema Resuelto\n..."
-                }
+                placeholder={t(
+                  "Closed Sale\nCustomer Not Interested\nEscalation\nIssue Resolved\n...",
+                )}
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Los nombres duplicados se omiten automáticamente.
+                {t("Duplicate names are skipped automatically.")}
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Asignar a categoría (opcional)</Label>
+              <Label>{t("Assign to category (optional)")}</Label>
               <Select value={bulkCategoryId} onValueChange={(v) => v && setBulkCategoryId(v)}>
                 <SelectTrigger className="w-full">
                   <SelectValue>
                     {(value: string | null) => {
-                      if (!value || value === "none") return "Sin categoría";
+                      if (!value || value === "none") return t("No category");
                       return categories.find((c) => c.id === value)?.name ?? "";
                     }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sin categoría</SelectItem>
+                  <SelectItem value="none">{t("No category")}</SelectItem>
                   {categories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -971,12 +1013,14 @@ function DispositionsTab({ campaigns }: { campaigns: { id: string; name: string 
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setBulkDialogOpen(false)}>
-                Cancelar
+                {t("Cancel")}
               </Button>
               <Button type="submit" disabled={importing}>
                 {importing
-                  ? "Importando..."
-                  : `Importar (${bulkText.split("\n").filter((l) => l.trim()).length} líneas)`}
+                  ? t("Importing...")
+                  : t("Import ({count} lines)", {
+                      count: bulkText.split("\n").filter((line) => line.trim()).length,
+                    })}
               </Button>
             </DialogFooter>
           </form>

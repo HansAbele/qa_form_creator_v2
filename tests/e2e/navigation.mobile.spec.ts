@@ -8,7 +8,7 @@ test("mobile navigation is keyboard reachable, labelled, and usable without hori
 }) => {
   await page.goto("/");
 
-  const periodTrigger = page.getByRole("button", { name: /^Periodo:/ });
+  const periodTrigger = page.getByRole("button", { name: /^Period:/ });
   await expect(periodTrigger).toBeVisible();
   const mainContent = page.locator("#main-content");
   await expect(mainContent).toHaveCount(1);
@@ -21,7 +21,7 @@ test("mobile navigation is keyboard reachable, labelled, and usable without hori
     document.body.removeAttribute("tabindex");
   });
   await page.keyboard.press("Tab");
-  const skipLink = page.getByRole("link", { name: /Saltar al contenido principal/ });
+  const skipLink = page.getByRole("link", { name: "Skip to main content" });
   await expect(skipLink).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(mainContent).toBeFocused();
@@ -44,24 +44,24 @@ test("mobile navigation is keyboard reachable, labelled, and usable without hori
   );
   expect(openPopoverOverflow).toBeLessThanOrEqual(1);
 
-  await page.getByRole("button", { name: "Aplicar" }).click();
+  await page.getByRole("button", { name: "Apply" }).click();
   await expect(dateRangePopover).toBeHidden();
 
-  const menuTrigger = page.getByRole("button", { name: /Abrir men.*principal/ });
+  const menuTrigger = page.getByRole("button", { name: "Open main menu" });
   await expect(menuTrigger).toBeVisible();
   await menuTrigger.focus();
   await expect(menuTrigger).toBeFocused();
   await page.keyboard.press("Enter");
 
-  const mobileNavigation = page.getByRole("navigation", { name: /Navegaci.*principal/ });
+  const mobileNavigation = page.getByRole("navigation", { name: "Primary navigation" });
   await expect(mobileNavigation).toBeVisible();
   await expect(
     mobileNavigation
-      .getByRole("region", { name: "Principal" })
-      .getByRole("link", { name: "Evaluaciones" }),
+      .getByRole("region", { name: "Workspace" })
+      .getByRole("link", { name: "Evaluations" }),
   ).toHaveAttribute("href", "/evaluations");
-  await mobileNavigation.getByRole("link", { name: "Formularios" }).click();
-  await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
+  await mobileNavigation.getByRole("link", { name: "Forms" }).click();
+  await expect(page.getByRole("heading", { name: "Forms" })).toBeVisible();
 
   const horizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

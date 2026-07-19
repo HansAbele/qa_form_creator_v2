@@ -3,12 +3,13 @@ import { summarizeChartData } from "@/lib/chart-accessibility";
 
 describe("summarizeChartData", () => {
   it("should identify an empty chart", () => {
-    expect(summarizeChartData([])).toBe("Sin datos.");
+    expect(summarizeChartData([])).toBe("No data.");
   });
 
   it("should include every value in a short series", () => {
-    expect(summarizeChartData(["Enero: 72%", "Febrero: 81%"]))
-      .toBe("2 puntos de datos: Enero: 72%; Febrero: 81%.");
+    expect(summarizeChartData(["Enero: 72%", "Febrero: 81%"])).toBe(
+      "2 data points: Enero: 72%; Febrero: 81%.",
+    );
   });
 
   it("should bound a long series while preserving its first and last values", () => {
@@ -17,7 +18,7 @@ describe("summarizeChartData", () => {
     const description = summarizeChartData(values, 4);
 
     expect(description).toContain("Día 1: 0; Día 2: 1");
-    expect(description).toContain("se omiten 8 puntos intermedios");
+    expect(description).toContain("8 intermediate points omitted");
     expect(description).toContain("Día 11: 10; Día 12: 11");
     expect(description).not.toContain("Día 6: 5");
   });

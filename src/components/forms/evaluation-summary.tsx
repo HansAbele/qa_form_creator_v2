@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, Send, XCircle } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Button } from "@/components/ui/button";
 import type { ScoreResult } from "@/lib/scoring";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ export function EvaluationSummary({
   onSubmit,
   onCancel,
 }: EvaluationSummaryProps) {
+  const { t } = useI18n();
   const { score, result, passThreshold, blockers, perCategory } = scoreResult;
   const pass = result === "PASS";
   const fatalCount = scoreResult.questions.filter((q) => q.isFatalFail).length;
@@ -49,15 +51,21 @@ export function EvaluationSummary({
   if (fatalCount > 0) {
     rules.push({
       tone: "rose",
-      title: "Falla fatal",
-      desc: `${fatalCount} pregunta${fatalCount > 1 ? "s" : ""} critica${fatalCount > 1 ? "s" : ""} fallida${fatalCount > 1 ? "s" : ""}`,
+      title: t("Critical Failure"),
+      desc:
+        fatalCount === 1
+          ? t("1 critical question failed")
+          : t("{count} critical questions failed", { count: fatalCount }),
     });
   }
   if (!scoreResult.hasFatalFail && score < passThreshold) {
     rules.push({
       tone: "rose",
-      title: "Score bajo el umbral",
-      desc: `${scoreLabel}% por debajo del ${passThreshold}%`,
+      title: t("Score Below Threshold"),
+      desc: t("{score}% is below the {threshold}% threshold", {
+        score: scoreLabel,
+        threshold: passThreshold,
+      }),
     });
   }
 
@@ -74,7 +82,7 @@ export function EvaluationSummary({
             viewBox="0 0 128 128"
             className="-rotate-90"
             role="img"
-            aria-label={`Score ${scoreLabel} por ciento`}
+            aria-label={t("Score {score} percent", { score: scoreLabel })}
           >
             <title>{`Score ${scoreLabel}%`}</title>
             <circle
@@ -116,14 +124,16 @@ export function EvaluationSummary({
           {pass ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
           {pass ? "PASS" : "FAIL"}
         </div>
-        <p className="mt-1.5 text-xs text-muted-foreground">Umbral para PASS: {passThreshold}%</p>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {t("PASS threshold: {threshold}%", { threshold: passThreshold })}
+        </p>
       </div>
 
       {/* Per-category scores */}
       {perCategory.length > 0 && (
         <div className="space-y-2.5 rounded-xl border border-border bg-card p-4">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Score por categoria
+            {t("Score by Category")}
           </p>
           {perCategory.map((cat) => {
             const info = cat.categoryId ? categoryById.get(cat.categoryId) : null;
@@ -139,7 +149,7 @@ export function EvaluationSummary({
                       className="h-2 w-2 rounded-full"
                       style={{ backgroundColor: color ?? "hsl(var(--primary))" }}
                     />
-                    {info?.name ?? "Sin categoria"}
+                    {info?.name ?? t("No category")}
                   </span>
                   <span className="tabular-nums text-muted-foreground">
                     {earnedPct.toFixed(0)}% / {weightPct.toFixed(0)}%
@@ -163,10 +173,10 @@ export function EvaluationSummary({
       {/* Activated rules */}
       <div className="space-y-2 rounded-xl border border-border bg-card p-4">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Reglas activadas
+          {t("Triggered Rules")}
         </p>
         {rules.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Ninguna regla activada.</p>
+          <p className="text-xs text-muted-foreground">{t("No rules triggered.")}</p>
         ) : (
           <ul className="space-y-2">
             {rules.map((rule) => (
@@ -186,7 +196,7 @@ export function EvaluationSummary({
       <div className="space-y-2 rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between text-xs">
           <span className="font-semibold uppercase tracking-wide text-muted-foreground">
-            Progreso
+            {t("Progress")}
           </span>
           <span className="tabular-nums font-medium text-foreground">
             {answeredQuestions} / {totalQuestions}
@@ -201,7 +211,9 @@ export function EvaluationSummary({
         {blockers > 0 && (
           <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
             <AlertTriangle className="h-3.5 w-3.5" />
-            {blockers} comentario{blockers > 1 ? "s" : ""} requerido{blockers > 1 ? "s" : ""}
+            {blockers === 1
+              ? t("1 required comment")
+              : t("{count} required comments", { count: blockers })}
           </p>
         )}
       </div>
@@ -215,14 +227,14 @@ export function EvaluationSummary({
         >
           <Send className="h-4 w-4" />
           {savingDraft
-            ? "Guardando borrador..."
+            ? t("Saving draft...")
             : submitting
-              ? "Guardando..."
+              ? t("Saving...")
               : isEditing
-                ? "Guardar cambios"
+                ? t("Save changes")
                 : pass
-                  ? "Enviar evaluacion"
-                  : "Enviar como FAIL"}
+                  ? t("Submit evaluation")
+                  : t("Submit as FAIL")}
         </Button>
         <Button
           variant="outline"
@@ -230,7 +242,7 @@ export function EvaluationSummary({
           className="w-full"
           disabled={submitting || savingDraft}
         >
-          Cancelar
+          {t("Cancel")}
         </Button>
       </div>
     </div>

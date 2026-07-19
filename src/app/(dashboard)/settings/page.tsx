@@ -11,7 +11,6 @@ import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { SettingsClient, type SettingsSectionId } from "./settings-client";
 
 const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
-  "account",
   "access",
   "scoring",
   "campaign-scoring",
@@ -21,7 +20,6 @@ const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
   "dashboard-kpis",
   "reports-export",
   "audit",
-  "notifications",
 ]);
 
 async function getProfileOrLogin() {
@@ -30,7 +28,7 @@ async function getProfileOrLogin() {
   } catch (error) {
     if (
       error instanceof Error &&
-      (error.message === "No autorizado" || error.message === "Usuario no encontrado")
+      (error.message === "Unauthorized" || error.message === "User not found")
     ) {
       redirect("/login");
     }
@@ -47,16 +45,13 @@ export default async function SettingsPage({
   if (!session?.user) redirect("/login");
 
   const [profile, query] = await Promise.all([getProfileOrLogin(), searchParams]);
+  if (query.section === "account") redirect("/account");
   const isAdmin = profile.role === "ADMIN";
   const canViewAudit = isAdmin || (await hasAnyCampaignPermission("canViewAudit"));
   const [settings, users, campaigns] = await Promise.all([
     readSettings(),
     isAdmin ? getUsers() : Promise.resolve([]),
-    isAdmin
-      ? getCampaigns()
-      : canViewAudit
-        ? getAuditCampaigns()
-        : Promise.resolve([]),
+    isAdmin ? getCampaigns() : canViewAudit ? getAuditCampaigns() : Promise.resolve([]),
   ]);
   const [campaignScoring, auditEvents, qaCategories] = isAdmin
     ? await Promise.all([
@@ -74,7 +69,6 @@ export default async function SettingsPage({
 
   return (
     <SettingsClient
-      profile={profile}
       settings={settings}
       isAdmin={isAdmin}
       canViewAudit={canViewAudit}
@@ -93,7 +87,7 @@ export default async function SettingsPage({
       initialSection={
         query.section && SETTINGS_SECTION_IDS.has(query.section as SettingsSectionId)
           ? (query.section as SettingsSectionId)
-          : "account"
+          : "access"
       }
     />
   );

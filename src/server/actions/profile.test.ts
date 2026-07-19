@@ -93,7 +93,7 @@ describe("profile session revocation", () => {
     prismaMock.user.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(changeMyPassword("old-password", "N3w-Secure-Pass!")).rejects.toThrow(
-      "sesion cambiaron",
+      "password or session changed",
     );
     expect(writeAuditLogMock).not.toHaveBeenCalled();
   });

@@ -68,7 +68,7 @@ const VALIDATORS: Record<SettingKey, (v: unknown) => number> = {
 function num(v: unknown, key: string): number {
   const n = typeof v === "string" ? Number(v) : (v as number);
   if (typeof n !== "number" || Number.isNaN(n)) {
-    throw new Error(`${key}: valor inválido, debe ser un número`);
+    throw new Error(`${key}: invalid value; a number is required`);
   }
   return n;
 }
@@ -80,7 +80,7 @@ function clamp(n: number, min: number, max: number): number {
 /** Validate + coerce a raw input to the typed shape. */
 export function validateSetting(key: SettingKey, value: unknown): number {
   const validator = VALIDATORS[key];
-  if (!validator) throw new Error(`Setting key desconocido: ${key}`);
+  if (!validator) throw new Error(`Unknown setting key: ${key}`);
   return validator(value);
 }
 

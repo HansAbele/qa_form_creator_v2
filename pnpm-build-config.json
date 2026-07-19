@@ -1,1 +1,1 @@
-{"onlyBuiltDependencies": ["@prisma/engines", "prisma", "sharp"]}
+{ "onlyBuiltDependencies": ["@prisma/engines", "prisma", "sharp"] }

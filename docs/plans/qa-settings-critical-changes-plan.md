@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-29
 
+> Nota de vigencia (2026-07-17): las secciones sobre notificaciones documentan una implementación histórica que fue retirada por decisión de producto. Qore ya no incluye inbox, preferencias, productores ni tablas de notificaciones; la trazabilidad operativa permanece en `AuditLog`.
+
 ## Objetivo
 
 Evolucionar Qore desde una app de evaluaciones QA con configuracion global basica hacia una plataforma de gobierno operativo por campaña, con permisos reales, scoring configurable, auditoria y una UI de Configuracion alineada al trabajo diario de QA Managers, QA de campaña y Supervisores.

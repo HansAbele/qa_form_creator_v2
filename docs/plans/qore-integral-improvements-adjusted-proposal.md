@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-29
 
+> Nota de vigencia (2026-07-17): las secciones sobre notificaciones documentan una implementación histórica que fue retirada por decisión de producto. Qore ya no incluye inbox, preferencias, productores ni tablas de notificaciones; la trazabilidad operativa permanece en `AuditLog`.
+
 ## 1. Proposito del documento
 
 Este documento toma la propuesta integral de mejoras para Qore / QA Form Creator y la ajusta al estado real del proyecto despues del analisis del codigo, los modulos existentes, el schema Prisma, las Server Actions, la UI actual y el despliegue.

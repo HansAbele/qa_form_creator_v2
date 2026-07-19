@@ -210,12 +210,6 @@ async function cleanupFixture(admin: PrismaClient) {
     });
   });
 
-  await admin.notification.deleteMany({
-    where: {
-      entityType: "response",
-      entityId: fixtureIds.response,
-    },
-  });
   await admin.response.deleteMany({ where: { id: fixtureIds.response } });
   await admin.form.deleteMany({ where: { id: fixtureIds.form } });
   await admin.disposition.deleteMany({ where: { id: fixtureIds.disposition } });

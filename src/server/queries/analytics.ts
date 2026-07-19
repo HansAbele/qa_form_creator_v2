@@ -94,7 +94,7 @@ function normalizeEffectiveResultStatus(value: unknown): EffectiveResultStatus |
 function normalizeScoreBoundary(value: unknown, fieldName: string) {
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
-    throw new Error(`${fieldName} debe ser un numero entre 0 y 100`);
+    throw new Error(`${fieldName} must be a number between 0 and 100`);
   }
   return value;
 }
@@ -320,7 +320,7 @@ async function getDashboardPassCount(args: {
 
 export async function getDashboardStats(campaignId?: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const formFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
@@ -384,7 +384,7 @@ export async function getDashboardStats(campaignId?: string, dateFrom?: string, 
     dailyRate: round2(responseCount / rangeDays),
     ...targetSettings,
     recentResponses: recentResponses.map((r) => {
-      if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+      if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
       return {
         id: r.id,
         formTitle: r.form.title,
@@ -401,7 +401,7 @@ export async function getDashboardStats(campaignId?: string, dateFrom?: string, 
 
 export async function getResponseTrends(campaignId?: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const formFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION, campaignId);
   const campaigns = await getAuthorizedCampaignThresholds(formFilter);
@@ -416,7 +416,7 @@ export async function getTopBottomPerformers(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(
     DASHBOARD_READ_PERMISSION,
@@ -465,7 +465,7 @@ async function getEvaluatorActivityForPermission(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const formFilter = await getCampaignFilterForPermission(permission, campaignId);
   const campaigns = await getAuthorizedCampaignThresholds(formFilter);
@@ -496,7 +496,7 @@ export async function getEvaluationsPerAgent(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(
     DASHBOARD_READ_PERMISSION,
@@ -541,7 +541,7 @@ export async function getEvaluationsPerAgent(
 
 export async function getAgentScoreTrends(dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(DASHBOARD_READ_PERMISSION);
   const dw = dateWhere(dateFrom, dateTo);
@@ -617,7 +617,7 @@ export async function getAgentScoreTrends(dateFrom?: string, dateTo?: string) {
 
 export async function getAgentPerformance(campaignId?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const where = { ...campaignFilter, active: true };
@@ -704,7 +704,7 @@ export async function getReportData(filters: {
   pageSize?: number;
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const requestedPage = filters.page ?? 1;
   const requestedPageSize = filters.pageSize ?? 50;
@@ -787,7 +787,7 @@ export async function getReportData(filters: {
     (left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0),
   );
   const items = responses.map((r) => {
-    if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+    if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
     const targets = targetSettingsMap.get(r.form.campaignId) ?? {
       passThreshold: 70,
       targetPassRate: 85,
@@ -880,7 +880,7 @@ export async function getReportData(filters: {
 
 export async function getReportResponseDetail(responseId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   const campaignFilter = await getCampaignFilterForPermission(REPORT_READ_PERMISSION);
   const response = await prisma.response.findFirst({
     where: { id: responseId, form: campaignFilter, ...submittedResponseWhere() },
@@ -953,7 +953,7 @@ export async function getReportResponseDetail(responseId: string) {
         (!response.disposition.category ||
           response.disposition.category.campaignId === response.form.campaignId))) &&
     response.answers.every((answer) => answer.question.formId === response.form.id);
-  if (!response || !isValid) throw new Error("Evaluacion no disponible");
+  if (!response || !isValid) throw new Error("Evaluation unavailable");
 
   const targets = await getTargetSettingsForCampaign(response.form.campaignId);
   const score = Number(response.score);
@@ -1013,7 +1013,7 @@ export async function getScoreDistribution(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(
     DASHBOARD_READ_PERMISSION,
@@ -1052,7 +1052,7 @@ async function getCampaignKpisForPermission(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(permission, campaignId);
   const campaigns = await prisma.campaign.findMany({
@@ -1132,7 +1132,7 @@ export async function getCampaignKpis(campaignId?: string, dateFrom?: string, da
 
 export async function getScoreByQuestion(campaignId?: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const campaigns = await getAuthorizedCampaignThresholds(campaignFilter);
@@ -1147,7 +1147,7 @@ export async function getQACategoryMetrics(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const campaigns = await getAuthorizedCampaignThresholds(campaignFilter);
@@ -1158,7 +1158,7 @@ export async function getQACategoryMetrics(
 
 export async function getTeamPerformance(campaignId?: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const dw = dateWhere(dateFrom, dateTo);
@@ -1232,7 +1232,7 @@ async function getDispositionAnalyticsForPermission(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(permission, campaignId);
   const campaigns = await getAuthorizedCampaignThresholds(campaignFilter);
@@ -1354,15 +1354,19 @@ function buildCoachingReason(args: {
   targetPassRate: number;
 }) {
   const reasons: string[] = [];
-  if (args.fatalFailCount > 0) reasons.push(`${args.fatalFailCount} falla(s) fatal(es)`);
+  if (args.fatalFailCount > 0) {
+    reasons.push(
+      `${args.fatalFailCount} critical ${args.fatalFailCount === 1 ? "failure" : "failures"}`,
+    );
+  }
   if (args.avgScore < args.targetAvgScore) {
-    reasons.push(`${round2(args.targetAvgScore - args.avgScore)} pts bajo target de score`);
+    reasons.push(`${round2(args.targetAvgScore - args.avgScore)} pts below the score target`);
   }
   if (args.passRate < args.targetPassRate) {
-    reasons.push(`${round2(args.targetPassRate - args.passRate)} pts bajo target de pass rate`);
+    reasons.push(`${round2(args.targetPassRate - args.passRate)} pts below the pass-rate target`);
   }
-  if (args.trendDelta <= -5) reasons.push(`tendencia reciente ${args.trendDelta.toFixed(1)} pts`);
-  return reasons.join(" · ") || "Dentro de target";
+  if (args.trendDelta <= -5) reasons.push(`recent trend ${args.trendDelta.toFixed(1)} pts`);
+  return reasons.join(" · ") || "Within target";
 }
 
 async function getDashboardCoachingInsightsInternal(
@@ -1374,7 +1378,7 @@ async function getDashboardCoachingInsightsInternal(
     | Promise<Awaited<ReturnType<typeof getDashboardCampaignKpis>>>,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(
     DASHBOARD_READ_PERMISSION,
@@ -1511,8 +1515,8 @@ async function getDashboardCoachingInsightsInternal(
         severity,
         reason:
           severity === "INFO"
-            ? "Dentro de target"
-            : `${round2(targetAvg - avgScore)} pts bajo target en ${category.affectedAgents} agente(s)`,
+            ? "Within target"
+            : `${round2(targetAvg - avgScore)} pts below target across ${category.affectedAgents} ${category.affectedAgents === 1 ? "agent" : "agents"}`,
       };
     })
     .filter((category) => category.severity !== "INFO")
@@ -1527,8 +1531,8 @@ async function getDashboardCoachingInsightsInternal(
       const missedTargets = [
         campaign.avgScore < campaign.targetAvgScore ? "score" : null,
         campaign.passRate < campaign.targetPassRate ? "pass rate" : null,
-        campaign.dailyRate < campaign.targetDailyRate ? "volumen diario" : null,
-        campaign.fatalFailCount > campaign.fatalFailuresAllowed ? "fallas fatales" : null,
+        campaign.dailyRate < campaign.targetDailyRate ? "daily volume" : null,
+        campaign.fatalFailCount > campaign.fatalFailuresAllowed ? "critical failures" : null,
       ].filter((target): target is string => Boolean(target));
 
       if (missedTargets.length === 0) return null;
@@ -1609,7 +1613,7 @@ export async function getCriticalErrorAccuracy(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const campaigns = await getAuthorizedCampaignThresholds(campaignFilter);
@@ -1648,7 +1652,7 @@ export async function getCriticalErrorAccuracy(
  */
 export async function getMyDashboard(dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   const userId = session.user.id;
 
   const campaignFilter = await getCampaignFilterForPermission(SELF_DASHBOARD_READ_PERMISSION);
@@ -1708,7 +1712,7 @@ export async function getMyDashboard(dateFrom?: string, dateTo?: string) {
   ];
 
   const recentActivity = recentResponses.map((r) => {
-    if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+    if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
     return {
       id: r.id,
       agentName: r.agent.name,
@@ -1761,7 +1765,7 @@ export async function getCriticalErrorAccuracyDetail(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION, campaignId);
   const campaigns = await getAuthorizedCampaignThresholds(campaignFilter);
@@ -1862,7 +1866,7 @@ export async function getCriticalErrorAccuracyDetail(
 
 export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION);
   const campaignIds = await getCampaignIdsForFilter(campaignFilter);
@@ -1878,7 +1882,7 @@ export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?
     },
     select: { id: true, campaignId: true },
   });
-  if (!scopedAgent) throw new Error("Agente no disponible");
+  if (!scopedAgent) throw new Error("Agent unavailable");
 
   const agent = await prisma.agent.findFirst({
     where: {
@@ -1908,7 +1912,7 @@ export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?
     },
   });
 
-  if (!agent) throw new Error("Agente no disponible");
+  if (!agent) throw new Error("Agent unavailable");
   const passThreshold = await getPassThresholdForCampaign(agent.campaignId);
   const responses = agent.responses.filter(
     (response) =>
@@ -1920,7 +1924,7 @@ export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?
   // Score trend (daily)
   const dayMap = new Map<string, { total: number; count: number }>();
   for (const r of responses) {
-    if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+    if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
     const day = toOperationalDateKey(r.submittedAt);
     const ex = dayMap.get(day) ?? { total: 0, count: 0 };
     ex.total += Number(r.score);
@@ -1992,7 +1996,7 @@ export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?
 
   // Recent responses (last 10)
   const recentResponses = responses.slice(0, 10).map((r) => {
-    if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+    if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
     return {
       id: r.id,
       formTitle: r.form.title,
@@ -2030,7 +2034,7 @@ export async function getAgentDetail(agentId: string, dateFrom?: string, dateTo?
 
 export async function getEvaluatorDetail(userId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION);
   const dw = dateWhere(dateFrom, dateTo);
@@ -2057,7 +2061,7 @@ export async function getEvaluatorDetail(userId: string, dateFrom?: string, date
       ...(canViewEvaluatorEmail ? { email: true } : {}),
     },
   });
-  if (!user) throw new Error("Evaluador no disponible");
+  if (!user) throw new Error("Evaluator unavailable");
 
   const queriedResponses = await prisma.response.findMany({
     where: {
@@ -2083,7 +2087,7 @@ export async function getEvaluatorDetail(userId: string, dateFrom?: string, date
   // Activity by day
   const dayMap = new Map<string, number>();
   for (const r of responses) {
-    if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+    if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
     const day = toOperationalDateKey(r.submittedAt);
     dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
   }
@@ -2152,7 +2156,7 @@ export async function getEvaluatorDetail(userId: string, dateFrom?: string, date
 
 export async function getTeamDetail(teamId: string, dateFrom?: string, dateTo?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION);
   const dw = dateWhere(dateFrom, dateTo);
@@ -2161,7 +2165,7 @@ export async function getTeamDetail(teamId: string, dateFrom?: string, dateTo?: 
     where: { id: teamId, ...campaignFilter },
     select: { id: true, campaignId: true },
   });
-  if (!scopedTeam) throw new Error("Equipo no disponible");
+  if (!scopedTeam) throw new Error("Team unavailable");
 
   const team = await prisma.team.findFirst({
     where: { id: scopedTeam.id, campaignId: scopedTeam.campaignId },
@@ -2191,7 +2195,7 @@ export async function getTeamDetail(teamId: string, dateFrom?: string, dateTo?: 
     },
   });
 
-  if (!team) throw new Error("Equipo no disponible");
+  if (!team) throw new Error("Team unavailable");
   const passThreshold = await getPassThresholdForCampaign(team.campaignId);
   const agents = team.agents
     .filter((agent) => agent.campaignId === team.campaignId)
@@ -2233,7 +2237,7 @@ export async function getTeamDetail(teamId: string, dateFrom?: string, dateTo?: 
   const dayMap = new Map<string, { total: number; count: number }>();
   for (const a of agents) {
     for (const r of a.responses) {
-      if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+      if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
       const day = toOperationalDateKey(r.submittedAt);
       const ex = dayMap.get(day) ?? { total: 0, count: 0 };
       ex.total += Number(r.score);
@@ -2268,7 +2272,7 @@ export async function getDispositionDetail(
   dateTo?: string,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission(KPI_READ_PERMISSION);
   const campaignIds = await getCampaignIdsForFilter(campaignFilter);
@@ -2284,7 +2288,7 @@ export async function getDispositionDetail(
     },
     select: { id: true, campaignId: true },
   });
-  if (!scopedDisposition) throw new Error("Disposicion no disponible");
+  if (!scopedDisposition) throw new Error("Disposition unavailable");
 
   const disposition = await prisma.disposition.findFirst({
     where: {
@@ -2298,7 +2302,7 @@ export async function getDispositionDetail(
     },
   });
 
-  if (!disposition) throw new Error("Disposicion no disponible");
+  if (!disposition) throw new Error("Disposition unavailable");
   const passThreshold = await getPassThresholdForCampaign(disposition.campaignId);
 
   const queriedResponses = await prisma.response.findMany({
@@ -2329,7 +2333,7 @@ export async function getDispositionDetail(
 
   const dayMap = new Map<string, { total: number; count: number }>();
   for (const r of responses) {
-    if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+    if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
     const day = toOperationalDateKey(r.submittedAt);
     const ex = dayMap.get(day) ?? { total: 0, count: 0 };
     ex.total += Number(r.score);
@@ -2473,7 +2477,7 @@ export async function getDispositionDetail(
   }
 
   const recentResponses = responses.slice(0, 20).map((r) => {
-    if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+    if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
     return {
       id: r.id,
       agentName: r.agent.name,
@@ -2526,7 +2530,7 @@ export async function getDispositionDetail(
 
 export async function getResponseDetail(responseId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const [editFilter, evaluationFilter, reportFilter, ownHistoryFilter, auditFilter, kpiFilter] =
     await Promise.all([
@@ -2563,7 +2567,7 @@ export async function getResponseDetail(responseId: string) {
       form: { select: { campaignId: true } },
     },
   });
-  if (!scopedResponse) throw new Error("Evaluacion no disponible");
+  if (!scopedResponse) throw new Error("Evaluation unavailable");
 
   const campaignId = scopedResponse.form.campaignId;
   const response = await prisma.response.findFirst({
@@ -2637,7 +2641,7 @@ export async function getResponseDetail(responseId: string) {
     },
   });
 
-  if (!response) throw new Error("Evaluacion no disponible");
+  if (!response) throw new Error("Evaluation unavailable");
 
   const canEditContext =
     response.status === RESPONSE_STATUS.SUBMITTED
@@ -2732,7 +2736,7 @@ export async function getFilteredResponses(params: {
   limit?: number;
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const { minScore, maxScore, campaignId, dateFrom, dateTo } = params;
   const requestedLimit = params.limit ?? 200;
@@ -2787,7 +2791,7 @@ export async function getFilteredResponses(params: {
 
   return {
     responses: responses.map((r) => {
-      if (!r.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+      if (!r.submittedAt) throw new Error("Submitted evaluation has no submission date");
       const passThreshold = passThresholds.get(r.form.campaignId) ?? 70;
       const result: EffectiveResultStatus = isPassingResponse(
         Number(r.score),
@@ -2833,7 +2837,7 @@ export type EvaluationHistoryFilterOptions = {
 
 export async function getEvaluationHistoryFilterOptions(scopeInput: EvaluationHistoryScope) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const scope: EvaluationHistoryScope = scopeInput === "managed" ? "managed" : "own";
   const permission =
@@ -2973,7 +2977,7 @@ export async function getEvaluationHistory(params: {
   pageSize?: number;
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const scope: EvaluationHistoryScope = params.scope === "managed" ? "managed" : "own";
   const permission =
@@ -2983,12 +2987,12 @@ export async function getEvaluationHistory(params: {
   const passThresholds = await getPassThresholdMap(campaignIds);
   const resultStatus = normalizeEffectiveResultStatus(params.resultStatus);
   if (params.resultStatus !== undefined && !resultStatus) {
-    throw new Error("resultStatus debe ser PASS o FAIL");
+    throw new Error("resultStatus must be PASS or FAIL");
   }
 
   const requestedPage = params.page ?? 1;
   if (!Number.isInteger(requestedPage) || requestedPage < 1 || requestedPage > 10_000) {
-    throw new Error("page debe ser un entero entre 1 y 10000");
+    throw new Error("page must be an integer between 1 and 10000");
   }
   const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const requestedPageSize = params.pageSize ?? 25;
@@ -3000,7 +3004,7 @@ export async function getEvaluationHistory(params: {
   const minScore = normalizeScoreBoundary(params.minScore, "minScore");
   const maxScore = normalizeScoreBoundary(params.maxScore, "maxScore");
   if (minScore !== undefined && maxScore !== undefined && minScore > maxScore) {
-    throw new Error("minScore no puede ser mayor que maxScore");
+    throw new Error("minScore cannot be greater than maxScore");
   }
   const scoreFilter: { gte?: number; lte?: number } = {};
   if (minScore !== undefined) scoreFilter.gte = minScore;
@@ -3069,7 +3073,7 @@ export async function getEvaluationHistory(params: {
   return {
     scope,
     responses: responses.map((response) => {
-      if (!response.submittedAt) throw new Error("Evaluacion enviada sin fecha de envio");
+      if (!response.submittedAt) throw new Error("Submitted evaluation has no submission date");
       const passThreshold = passThresholds.get(response.form.campaignId) ?? 70;
       const result: EffectiveResultStatus = isPassingResponse(
         Number(response.score),

@@ -1,5 +1,5 @@
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
 import { readSettings } from "@/server/actions/settings";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { KpisClient } from "./kpis-client";

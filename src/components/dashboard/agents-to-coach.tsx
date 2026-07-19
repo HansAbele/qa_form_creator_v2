@@ -1,9 +1,10 @@
 "use client";
 
 import { LifeBuoy } from "lucide-react";
+import { EmptyState } from "@/components/dashboard/dashboard-shared";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { EmptyState } from "@/components/dashboard/dashboard-shared";
 
 export type CoachAgent = {
   id: string;
@@ -28,13 +29,14 @@ export function AgentsToCoach({
   onNavigate: (href: string) => void;
   limit?: number;
 }) {
+  const { t } = useI18n();
   const rows = agents.slice(0, limit);
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <LifeBuoy className="h-4 w-4 text-rose-500" />
-          Agentes a coachear
+          {t("Agents to coach")}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -47,7 +49,9 @@ export function AgentsToCoach({
                 disabled={!interactive}
                 onClick={interactive ? () => onNavigate(a.href) : undefined}
                 className={`flex w-full items-center gap-3 rounded-lg border border-border/60 px-3 py-2 text-left ${
-                  interactive ? "cursor-pointer transition-colors hover:bg-muted/40" : "cursor-default"
+                  interactive
+                    ? "cursor-pointer transition-colors hover:bg-muted/40"
+                    : "cursor-default"
                 }`}
               >
                 <div className="min-w-0 flex-1">
@@ -63,18 +67,23 @@ export function AgentsToCoach({
                   {a.avgScore.toFixed(1)}%
                 </Badge>
                 <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                  {a.passRate}% pass
+                  {a.passRate}% {t("pass")}
                 </span>
                 {a.fatalFailCount > 0 && (
                   <span className="shrink-0 rounded-full bg-rose-500/10 px-2 py-0.5 text-[11px] font-semibold text-rose-600 tabular-nums dark:text-rose-400">
-                    {a.fatalFailCount} fatal
+                    {t(
+                      a.fatalFailCount === 1
+                        ? "{count} critical failure"
+                        : "{count} critical failures",
+                      { count: a.fatalFailCount },
+                    )}
                   </span>
                 )}
               </button>
             ))}
           </div>
         ) : (
-          <EmptyState label="Sin agentes bajo objetivo" />
+          <EmptyState label={t("No agents below target")} />
         )}
       </CardContent>
     </Card>

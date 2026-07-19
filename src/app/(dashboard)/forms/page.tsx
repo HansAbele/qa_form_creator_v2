@@ -1,8 +1,7 @@
-import { auth } from "@/lib/auth";
-import { collapseFormFamilies } from "@/lib/form-family";
 import { redirect } from "next/navigation";
-import { getForms } from "@/server/actions/forms";
+import { auth } from "@/lib/auth";
 import { getFormCreationCampaigns } from "@/server/actions/campaigns";
+import { getForms } from "@/server/actions/forms";
 import { getAccessibleEvaluationDrafts } from "@/server/queries/drafts";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { FormsListClient } from "./forms-client";
@@ -19,21 +18,17 @@ export default async function FormsPage() {
   ]);
   const isAdmin = session.user.role === "ADMIN";
   const isSupervisor = session.user.role === "SUPERVISOR";
-  const logicalForms = collapseFormFamilies(forms);
-
   return (
     <FormsListClient
-      forms={logicalForms.map((f) => ({
+      forms={forms.map((f) => ({
         id: f.id,
-        familyKey: f.familyKey,
-        evaluationFormId: f.evaluationFormId,
         title: f.title,
         description: f.description,
         campaignName: f.campaign.name,
         status: f.status,
         questionCount: f._count.questions,
         canEvaluate:
-          Boolean(f.evaluationFormId) &&
+          f.status === "PUBLISHED" &&
           f.campaign.active &&
           !isSupervisor &&
           (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),

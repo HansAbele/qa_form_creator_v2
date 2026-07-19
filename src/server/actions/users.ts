@@ -47,7 +47,7 @@ const SAFE_USER_SELECT = {
 function parseUserInput<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
   const parsed = schema.safeParse(input);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Datos de usuario inválidos");
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid user data");
   }
   return parsed.data;
 }
@@ -66,7 +66,7 @@ async function assertNotRemovingLastActiveAdmin(
     where: { id: { not: userId }, role: "ADMIN", active: true },
   });
   if (otherActiveAdmins === 0) {
-    throw new Error("No puedes desactivar o degradar al último QA Manager activo");
+    throw new Error("The last active QA Manager cannot be deactivated or demoted");
   }
 }
 
@@ -90,13 +90,13 @@ async function lockAndAssertActiveAdmin(
     select: { id: true },
   });
   if (!authoritativeActor) {
-    throw new Error("No autorizado: la cuenta de QA Manager ya no esta activa");
+    throw new Error("Unauthorized: the QA Manager account is no longer active");
   }
 }
 
 export async function getUsers() {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   return prisma.user.findMany({
     select: {
@@ -116,7 +116,7 @@ export async function getUsers() {
 
 export async function getUserById(id: string) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const user = await prisma.user.findUnique({
     where: { id },
@@ -132,7 +132,7 @@ export async function getUserById(id: string) {
     },
   });
 
-  if (!user) throw new Error("Usuario no encontrado");
+  if (!user) throw new Error("User not found");
   return user;
 }
 
@@ -144,7 +144,7 @@ export async function createUser(data: {
   campaignIds: string[];
 }) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const input = parseUserInput(createUserSchema, data);
   assertStrongPassword(input.password);
@@ -155,7 +155,7 @@ export async function createUser(data: {
     await lockAndAssertActiveAdmin(tx, session.user);
 
     const existing = await tx.user.findUnique({ where: { email: input.email } });
-    if (existing) throw new Error("Ya existe un usuario con ese email");
+    if (existing) throw new Error("A user with this email already exists");
 
     const newUser = await tx.user.create({
       data: {
@@ -192,7 +192,7 @@ export async function createUser(data: {
           role: newUser.role,
           campaignIds: input.campaignIds,
         },
-        impact: "Usuario creado y asignado a campanas iniciales.",
+        impact: "User created and assigned to initial campaigns.",
       },
       tx,
     );
@@ -217,7 +217,7 @@ export async function updateUser(
   },
 ) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const input = parseUserInput(updateUserSchema, data);
   if (input.password) assertStrongPassword(input.password);
@@ -247,10 +247,10 @@ export async function updateUser(
         campaigns: { select: { campaignId: true } },
       },
     });
-    if (!beforeUser) throw new Error("Usuario no encontrado");
+    if (!beforeUser) throw new Error("User not found");
 
     if (id === session.user.id && (input.role !== "ADMIN" || !input.active)) {
-      throw new Error("No puedes desactivar ni degradar tu propia cuenta de QA Manager");
+      throw new Error("You cannot deactivate or demote your own QA Manager account");
     }
     await assertNotRemovingLastActiveAdmin(tx, id, beforeUser, input);
 
@@ -259,7 +259,7 @@ export async function updateUser(
       select: { id: true },
     });
     if (emailOwner && emailOwner.id !== id) {
-      throw new Error("Ya existe un usuario con ese email");
+      throw new Error("A user with this email already exists");
     }
 
     const transactionUpdateData = { ...updateData };
@@ -334,7 +334,7 @@ export async function updateUser(
           campaignIds: input.campaignIds,
           passwordChanged: Boolean(input.password),
         },
-        impact: "Usuario y asignaciones de campana actualizados.",
+        impact: "User and campaign assignments updated.",
       },
       tx,
     );
@@ -355,7 +355,7 @@ export async function updateCampaignAccess(data: {
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
-    throw new Error("No autorizado");
+    throw new Error("Unauthorized");
   }
 
   const access = await prisma.$transaction(async (tx) => {
@@ -380,13 +380,13 @@ export async function updateCampaignAccess(data: {
       }),
     ]);
 
-    if (!user) throw new Error("Usuario no encontrado");
-    if (!campaign) throw new Error("Campaña no encontrada");
+    if (!user) throw new Error("User not found");
+    if (!campaign) throw new Error("Campaign not found");
     if (user.role === "ADMIN") {
-      throw new Error("Los QA Manager tienen acceso global");
+      throw new Error("QA Managers have global access");
     }
     if (!existingAccess) {
-      throw new Error("El usuario no está asignado a esta campaña");
+      throw new Error("User is not assigned to this campaign");
     }
 
     const rawPermissionPatch = Object.fromEntries(
@@ -421,7 +421,7 @@ export async function updateCampaignAccess(data: {
         entityId: `${data.userId}:${data.campaignId}`,
         beforeValue: existingAccess,
         afterValue: access,
-        impact: "Permisos efectivos de usuario modificados para la campana.",
+        impact: "Effective user permissions updated for the campaign.",
       },
       tx,
     );
@@ -435,10 +435,10 @@ export async function updateCampaignAccess(data: {
 
 export async function deleteUser(id: string) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   if (id === session.user.id) {
-    throw new Error("No puedes desactivar tu propia cuenta");
+    throw new Error("You cannot deactivate your own account");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -448,7 +448,7 @@ export async function deleteUser(id: string) {
       where: { id },
       select: { id: true, email: true, role: true, active: true },
     });
-    if (!beforeUser) throw new Error("Usuario no encontrado");
+    if (!beforeUser) throw new Error("User not found");
     await assertNotRemovingLastActiveAdmin(tx, id, beforeUser, {
       role: beforeUser.role,
       active: false,
@@ -468,7 +468,7 @@ export async function deleteUser(id: string) {
         entityId: id,
         beforeValue: beforeUser,
         afterValue: { id: user.id, email: user.email, active: user.active },
-        impact: "Usuario desactivado; se bloquea su acceso futuro.",
+        impact: "User deactivated; future access was blocked.",
       },
       tx,
     );

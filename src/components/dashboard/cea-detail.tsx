@@ -13,8 +13,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import {
   Table,
   TableBody,
@@ -23,8 +23,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { formatDateOnlyForDisplay } from "@/lib/date-display";
+import { cn } from "@/lib/utils";
 
 type Detail = Awaited<
   ReturnType<typeof import("@/server/queries/analytics").getCriticalErrorAccuracyDetail>
@@ -59,13 +60,15 @@ function AccCell({ v, target }: { v: number | null; target: number }) {
 }
 
 export function CeaDetail({ data }: { data: Detail }) {
+  const { locale, t } = useI18n();
   const chartAnimation = useChartAnimation();
+  const displayLocale = locale === "es" ? "es" : "en";
   const trendDescriptionId = useId();
   const header = (
     <CardHeader>
       <CardTitle className="flex items-center gap-2 text-base">
         <ShieldAlert className="h-4 w-4 text-rose-500" />
-        Precisión de Error Crítico (CEA)
+        {t("Critical Error Accuracy (CEA)")}
       </CardTitle>
     </CardHeader>
   );
@@ -76,9 +79,9 @@ export function CeaDetail({ data }: { data: Detail }) {
         {header}
         <CardContent>
           <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No hay preguntas marcadas como críticas (Customer / Business / Compliance) en el alcance
-            actual. Márcalas como fatales con su tipo COPC en el constructor de formularios para
-            activar el análisis CEA.
+            {t(
+              "No Critical Error Accuracy data is available for the current scope and period. Confirm that critical questions have a COPC type and that submitted evaluations exist.",
+            )}
           </div>
         </CardContent>
       </Card>
@@ -99,8 +102,10 @@ export function CeaDetail({ data }: { data: Detail }) {
           {data.overall.map((o) => (
             <div key={o.family} className="rounded-xl border p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">{FAMILY_LABEL[o.family]} CEA</span>
-                <span className="text-xs text-muted-foreground">Benchmark {o.target}%</span>
+                <span className="text-sm font-semibold">{t(FAMILY_LABEL[o.family])} CEA</span>
+                <span className="text-xs text-muted-foreground">
+                  {t("Benchmark")} {o.target}%
+                </span>
               </div>
               <p
                 className={cn(
@@ -112,8 +117,11 @@ export function CeaDetail({ data }: { data: Detail }) {
               </p>
               <p className="text-xs text-muted-foreground">
                 {o.configured
-                  ? `${o.applicable} evaluaciones · ${o.failedCount} con error`
-                  : "Sin preguntas de este tipo"}
+                  ? t("{count} evaluations · {failures} with errors", {
+                      count: o.applicable,
+                      failures: o.failedCount,
+                    })
+                  : t("No applicable evaluations")}
               </p>
             </div>
           ))}
@@ -122,15 +130,15 @@ export function CeaDetail({ data }: { data: Detail }) {
         {data.trend.length >= 2 && (
           <div
             role="img"
-            aria-label="Tendencia de precisión de error crítico por familia"
+            aria-label={t("Critical Error Accuracy trend by family")}
             aria-describedby={trendDescriptionId}
           >
-            <p className="mb-2 text-sm font-medium">Tendencia por familia</p>
+            <p className="mb-2 text-sm font-medium">{t("Trend by family")}</p>
             <p id={trendDescriptionId} className="sr-only">
               {data.trend
                 .map(
                   (item) =>
-                    `${formatDateOnlyForDisplay(item.date)}: Customer ${item.CUSTOMER ?? "sin datos"}%, Business ${item.BUSINESS ?? "sin datos"}%, Compliance ${item.COMPLIANCE ?? "sin datos"}%`,
+                    `${formatDateOnlyForDisplay(item.date, undefined, displayLocale)}: Customer ${item.CUSTOMER ?? t("No data")}%, Business ${item.BUSINESS ?? t("No data")}%, Compliance ${item.COMPLIANCE ?? t("No data")}%`,
                 )
                 .join("; ")}
             </p>
@@ -140,19 +148,25 @@ export function CeaDetail({ data }: { data: Detail }) {
                 <XAxis
                   dataKey="date"
                   tickFormatter={(v) =>
-                    formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                    formatDateOnlyForDisplay(
+                      String(v),
+                      { day: "2-digit", month: "short" },
+                      displayLocale,
+                    )
                   }
                   className="text-xs"
                 />
                 <YAxis domain={[yLo, 100]} className="text-xs" />
                 <Tooltip
-                  labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                  labelFormatter={(label) =>
+                    formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                  }
                   formatter={(value, name) => [
                     value === null ? "—" : `${Number(value).toFixed(1)}%`,
-                    FAMILY_LABEL[name as Fam] ?? name,
+                    t(FAMILY_LABEL[name as Fam] ?? name),
                   ]}
                 />
-                <Legend formatter={(value) => FAMILY_LABEL[value as Fam] ?? value} />
+                <Legend formatter={(value) => t(FAMILY_LABEL[value as Fam] ?? value)} />
                 {FAMILIES.map((f) => (
                   <ReferenceLine
                     key={`ref-${f}`}
@@ -181,14 +195,14 @@ export function CeaDetail({ data }: { data: Detail }) {
 
         <div className="grid gap-6 lg:grid-cols-2">
           <div>
-            <p className="mb-2 text-sm font-medium">Por campaña</p>
+            <p className="mb-2 text-sm font-medium">{t("By campaign")}</p>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Campaña</TableHead>
-                  <TableHead className="text-right">Customer</TableHead>
-                  <TableHead className="text-right">Business</TableHead>
-                  <TableHead className="text-right">Compliance</TableHead>
+                  <TableHead>{t("Campaign")}</TableHead>
+                  <TableHead className="text-right">{t("Customer")}</TableHead>
+                  <TableHead className="text-right">{t("Business")}</TableHead>
+                  <TableHead className="text-right">{t("Compliance")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -210,14 +224,14 @@ export function CeaDetail({ data }: { data: Detail }) {
             </Table>
           </div>
           <div>
-            <p className="mb-2 text-sm font-medium">Agentes con menor precisión</p>
+            <p className="mb-2 text-sm font-medium">{t("Agents with lowest accuracy")}</p>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Agente</TableHead>
-                  <TableHead className="text-right">Customer</TableHead>
-                  <TableHead className="text-right">Business</TableHead>
-                  <TableHead className="text-right">Compliance</TableHead>
+                  <TableHead>{t("Agent")}</TableHead>
+                  <TableHead className="text-right">{t("Customer")}</TableHead>
+                  <TableHead className="text-right">{t("Business")}</TableHead>
+                  <TableHead className="text-right">{t("Compliance")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -25,9 +25,7 @@ export function AnimatedNumber({
   className,
 }: AnimatedNumberProps) {
   const motionValue = useMotionValue(0);
-  const rounded = useTransform(motionValue, (latest) =>
-    latest.toFixed(decimals),
-  );
+  const rounded = useTransform(motionValue, (latest) => latest.toFixed(decimals));
   const [display, setDisplay] = useState("0");
 
   useEffect(() => {

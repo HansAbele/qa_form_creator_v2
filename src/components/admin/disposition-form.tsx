@@ -21,15 +21,13 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/components/providers/i18n-provider";
 import {
   DISPOSITION_OUTCOMES,
   type DispositionOutcomeValue,
-  OUTCOME_LABELS,
+  OUTCOME_LABELS_EN,
 } from "@/lib/disposition-outcome";
-import {
-  createDisposition,
-  updateDisposition,
-} from "@/server/actions/dispositions";
+import { createDisposition, updateDisposition } from "@/server/actions/dispositions";
 
 interface DispositionFormProps {
   disposition?: {
@@ -55,6 +53,7 @@ export function DispositionForm({
   onOpenChange,
 }: DispositionFormProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const isEdit = !!disposition;
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(disposition?.name ?? "");
@@ -95,7 +94,7 @@ export function DispositionForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      toast.error("El nombre es obligatorio");
+      toast.error(t("Name is required"));
       return;
     }
 
@@ -109,7 +108,7 @@ export function DispositionForm({
           active,
           outcomeType: outcomeValue,
         });
-        toast.success("Disposición actualizada");
+        toast.success(t("Disposition updated"));
       } else {
         await createDisposition({
           name: name.trim(),
@@ -118,12 +117,12 @@ export function DispositionForm({
           campaignId,
           outcomeType: outcomeValue,
         });
-        toast.success("Disposición creada");
+        toast.success(t("Disposition created"));
       }
       onOpenChange(false);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to save changes"));
     } finally {
       setSaving(false);
     }
@@ -133,45 +132,42 @@ export function DispositionForm({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>
-            {isEdit ? "Editar disposición" : "Nueva disposición"}
-          </DialogTitle>
+          <DialogTitle>{isEdit ? t("Edit disposition") : t("New disposition")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="disp-name">Nombre</Label>
+            <Label htmlFor="disp-name">{t("Name")}</Label>
             <Input
               id="disp-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ej: Venta Cerrada"
+              placeholder={t("Example: Closed Sale")}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="disp-code">Código (opcional)</Label>
+            <Label htmlFor="disp-code">{t("Code (optional)")}</Label>
             <Input
               id="disp-code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="Ej: VC-01"
+              placeholder={t("Example: CS-01")}
             />
           </div>
           <div className="space-y-2">
-            <Label>Categoría</Label>
-            <Select
-              value={categoryId}
-              onValueChange={(v) => v && setCategoryId(v)}
-            >
+            <Label>{t("Category")}</Label>
+            <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {(value: string | null) => {
-                    if (!value || value === "none") return "Sin categoría";
-                    return categories.find((c) => c.id === value)?.name ?? "Sin categoría";
+                    if (!value || value === "none") return t("No category");
+                    return (
+                      categories.find((category) => category.id === value)?.name ?? t("No category")
+                    );
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Sin categoría</SelectItem>
+                <SelectItem value="none">{t("No category")}</SelectItem>
                 {categories.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name}
@@ -181,48 +177,41 @@ export function DispositionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Resultado de la llamada</Label>
+            <Label>{t("Call outcome")}</Label>
             <Select value={outcomeType} onValueChange={(v) => v && setOutcomeType(v)}>
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {(value: string | null) => {
-                    if (!value || value === "none") return "Sin clasificar";
-                    return OUTCOME_LABELS[value as DispositionOutcomeValue] ?? value;
+                    if (!value || value === "none") return t("Unclassified");
+                    return t(OUTCOME_LABELS_EN[value as DispositionOutcomeValue] ?? value);
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Sin clasificar</SelectItem>
+                <SelectItem value="none">{t("Unclassified")}</SelectItem>
                 {DISPOSITION_OUTCOMES.map((outcome) => (
                   <SelectItem key={outcome} value={outcome}>
-                    {OUTCOME_LABELS[outcome]}
+                    {t(OUTCOME_LABELS_EN[outcome])}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Alimenta los KPIs de resolución (FCR) y escalación del dashboard.
+              {t("Used by Dashboard resolution (FCR) and escalation KPIs.")}
             </p>
           </div>
           {isEdit && (
             <div className="flex items-center gap-2">
-              <Switch
-                checked={active}
-                onCheckedChange={(v) => setActive(Boolean(v))}
-              />
-              <Label>Activa</Label>
+              <Switch checked={active} onCheckedChange={(v) => setActive(Boolean(v))} />
+              <Label>{t("Active")}</Label>
             </div>
           )}
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancelar
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Guardando..." : isEdit ? "Actualizar" : "Crear"}
+              {saving ? t("Saving...") : isEdit ? t("Update") : t("Create")}
             </Button>
           </DialogFooter>
         </form>

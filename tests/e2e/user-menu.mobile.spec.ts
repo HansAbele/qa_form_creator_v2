@@ -6,15 +6,16 @@ test.use({ storageState: QA_AUTH_STATE });
 test("user menu remains usable without horizontal overflow on mobile", async ({ page }) => {
   await page.goto("/");
 
-  const trigger = page.getByRole("button", { name: /Abrir men.* de usuario/ });
+  const trigger = page.getByRole("button", { name: /Open user menu|Abrir men.* de usuario/ });
   await expect(trigger).toBeVisible();
   await trigger.click();
 
   const menu = page.locator('[data-slot="dropdown-menu-content"]');
   await expect(menu).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: /Mi perfil/ })).toBeVisible();
-  await expect(page.getByRole("menuitemradio", { name: "Sistema" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: /Cerrar sesi/ })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /My account|Mi cuenta/ })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Preferences|Preferencias/ })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Sign out|Cerrar sesi/ })).toBeVisible();
+  await expect(page.getByRole("menuitemradio")).toHaveCount(0);
 
   const viewport = page.viewportSize();
   const menuBox = await menu.boundingBox();

@@ -8,102 +8,88 @@ test.describe("Navigation (QA Manager)", () => {
     await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 
-  test("should navigate to forms page", async ({ page }) => {
-    await page.getByRole("link", { name: "Formularios" }).click();
-    await expect(page.getByRole("heading", { name: "Formularios" })).toBeVisible();
+  test("navigates through the daily workspace", async ({ page }) => {
+    await page.getByRole("link", { name: "Forms" }).click();
+    await expect(page.getByRole("heading", { name: "Forms" })).toBeVisible();
+
+    await page.getByRole("link", { name: "Reports" }).click();
+    await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
   });
 
-  test("should navigate to reports page", async ({ page }) => {
-    await page.getByRole("link", { name: "Reportes" }).click();
-    await expect(page.getByRole("heading", { name: "Reportes" })).toBeVisible();
-  });
-
-  test("should expose evaluations from the primary navigation", async ({ page }) => {
-    const desktopNavigation = page.locator("#desktop-primary-navigation");
-    const primaryNavigation = desktopNavigation.getByRole("region", { name: "Principal" });
-
-    await expect(primaryNavigation.getByRole("link", { name: "Evaluaciones" })).toHaveAttribute(
-      "href",
-      "/evaluations",
-    );
+  test("exposes the current information architecture", async ({ page }) => {
+    const navigation = page.locator("#desktop-primary-navigation");
     await expect(
-      desktopNavigation
-        .getByRole("region", { name: "Configuración" })
-        .getByRole("link", { name: "Configuración de calidad" }),
+      navigation.getByRole("region", { name: "Workspace" }).getByRole("link", {
+        name: "Evaluations",
+      }),
+    ).toHaveAttribute("href", "/evaluations");
+    await expect(
+      navigation.getByRole("region", { name: "Settings" }).getByRole("link", {
+        name: "Settings",
+      }),
     ).toHaveAttribute("href", "/settings");
     await expect(
-      desktopNavigation
-        .getByRole("region", { name: "Operación" })
-        .getByRole("link", { name: "Gestionar agentes" }),
+      navigation.getByRole("region", { name: "Operations" }).getByRole("link", {
+        name: "Manage agents",
+      }),
     ).toHaveAttribute("href", "/operations/agents");
   });
 
-  test("should navigate to KPIs page", async ({ page }) => {
+  test("navigates through performance and administration", async ({ page }) => {
     await page.getByRole("link", { name: "KPIs" }).click();
-    await expect(page.getByRole("heading", { name: "KPIs por Campaña" })).toBeVisible();
-  });
+    await expect(page.getByRole("heading", { name: "Campaign KPIs" })).toBeVisible();
 
-  test("should navigate to agent performance page", async ({ page }) => {
-    const analyticsNavigation = page
-      .locator("#desktop-primary-navigation")
-      .getByRole("region", { name: "Analítica" });
-    await analyticsNavigation
-      .getByRole("link", { name: "Rendimiento de agentes", exact: true })
-      .click();
-    await expect(page.getByRole("heading", { name: "Rendimiento de Agentes" })).toBeVisible();
-  });
+    await page.goto("/analytics/agents");
+    await expect(page.getByRole("heading", { name: "Agent performance" })).toBeVisible();
 
-  test("should navigate to QA Manager users page", async ({ page }) => {
-    await page.getByRole("link", { name: "Usuarios" }).click();
-    await expect(page.getByRole("heading", { name: "Gestión de Usuarios" })).toBeVisible();
-  });
+    await page.goto("/admin/users");
+    await expect(page.getByRole("heading", { name: "User Management" })).toBeVisible();
 
-  test("should navigate to QA Manager campaigns page", async ({ page }) => {
-    await page.getByRole("link", { name: "Campañas" }).click();
-    await expect(page.getByRole("heading", { name: "Gestión de Campañas" })).toBeVisible();
+    await page.goto("/admin/campaigns");
+    await expect(page.getByRole("heading", { name: "Campaign Management" })).toBeVisible();
   });
 });
 
-test.describe("Navigation (QA - campaign scoped)", () => {
+test.describe("Navigation (campaign-scoped QA)", () => {
   test.use({ storageState: QA_AUTH_STATE });
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 
-  test("exposes daily read modules but hides QA Manager controls", async ({ page }) => {
-    const desktopNavigation = page.locator("#desktop-primary-navigation");
-    const analyticsNavigation = desktopNavigation.getByRole("region", { name: "Analítica" });
+  test("shows daily modules and hides QA Manager controls", async ({ page }) => {
+    const navigation = page.locator("#desktop-primary-navigation");
+    const performance = navigation.getByRole("region", { name: "Performance" });
 
-    await expect(page.getByRole("link", { name: "Usuarios" })).not.toBeVisible();
-    await expect(page.getByRole("link", { name: "Campañas" })).not.toBeVisible();
-    await expect(page.getByRole("link", { name: "Evaluaciones" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Reportes" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Users" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Campaigns" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Evaluations" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Reports" })).toBeVisible();
     await expect(page.getByRole("link", { name: "KPIs" })).toBeVisible();
-    await expect(
-      analyticsNavigation.getByRole("link", { name: "Rendimiento de agentes", exact: true }),
-    ).toHaveAttribute("href", "/analytics/agents");
-    await expect(
-      analyticsNavigation.getByRole("link", { name: "Rendimiento por equipos", exact: true }),
-    ).toHaveAttribute("href", "/analytics/teams");
-    await expect(
-      analyticsNavigation.getByRole("link", {
-        name: "Resultados por disposición",
-        exact: true,
-      }),
-    ).toHaveAttribute("href", "/analytics/dispositions");
-    await expect(page.getByRole("link", { name: "Gestionar agentes" })).not.toBeVisible();
-    await expect(page.getByRole("link", { name: "Gestionar equipos" })).not.toBeVisible();
-    await expect(page.getByRole("link", { name: "Gestionar disposiciones" })).not.toBeVisible();
+    await expect(performance.getByRole("link", { name: "Agents" })).toHaveAttribute(
+      "href",
+      "/analytics/agents",
+    );
+    await expect(performance.getByRole("link", { name: "Teams" })).toHaveAttribute(
+      "href",
+      "/analytics/teams",
+    );
+    await expect(performance.getByRole("link", { name: "Dispositions" })).toHaveAttribute(
+      "href",
+      "/analytics/dispositions",
+    );
+    await expect(page.getByRole("link", { name: "Manage agents" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Manage teams" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Manage dispositions" })).not.toBeVisible();
   });
 
-  test("should navigate to the assigned-campaign analytics modules", async ({ page }) => {
+  test("opens analytics only for the assigned campaign", async ({ page }) => {
     const destinations = [
-      ["/reports", "Reportes"],
-      ["/kpis", "KPIs por Campaña"],
-      ["/analytics/agents", "Rendimiento de Agentes"],
-      ["/analytics/teams", "Performance por Equipo"],
-      ["/analytics/dispositions", "Disposiciones"],
+      ["/reports", "Reports"],
+      ["/kpis", "Campaign KPIs"],
+      ["/analytics/agents", "Agent performance"],
+      ["/analytics/teams", "Team performance"],
+      ["/analytics/dispositions", "Dispositions"],
     ] as const;
 
     for (const [route, heading] of destinations) {
@@ -113,7 +99,7 @@ test.describe("Navigation (QA - campaign scoped)", () => {
     }
   });
 
-  test("should redirect from QA Manager page to home", async ({ page }) => {
+  test("redirects global administration to home", async ({ page }) => {
     await page.goto("/admin/users");
     await expect(page).toHaveURL("/");
   });

@@ -10,9 +10,10 @@ import {
   startOfMonth,
   subMonths,
 } from "date-fns";
-import { es } from "date-fns/locale";
+import { enUS, es } from "date-fns/locale";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import {
   addOperationalCalendarDays,
   formatOperationalDate,
@@ -22,16 +23,10 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DEFAULT_LOCALE, translate, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-export type DateRangePreset =
-  | "hoy"
-  | "este_mes"
-  | "mes_anterior"
-  | "7"
-  | "30"
-  | "90"
-  | "todo";
+export type DateRangePreset = "hoy" | "este_mes" | "mes_anterior" | "7" | "30" | "90" | "todo";
 
 interface DateRangeFilterProps {
   /** Committed range, ISO `yyyy-MM-dd` or empty for all available history. */
@@ -47,14 +42,14 @@ interface DateRangeFilterProps {
   disabled?: boolean;
 }
 
-const SHORTCUTS: { key: DateRangePreset; label: string }[] = [
-  { key: "hoy", label: "Hoy" },
-  { key: "este_mes", label: "Este mes" },
-  { key: "mes_anterior", label: "Mes anterior" },
-  { key: "7", label: "Últimos 7 días" },
-  { key: "30", label: "Últimos 30 días" },
-  { key: "90", label: "Últimos 90 días" },
-  { key: "todo", label: "Todo el periodo" },
+const SHORTCUTS: { key: DateRangePreset; message: string }[] = [
+  { key: "hoy", message: "Today" },
+  { key: "este_mes", message: "This month" },
+  { key: "mes_anterior", message: "Previous month" },
+  { key: "7", message: "Last 7 days" },
+  { key: "30", message: "Last 30 days" },
+  { key: "90", message: "Last 90 days" },
+  { key: "todo", message: "All time" },
 ];
 
 const isoOf = (date: Date) => format(date, "yyyy-MM-dd");
@@ -94,20 +89,35 @@ function activePreset(from: string, to: string, timeZone: string): DateRangePres
   return null;
 }
 
+function formatRangeDate(date: Date, includeYear: boolean, locale: Locale) {
+  const pattern =
+    locale === "es" ? `d MMM${includeYear ? " yyyy" : ""}` : `MMM d${includeYear ? ", yyyy" : ""}`;
+  return format(date, pattern, { locale: locale === "es" ? es : enUS });
+}
+
 /** Shared, human-readable label for every date-range control and active-filter badge. */
-export function dateRangeLabel(from: string, to: string, operationalToday?: string): string {
+export function dateRangeLabel(
+  from: string,
+  to: string,
+  operationalToday?: string,
+  locale: Locale = DEFAULT_LOCALE,
+): string {
   const start = parseDate(from);
   const end = parseDate(to);
-  if (!start && !end) return "Todo el periodo";
+  if (!start && !end) return translate(locale, "All time");
   if (start && end && isSameDay(start, end)) {
-    const day = format(start, "d MMM", { locale: es });
-    return operationalToday === from ? `Hoy · ${day}` : day;
+    const day = formatRangeDate(start, false, locale);
+    return operationalToday === from ? translate(locale, "Today · {date}", { date: day }) : day;
   }
   if (start && end) {
-    return `${format(start, "d MMM", { locale: es })} – ${format(end, "d MMM yyyy", { locale: es })}`;
+    return `${formatRangeDate(start, false, locale)} – ${formatRangeDate(end, true, locale)}`;
   }
-  if (start) return `Desde ${format(start, "d MMM yyyy", { locale: es })}`;
-  return `Hasta ${format(end as Date, "d MMM yyyy", { locale: es })}`;
+  if (start) {
+    return translate(locale, "From {date}", { date: formatRangeDate(start, true, locale) });
+  }
+  return translate(locale, "Until {date}", {
+    date: formatRangeDate(end as Date, true, locale),
+  });
 }
 
 export function DateRangeFilter({
@@ -121,6 +131,7 @@ export function DateRangeFilter({
   align = "end",
   disabled = false,
 }: DateRangeFilterProps) {
+  const { locale, t } = useI18n();
   const operationalTimeZone = useOperationalTimeZone();
   const operationalToday = formatOperationalDate(new Date(), operationalTimeZone);
   const [open, setOpen] = useState(false);
@@ -173,8 +184,10 @@ export function DateRangeFilter({
   );
   const committedPreset = activePreset(from, to, operationalTimeZone);
   const currentLabel =
-    SHORTCUTS.find((shortcut) => shortcut.key === committedPreset)?.label ??
-    dateRangeLabel(from, to, operationalToday);
+    SHORTCUTS.find((shortcut) => shortcut.key === committedPreset)?.message ?? null;
+  const localizedCurrentLabel = currentLabel
+    ? t(currentLabel)
+    : dateRangeLabel(from, to, operationalToday, locale);
 
   return (
     <div className={cn("min-w-0 space-y-1", className)}>
@@ -192,11 +205,11 @@ export function DateRangeFilter({
             "flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-[11px] border border-border bg-card px-3 text-sm font-medium shadow-sm outline-none transition-colors hover:border-primary focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
             triggerClassName,
           )}
-          aria-label={`${label ?? "Periodo"}: ${currentLabel}`}
+          aria-label={`${label ?? t("Period")}: ${localizedCurrentLabel}`}
         >
           <span className="flex min-w-0 items-center gap-2">
             <CalendarDays className="h-4 w-4 shrink-0 text-primary" />
-            <span className="truncate tabular-nums">{currentLabel}</span>
+            <span className="truncate tabular-nums">{localizedCurrentLabel}</span>
           </span>
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
         </PopoverTrigger>
@@ -218,7 +231,7 @@ export function DateRangeFilter({
                     : "text-foreground",
                 )}
               >
-                {shortcut.label}
+                {t(shortcut.message)}
               </button>
             ))}
           </div>
@@ -237,11 +250,12 @@ export function DateRangeFilter({
                       isoOf(draftFrom),
                       draftTo ? isoOf(draftTo) : "",
                       operationalToday,
+                      locale,
                     )
-                  : "Selecciona un rango"}
+                  : t("Select a range")}
               </span>
               <Button type="button" size="sm" onClick={apply}>
-                Aplicar
+                {t("Apply")}
               </Button>
             </div>
           </div>

@@ -32,6 +32,20 @@ export const OUTCOME_LABELS: Record<DispositionOutcomeValue, string> = {
   OTHER: "Otro",
 };
 
+export const OUTCOME_LABELS_EN: Record<DispositionOutcomeValue, string> = {
+  RESOLVED: "Resolved (FCR)",
+  ESCALATED: "Escalated to supervisor",
+  TRANSFERRED: "Transferred",
+  FOLLOW_UP: "Follow-up",
+  CALLBACK: "Callback",
+  SALE: "Sale",
+  NO_SALE: "No sale",
+  NO_CONTACT: "No contact",
+  DNC: "Do not contact",
+  SYSTEM: "System",
+  OTHER: "Other",
+};
+
 /** COPC: first-contact resolution. Transfers/escalations are NOT resolutions. */
 export function isResolvedOutcome(outcome?: string | null): boolean {
   return outcome === "RESOLVED";

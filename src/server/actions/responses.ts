@@ -12,7 +12,6 @@ import { RESPONSE_STATUS, submittedResponseWhere } from "@/lib/response-status";
 import { computeScore, type ScoringQuestion, type WeightedOption } from "@/lib/scoring";
 import { getCampaignScoringSettings } from "@/lib/settings";
 import { writeAuditLog } from "@/server/audit-log";
-import { emitNotification } from "@/server/notifications";
 import {
   getCampaignFilterForPermission,
   hasCampaignPermissionForUser,
@@ -21,9 +20,9 @@ import {
 const MAX_ANSWERS_PER_SUBMISSION = 500;
 const MAX_ANSWER_LENGTH = 10_000;
 const CONCURRENT_RESPONSE_CHANGE_ERROR =
-  "La evaluacion fue modificada por otra sesion. Recarga la pagina e intenta nuevamente";
-const RESPONSE_UNAVAILABLE_MESSAGE = "Evaluacion no disponible";
-const FORM_UNAVAILABLE_MESSAGE = "Formulario no disponible";
+  "The evaluation was modified in another session. Reload the page and try again";
+const RESPONSE_UNAVAILABLE_MESSAGE = "Evaluation unavailable";
+const FORM_UNAVAILABLE_MESSAGE = "Form unavailable";
 
 type ResponseActionErrorCode = "CONFLICT" | "VALIDATION" | "NOT_FOUND" | "INVALID_STATE";
 
@@ -65,7 +64,7 @@ async function toResponseActionResult<T>(
     if (error instanceof z.ZodError) {
       return {
         ok: false,
-        error: { code: "VALIDATION", message: "Datos de evaluacion invalidos" },
+        error: { code: "VALIDATION", message: "Invalid evaluation data" },
       };
     }
     throw error;
@@ -105,14 +104,14 @@ const responseMutationSchema = z
       context.addIssue({
         code: "custom",
         path: ["expectedUpdatedAt"],
-        message: "expectedUpdatedAt es requerido al actualizar una evaluacion",
+        message: "expectedUpdatedAt is required when updating an evaluation",
       });
     }
     if (!input.responseId && !input.clientResponseId) {
       context.addIssue({
         code: "custom",
         path: ["clientResponseId"],
-        message: "clientResponseId es requerido al crear una evaluacion",
+        message: "clientResponseId is required when creating an evaluation",
       });
     }
   });
@@ -121,7 +120,7 @@ const cancelResponseSchema = z
   .object({
     id: z.string().trim().min(1),
     expectedUpdatedAt: z.string().datetime({ offset: true }),
-    reason: z.string().trim().min(3, "La razon de anulacion es requerida").max(1000),
+    reason: z.string().trim().min(3, "A cancellation reason is required").max(1000),
   })
   .strict();
 
@@ -308,7 +307,7 @@ function normalizeResponseMutationResult(response: ResponseMutationRecord, repla
 
 export async function getResponses(formId?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermission("canViewReports");
 
@@ -343,7 +342,7 @@ export async function getResponses(formId?: string) {
 
 export async function getResponseById(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const response = await prisma.response.findUnique({
     where: {
@@ -394,7 +393,7 @@ export async function getResponseById(id: string) {
     failResponseUnavailable();
   }
   if (response.status === RESPONSE_STATUS.CANCELLED) {
-    throw new Error("No se puede editar una evaluacion anulada");
+    throw new Error("A cancelled evaluation cannot be edited");
   }
 
   return {
@@ -410,7 +409,7 @@ export async function getResponseById(id: string) {
 function parseResponseMutationInput(data: unknown): ResponseMutationInput {
   const result = responseMutationSchema.safeParse(data);
   if (!result.success) {
-    failResponseAction("VALIDATION", "Datos de evaluacion invalidos");
+    failResponseAction("VALIDATION", "Invalid evaluation data");
   }
 
   return result.data;
@@ -474,7 +473,7 @@ function validateAnswerValue(
   const value = answer?.value ?? "";
 
   if (options.requireComplete && question.required && !value) {
-    failResponseAction("VALIDATION", "Hay preguntas requeridas sin responder");
+    failResponseAction("VALIDATION", "Some required questions are unanswered");
   }
 
   if (!value) return;
@@ -486,7 +485,7 @@ function validateAnswerValue(
       const max = question.ratingMax && question.ratingMax > 0 ? question.ratingMax : 5;
       const numericValue = Number(value);
       if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > max) {
-        failResponseAction("VALIDATION", "Respuesta de rating fuera de rango");
+        failResponseAction("VALIDATION", "Rating answer is outside the allowed range");
       }
       return;
     }
@@ -495,7 +494,7 @@ function validateAnswerValue(
     case "BOOLEAN": {
       const questionOptions = getOptionValues(question.options);
       if (questionOptions.length > 0 && !questionOptions.includes(value)) {
-        failResponseAction("VALIDATION", "Respuesta no pertenece a las opciones del formulario");
+        failResponseAction("VALIDATION", "The answer is not one of the form options");
       }
       return;
     }
@@ -514,10 +513,10 @@ function sanitizeAnswers(
   for (const inputAnswer of inputAnswers) {
     const question = questionsById.get(inputAnswer.questionId);
     if (!question) {
-      failResponseAction("VALIDATION", "Respuesta no pertenece al formulario");
+      failResponseAction("VALIDATION", "The answer does not belong to the form");
     }
     if (answersByQuestionId.has(inputAnswer.questionId)) {
-      failResponseAction("VALIDATION", "Respuesta duplicada para una pregunta");
+      failResponseAction("VALIDATION", "Duplicate answer for a question");
     }
 
     const answer = {
@@ -762,7 +761,7 @@ async function saveEvaluation(
   status: typeof RESPONSE_STATUS.DRAFT | typeof RESPONSE_STATUS.SUBMITTED,
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   const input = parseResponseMutationInput(data);
 
   const existing = input.responseId
@@ -788,12 +787,12 @@ async function saveEvaluation(
   if (!form) failFormUnavailable();
 
   if (existing?.status === RESPONSE_STATUS.CANCELLED) {
-    failResponseAction("INVALID_STATE", "No se puede modificar una evaluacion anulada");
+    failResponseAction("INVALID_STATE", "A cancelled evaluation cannot be modified");
   }
   if (existing && status === RESPONSE_STATUS.DRAFT && existing.status !== RESPONSE_STATUS.DRAFT) {
     failResponseAction(
       "INVALID_STATE",
-      "Solo se pueden guardar borradores sobre evaluaciones en borrador",
+      "Draft changes can only be saved for draft evaluations",
     );
   }
 
@@ -808,14 +807,14 @@ async function saveEvaluation(
     status === RESPONSE_STATUS.SUBMITTED && existing?.status === RESPONSE_STATUS.SUBMITTED;
 
   if (form.status !== "PUBLISHED" && !(isHistoricalCorrection && form.status === "ARCHIVED")) {
-    failResponseAction("INVALID_STATE", "Solo se puede evaluar un formulario publicado");
+    failResponseAction("INVALID_STATE", "Only a published form can be evaluated");
   }
   if (!form.campaign.active && !isHistoricalCorrection) {
-    failResponseAction("INVALID_STATE", "No se puede evaluar una campana inactiva");
+    failResponseAction("INVALID_STATE", "An inactive campaign cannot be evaluated");
   }
 
   if (input.answers.length > form.questions.length) {
-    failResponseAction("VALIDATION", "La evaluacion contiene respuestas no validas");
+    failResponseAction("VALIDATION", "The evaluation contains invalid answers");
   }
 
   const [agent, disposition, scoringSettings] = await Promise.all([
@@ -834,7 +833,7 @@ async function saveEvaluation(
 
   const keepsHistoricalAgent = isHistoricalCorrection && input.agentId === existing?.agentId;
   if (!agent || agent.campaignId !== form.campaignId || (!agent.active && !keepsHistoricalAgent)) {
-    failResponseAction("VALIDATION", "Agente invalido para esta campana");
+    failResponseAction("VALIDATION", "Invalid agent for this campaign");
   }
 
   const keepsHistoricalDisposition =
@@ -846,7 +845,7 @@ async function saveEvaluation(
         disposition.campaignId !== form.campaignId ||
         (!disposition.active && !keepsHistoricalDisposition)))
   ) {
-    failResponseAction("VALIDATION", "Disposicion invalida para esta campana");
+    failResponseAction("VALIDATION", "Invalid disposition for this campaign");
   }
 
   const scoringPolicy = resolveResponseScoringPolicy(existing, scoringSettings);
@@ -875,7 +874,7 @@ async function saveEvaluation(
   );
 
   if (requireComplete && scoreResult.blockers > 0) {
-    failResponseAction("VALIDATION", "Hay preguntas que requieren comentario al fallar");
+    failResponseAction("VALIDATION", "Some failed questions require a comment");
   }
 
   // Fold per-question scoring (fatal fail + item score) back into the answers.
@@ -1018,7 +1017,7 @@ async function saveEvaluation(
             impact:
               status === RESPONSE_STATUS.DRAFT
                 ? "Borrador guardado; no impacta Dashboard, KPIs, reportes ni exportaciones."
-                : "Evaluacion incluida o actualizada en Dashboard, KPIs, reportes y exportaciones.",
+                : "Evaluation included or updated in Dashboard, KPIs, reports, and exports.",
           },
           tx,
         );
@@ -1046,7 +1045,7 @@ async function saveEvaluation(
         if (!isSameCreateContext(replayedResponse, input, session.user.id, status)) {
           failResponseAction(
             "INVALID_STATE",
-            "El identificador de evaluacion ya fue usado en otro contexto",
+            "The evaluation identifier was already used in another context",
           );
         }
         return { response: replayedResponse, replayed: true };
@@ -1055,46 +1054,6 @@ async function saveEvaluation(
     }
   })();
   const { response, replayed } = persistence;
-
-  const previousWasFailed =
-    existing?.status === RESPONSE_STATUS.SUBMITTED &&
-    (existing.hasFatalFail ||
-      existing.result === "FAIL" ||
-      (existing.result !== "PASS" &&
-        existing.result !== "FAIL" &&
-        Number(existing.score) < scoringPolicy.passThreshold));
-  const shouldNotifyFailure =
-    !replayed &&
-    status === RESPONSE_STATUS.SUBMITTED &&
-    (hasFatalFail || result === "FAIL") &&
-    (!previousWasFailed || (hasFatalFail && !existing?.hasFatalFail));
-
-  if (shouldNotifyFailure) {
-    const fatalAnswerCount = sanitizedAnswers.filter((answer) => answer.isFatalFail).length;
-    await emitNotification({
-      type: hasFatalFail ? "fatal_evaluation" : "evaluation_failed",
-      severity: hasFatalFail ? "CRITICAL" : "WARNING",
-      campaignId: form.campaignId,
-      permission: "canViewReports",
-      title: hasFatalFail ? "Evaluacion con falla fatal" : "Evaluacion bajo umbral",
-      body: `${agent.name ?? "Agente"}${agent.agentCode ? ` (${agent.agentCode})` : ""} obtuvo ${score.toFixed(
-        1,
-      )}% en ${form.title}.`,
-      href: `/evaluations/${response.id}`,
-      entityType: "response",
-      entityId: response.id,
-      metadata: {
-        formId: form.id,
-        formTitle: form.title,
-        campaignName: form.campaign?.name ?? null,
-        score,
-        result,
-        hasFatalFail,
-        fatalAnswerCount,
-        passThreshold: scoringPolicy.passThreshold,
-      },
-    });
-  }
 
   revalidateEvaluationPaths();
   return normalizeResponseMutationResult(response, replayed);
@@ -1118,10 +1077,10 @@ export async function submitResponseAction(data: unknown) {
 
 export async function cancelResponse(data: unknown) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const parsedInput = cancelResponseSchema.safeParse(data);
-  if (!parsedInput.success) failResponseAction("VALIDATION", "Datos de anulacion invalidos");
+  if (!parsedInput.success) failResponseAction("VALIDATION", "Invalid cancellation data");
   const input = parsedInput.data;
   const existing = await loadExistingResponse(input.id, session.user, "CANCEL");
   if (!existing) failResponseUnavailable();
@@ -1129,7 +1088,7 @@ export async function cancelResponse(data: unknown) {
   await assertResponsePermissionOrUnavailable(session.user, existing, "CANCEL");
   if (!hasMutationResponseIntegrity(existing)) failResponseUnavailable();
   if (existing.status === RESPONSE_STATUS.CANCELLED) {
-    failResponseAction("INVALID_STATE", "La evaluacion ya esta anulada");
+    failResponseAction("INVALID_STATE", "The evaluation is already cancelled");
   }
   if (new Date(input.expectedUpdatedAt).getTime() !== existing.updatedAt.getTime()) {
     failResponseAction("CONFLICT", CONCURRENT_RESPONSE_CHANGE_ERROR);
@@ -1168,7 +1127,7 @@ export async function cancelResponse(data: unknown) {
               cancelledById: session.user.id,
               cancellationReason: input.reason,
             },
-            impact: "Evaluacion anulada y excluida de Dashboard, KPIs, reportes y exportaciones.",
+            impact: "Evaluation cancelled and excluded from Dashboard, KPIs, reports, and exports.",
           },
           tx,
         );
@@ -1181,23 +1140,6 @@ export async function cancelResponse(data: unknown) {
       throw error;
     }
   })();
-
-  await emitNotification({
-    type: "evaluation_cancelled",
-    severity: "WARNING",
-    campaignId: existing.form.campaignId,
-    permission: "canViewReports",
-    title: "Evaluacion anulada",
-    body: `Una evaluacion fue anulada: ${input.reason}`,
-    href: `/evaluations/${existing.id}`,
-    entityType: "response",
-    entityId: existing.id,
-    metadata: {
-      reason: input.reason,
-      cancelledById: session.user.id,
-      cancelledAt: cancelledAt.toISOString(),
-    },
-  });
 
   revalidateEvaluationPaths();
   return normalizeResponseMutationResult(response, false);

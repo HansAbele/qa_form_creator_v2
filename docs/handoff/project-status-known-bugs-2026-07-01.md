@@ -2,6 +2,8 @@
 
 Last updated: 2026-07-01
 
+> Actualización de vigencia (2026-07-17): las referencias a notificaciones in-app son históricas. La capacidad fue retirada completamente y `AuditLog` permanece como fuente durable de trazabilidad.
+
 Este documento resume el estado actual de Qore / QA Form Creator para continuar el trabajo en una conversacion nueva de Codex sin perder contexto.
 
 ## Objetivo del proyecto
@@ -376,4 +378,3 @@ pnpm exec biome lint .
 ```text
 Lee docs/handoff/project-status-known-bugs-2026-07-01.md y continua desde ahi. No hagas git reset ni reviertas cambios locales. Quiero corregir el modulo Formularios/Evaluaciones: 4/5 no debe contar como fallo si supera el passThreshold de campana, los critical/fatal deben marcarse visualmente al seleccionarlos, y debemos decidir si bloqueamos fatal en RATING hasta tener umbral explicito.
 ```
-

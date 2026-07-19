@@ -1,5 +1,5 @@
-import { PrismaClient } from "@prisma/client";
 import { expect, test } from "@playwright/test";
+import { PrismaClient } from "@prisma/client";
 import { ADMIN_AUTH_STATE, QA_AUTH_STATE } from "./auth-state";
 
 const COACHING_RESPONSE_ID = "e2e-coaching-response";
@@ -91,14 +91,14 @@ test.describe("historial mensual del QA", () => {
   test("mantiene la actividad propia y no expone el filtro de evaluador", async ({ page }) => {
     await page.goto("/evaluations?scope=own");
 
-    await expect(page.getByRole("heading", { name: "Evaluaciones" })).toBeVisible();
-    await expect(page.getByText("Solo tu actividad", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Agente")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Evaluations" })).toBeVisible();
+    await expect(page.getByText("Your activity only", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Agent")).toBeVisible();
     await expect(page.locator('label[for="evaluations-evaluator"]')).toHaveCount(0);
 
-    await page.getByRole("button", { name: /^Periodo:/ }).click();
-    await expect(page.getByRole("button", { name: "Este mes" })).toBeVisible();
-    await page.getByText("Mes anterior", { exact: true }).click();
+    await page.getByRole("button", { name: /^Period:/ }).click();
+    await expect(page.getByRole("button", { name: "This month" })).toBeVisible();
+    await page.getByText("Previous month", { exact: true }).click();
 
     await expect(page).toHaveURL(/dateFrom=\d{4}-\d{2}-01/);
     await expect(page).toHaveURL(/dateTo=\d{4}-\d{2}-\d{2}/);
@@ -107,8 +107,8 @@ test.describe("historial mensual del QA", () => {
   test("permite revisar la campaña asignada y abrir el detalle para coaching", async ({ page }) => {
     await page.goto("/evaluations?scope=managed");
 
-    await expect(page.getByText("Alcance administrado", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Evaluador")).toBeVisible();
+    await expect(page.getByText("Managed scope", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Evaluator")).toBeVisible();
 
     const campaignFilter = page.getByLabel(/Campa/);
     await campaignFilter.click();
@@ -119,7 +119,7 @@ test.describe("historial mensual del QA", () => {
     await page.keyboard.press("Escape");
 
     const coachingLink = page.locator(`a[href="/evaluations/${COACHING_RESPONSE_ID}"]`, {
-      hasText: "Ver evaluación",
+      hasText: "View evaluation",
     });
     const coachingRow = coachingLink.locator("xpath=ancestor::tr");
     await expect(coachingRow).toBeVisible();
@@ -132,8 +132,10 @@ test.describe("historial mensual del QA", () => {
     await expect(page.getByText("88.0%", { exact: true })).toBeVisible();
     await expect(page.getByText("QA Evaluator", { exact: true })).toBeVisible();
     await expect(page.getByText(COACHING_COMMENT, { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Editar", exact: true })).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Anular", exact: true })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).not.toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Cancel evaluation", exact: true }),
+    ).not.toBeVisible();
   });
 });
 
@@ -143,12 +145,12 @@ test.describe("historial administrado", () => {
   test("permite filtrar por evaluador dentro del alcance administrado", async ({ page }) => {
     await page.goto("/evaluations?scope=managed");
 
-    await expect(page.getByRole("heading", { name: "Evaluaciones" })).toBeVisible();
-    await expect(page.getByText("Alcance administrado", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Agente")).toBeVisible();
-    await expect(page.getByLabel("Evaluador")).toBeVisible();
-    await expect(page.getByLabel("Formulario")).toBeVisible();
-    await expect(page.getByLabel("Disposición")).toBeVisible();
-    await expect(page.getByText("Solo fatales", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Evaluations" })).toBeVisible();
+    await expect(page.getByText("Managed scope", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Agent")).toBeVisible();
+    await expect(page.getByLabel("Evaluator")).toBeVisible();
+    await expect(page.getByLabel("Form")).toBeVisible();
+    await expect(page.getByLabel("Disposition")).toBeVisible();
+    await expect(page.getByText("Critical failures only", { exact: true })).toBeVisible();
   });
 });

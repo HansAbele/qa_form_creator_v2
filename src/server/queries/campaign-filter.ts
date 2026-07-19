@@ -11,7 +11,7 @@ type SessionUser = Session["user"];
 type CampaignFilter = { campaignId?: string | { in: string[] } };
 
 export class CampaignAuthorizationError extends Error {
-  constructor(message = "No autorizado para esta accion") {
+  constructor(message = "Unauthorized for this action") {
     super(message);
     this.name = "CampaignAuthorizationError";
   }
@@ -21,7 +21,7 @@ export function assertCampaignAccessForUser(user: SessionUser, campaignId: strin
   if (user.role === "ADMIN") return;
 
   if (!user.campaignIds.includes(campaignId)) {
-    throw new CampaignAuthorizationError("No autorizado para esta campana");
+    throw new CampaignAuthorizationError("Unauthorized for this campaign");
   }
 }
 
@@ -72,7 +72,7 @@ export async function assertCampaignPermissionsForUser(
     isSupervisorRole(user.role) &&
     permissions.some((permission) => isSupervisorBlockedPermission(permission))
   ) {
-    throw new CampaignAuthorizationError("No autorizado para esta accion en esta campana");
+    throw new CampaignAuthorizationError("Unauthorized for this action in this campaign");
   }
 
   assertCampaignAccessForUser(user, campaignId);
@@ -87,7 +87,7 @@ export async function assertCampaignPermissionsForUser(
   });
 
   if (!access || permissions.some((permission) => !access[permission])) {
-    throw new CampaignAuthorizationError("No autorizado para esta accion en esta campana");
+    throw new CampaignAuthorizationError("Unauthorized for this action in this campaign");
   }
 }
 

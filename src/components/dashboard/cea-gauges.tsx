@@ -1,6 +1,7 @@
 "use client";
 
 import { ShieldAlert } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -14,13 +15,10 @@ export type CeaFamily = {
   configured: boolean;
 };
 
-const FAMILY_META: Record<
-  CeaFamily["family"],
-  { title: string; description: string }
-> = {
-  CUSTOMER: { title: "Customer CEA", description: "Errores que afectan al cliente" },
-  BUSINESS: { title: "Business CEA", description: "Errores de proceso o negocio" },
-  COMPLIANCE: { title: "Compliance CEA", description: "Errores de cumplimiento" },
+const FAMILY_META: Record<CeaFamily["family"], { title: string; description: string }> = {
+  CUSTOMER: { title: "Customer CEA", description: "Errors affecting the customer" },
+  BUSINESS: { title: "Business CEA", description: "Process or business errors" },
+  COMPLIANCE: { title: "Compliance CEA", description: "Compliance errors" },
 };
 
 const STATUS_META: Record<
@@ -28,25 +26,25 @@ const STATUS_META: Record<
   { label: string; ring: string; text: string; badge: string }
 > = {
   "en objetivo": {
-    label: "En objetivo",
+    label: "On target",
     ring: "#12A277",
     text: "text-emerald-600 dark:text-emerald-400",
     badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   },
   "en riesgo": {
-    label: "En riesgo",
+    label: "At risk",
     ring: "#E8931A",
     text: "text-amber-600 dark:text-amber-400",
     badge: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
   },
   "bajo benchmark": {
-    label: "Bajo benchmark",
+    label: "Below benchmark",
     ring: "#EC456A",
     text: "text-rose-600 dark:text-rose-400",
     badge: "bg-rose-500/10 text-rose-700 dark:text-rose-400",
   },
   "no configurado": {
-    label: "No configurado",
+    label: "No data",
     ring: "#94a3b8",
     text: "text-muted-foreground",
     badge: "bg-muted text-muted-foreground",
@@ -54,14 +52,20 @@ const STATUS_META: Record<
 };
 
 function Ring({ value, color }: { value: number | null; color: string }) {
+  const { t } = useI18n();
   const r = 42;
   const c = 2 * Math.PI * r;
   const pct = value === null ? 0 : Math.max(0, Math.min(100, value));
   const offset = c * (1 - pct / 100);
   return (
     <div className="relative h-28 w-28 shrink-0">
-      <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" role="img" aria-label="Medidor de precisión de error crítico">
-        <title>Medidor de precisión de error crítico</title>
+      <svg
+        viewBox="0 0 100 100"
+        className="h-full w-full -rotate-90"
+        role="img"
+        aria-label={t("Critical Error Accuracy gauge")}
+      >
+        <title>{t("Critical Error Accuracy gauge")}</title>
         <circle cx="50" cy="50" r={r} fill="none" strokeWidth="9" className="stroke-muted" />
         <circle
           cx="50"
@@ -90,17 +94,11 @@ function Ring({ value, color }: { value: number | null; color: string }) {
   );
 }
 
-function Gauge({
-  item,
-  onViewIncidents,
-}: {
-  item: CeaFamily;
-  onViewIncidents?: () => void;
-}) {
+function Gauge({ item, onViewIncidents }: { item: CeaFamily; onViewIncidents?: () => void }) {
+  const { t } = useI18n();
   const meta = FAMILY_META[item.family];
   const status = STATUS_META[item.status];
-  const delta =
-    item.configured && item.accuracy !== null ? item.accuracy - item.target : null;
+  const delta = item.configured && item.accuracy !== null ? item.accuracy - item.target : null;
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border bg-card p-4 text-center">
       <Ring value={item.accuracy} color={status.ring} />
@@ -114,13 +112,13 @@ function Gauge({
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">{meta.description}</p>
+        <p className="text-xs text-muted-foreground">{t(meta.description)}</p>
       </div>
       <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-semibold", status.badge)}>
-        {status.label}
+        {t(status.label)}
       </span>
       <p className="text-[11px] text-muted-foreground">
-        {item.configured ? `Benchmark ${item.target}%` : "Sin preguntas de este tipo"}
+        {item.configured ? `Benchmark ${item.target}%` : t("No applicable evaluations")}
       </p>
       {item.family === "COMPLIANCE" && item.configured && onViewIncidents && (
         <button
@@ -128,7 +126,7 @@ function Gauge({
           onClick={onViewIncidents}
           className="text-xs font-semibold text-[hsl(var(--tno-orange))] hover:underline"
         >
-          Ver incidencias →
+          {t("View incidents")} →
         </button>
       )}
     </div>
@@ -142,12 +140,13 @@ export function CeaGauges({
   data: CeaFamily[];
   onViewIncidents?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <ShieldAlert className="h-4 w-4 text-rose-500" />
-          Riesgo crítico — Precisión de Error Crítico (CEA)
+          {t("Critical risk — Critical Error Accuracy (CEA)")}
         </CardTitle>
       </CardHeader>
       <CardContent>

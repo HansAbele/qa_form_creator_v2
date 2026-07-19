@@ -140,10 +140,12 @@ async function waitForBlockedFormActions(admin: PrismaClient, expectedCount: num
 async function runBehindFamilyLock<T>({
   admin,
   lockClient,
+  lockId,
   startAttempts,
 }: {
   admin: PrismaClient;
   lockClient: PrismaClient;
+  lockId: string;
   startAttempts: () => Promise<T>[];
 }) {
   const lockAcquired = createDeferred();
@@ -151,7 +153,7 @@ async function runBehindFamilyLock<T>({
   const lockTransaction = lockClient.$transaction(
     async (tx) => {
       await tx.$executeRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${fixtureIds.rootForm}, 0))
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockId}, 0))
       `;
       lockAcquired.resolve();
       await releaseLock.promise;
@@ -266,9 +268,8 @@ async function createFixture(admin: PrismaClient, options: { includeDraft: boole
         description: initialDraftDefinition.description,
         campaignId: fixtureIds.campaign,
         createdById: fixtureIds.user,
-        parentFormId: fixtureIds.rootForm,
         status: "DRAFT",
-        version: "1.1.0",
+        version: "1.0.0",
       },
     });
     await tx.formCategory.create({
@@ -400,16 +401,6 @@ integrationDescribe("form publication concurrency with PostgreSQL 16", () => {
     expect(versionNumber).toBeGreaterThanOrEqual(160_000);
     expect(versionNumber).toBeLessThan(170_000);
 
-    const draftIndexRows = await adminPrisma.$queryRaw<Array<{ indexDefinition: string }>>`
-      SELECT indexdef AS "indexDefinition"
-      FROM pg_indexes
-      WHERE schemaname = current_schema()
-        AND indexname = 'Form_one_draft_per_family_key'
-    `;
-    expect(draftIndexRows).toHaveLength(1);
-    expect(draftIndexRows[0]?.indexDefinition).toContain("UNIQUE INDEX");
-    expect(draftIndexRows[0]?.indexDefinition).toContain("WHERE (status = 'DRAFT'::text)");
-
     ({ prisma: appPrisma } = await import("../../src/lib/prisma"));
     formActions = await import("../../src/server/actions/forms");
   });
@@ -422,20 +413,21 @@ integrationDescribe("form publication concurrency with PostgreSQL 16", () => {
     ]);
   });
 
-  it("creates one pending draft when two sessions edit the published definition", async () => {
+  it("publishes one immediate replacement when two sessions edit the same published form", async () => {
     const { adminPrisma, lockPrisma, formActions } = requireIntegrationClients();
     await createFixture(adminPrisma, { includeDraft: false });
 
     try {
       const definitionBefore = await readFormDefinition(adminPrisma, fixtureIds.rootForm);
       const competingInputs = [
-        buildFormInput("Pending definition A", "Competing save A", "Pending question A"),
-        buildFormInput("Pending definition B", "Competing save B", "Pending question B"),
+        buildFormInput("Replacement definition A", "Competing edit A", "Replacement question A"),
+        buildFormInput("Replacement definition B", "Competing edit B", "Replacement question B"),
       ];
 
       const settledAttempts = await runBehindFamilyLock({
         admin: adminPrisma,
         lockClient: lockPrisma,
+        lockId: fixtureIds.rootForm,
         startAttempts: () =>
           competingInputs.map((input) => formActions.updateForm(fixtureIds.rootForm, input)),
       });
@@ -452,26 +444,23 @@ integrationDescribe("form publication concurrency with PostgreSQL 16", () => {
       expect(successes).toHaveLength(1);
       expect(failures).toHaveLength(1);
       expect(failures[0]?.reason).toBeInstanceOf(Error);
-      expect((failures[0]?.reason as Error).message).toBe(
-        "Este formulario ya tiene cambios pendientes. Abre el borrador desde Formularios.",
-      );
+      expect((failures[0]?.reason as Error).message).toBe("An archived form cannot be edited");
 
-      const family = await adminPrisma.form.findMany({
-        where: {
-          campaignId: fixtureIds.campaign,
-          OR: [{ id: fixtureIds.rootForm }, { parentFormId: fixtureIds.rootForm }],
-        },
+      const forms = await adminPrisma.form.findMany({
+        where: { campaignId: fixtureIds.campaign },
         include: { questions: { orderBy: { order: "asc" } } },
       });
-      const drafts = family.filter((form) => form.status === "DRAFT");
-      const published = family.filter((form) => form.status === "PUBLISHED");
-      expect(drafts).toHaveLength(1);
+      const archived = forms.filter((form) => form.status === "ARCHIVED");
+      const published = forms.filter((form) => form.status === "PUBLISHED");
+      expect(forms).toHaveLength(2);
+      expect(forms.filter((form) => form.status === "DRAFT")).toHaveLength(0);
+      expect(archived).toHaveLength(1);
       expect(published).toHaveLength(1);
-      expect(published[0]?.id).toBe(fixtureIds.rootForm);
-      expect(drafts[0]?.parentFormId).toBe(fixtureIds.rootForm);
-      expect(competingInputs.map((input) => input.title)).toContain(drafts[0]?.title);
+      expect(archived[0]?.id).toBe(fixtureIds.rootForm);
+      expect(published[0]?.parentFormId).toBeNull();
+      expect(competingInputs.map((input) => input.title)).toContain(published[0]?.title);
       expect(competingInputs.map((input) => input.questions[0]?.label)).toContain(
-        drafts[0]?.questions[0]?.label,
+        published[0]?.questions[0]?.label,
       );
 
       expect(await readFormDefinition(adminPrisma, fixtureIds.rootForm)).toEqual(definitionBefore);
@@ -485,16 +474,16 @@ integrationDescribe("form publication concurrency with PostgreSQL 16", () => {
       });
       expect(auditRows).toHaveLength(1);
       expect(auditRows[0]).toMatchObject({
-        action: "revision_created",
+        action: "updated",
         entityType: "form",
-        entityId: drafts[0]?.id,
+        entityId: published[0]?.id,
       });
     } finally {
       await cleanupFixture(adminPrisma);
     }
   }, 30_000);
 
-  it("commits either the pending save or publication and rejects the stale competitor", async () => {
+  it("commits either a standalone draft save or publication and rejects the stale competitor", async () => {
     const { adminPrisma, lockPrisma, formActions } = requireIntegrationClients();
     await createFixture(adminPrisma, { includeDraft: true });
 
@@ -509,6 +498,7 @@ integrationDescribe("form publication concurrency with PostgreSQL 16", () => {
       const settledAttempts = await runBehindFamilyLock({
         admin: adminPrisma,
         lockClient: lockPrisma,
+        lockId: fixtureIds.draftForm,
         startAttempts: () => [
           formActions.updateForm(fixtureIds.draftForm, savedInput),
           formActions.publishForm(fixtureIds.draftForm),
@@ -523,23 +513,18 @@ integrationDescribe("form publication concurrency with PostgreSQL 16", () => {
       expect(failures).toHaveLength(1);
       expect(failures[0]?.reason).toBeInstanceOf(Error);
       expect((failures[0]?.reason as Error).message).toBe(
-        "El formulario cambio mientras se procesaba la accion. Recarga la pagina e intenta de nuevo.",
+        "The form changed while the action was being processed. Reload the page and try again.",
       );
 
-      const family = await adminPrisma.form.findMany({
-        where: {
-          campaignId: fixtureIds.campaign,
-          OR: [{ id: fixtureIds.rootForm }, { parentFormId: fixtureIds.rootForm }],
-        },
+      const forms = await adminPrisma.form.findMany({
+        where: { id: { in: [fixtureIds.rootForm, fixtureIds.draftForm] } },
         include: { questions: { orderBy: { order: "asc" } } },
-        orderBy: { version: "asc" },
       });
-      const root = family.find((form) => form.id === fixtureIds.rootForm);
-      const pendingRevision = family.find((form) => form.id === fixtureIds.draftForm);
+      const root = forms.find((form) => form.id === fixtureIds.rootForm);
+      const standaloneDraft = forms.find((form) => form.id === fixtureIds.draftForm);
       expect(root).toBeDefined();
-      expect(pendingRevision).toBeDefined();
-      expect(family.filter((form) => form.status === "PUBLISHED")).toHaveLength(1);
-      expect(family.filter((form) => form.status === "DRAFT").length).toBeLessThanOrEqual(1);
+      expect(standaloneDraft).toBeDefined();
+      expect(root?.status).toBe("PUBLISHED");
       expect(await readFormDefinition(adminPrisma, fixtureIds.rootForm)).toEqual(definitionBefore);
 
       const auditRows = await adminPrisma.auditLog.findMany({
@@ -553,22 +538,20 @@ integrationDescribe("form publication concurrency with PostgreSQL 16", () => {
       expect(auditRows[0]?.entityId).toBe(fixtureIds.draftForm);
 
       if (auditRows[0]?.action === "updated") {
-        expect(root?.status).toBe("PUBLISHED");
-        expect(pendingRevision).toMatchObject({
+        expect(standaloneDraft).toMatchObject({
           status: "DRAFT",
           title: savedInput.title,
           description: savedInput.description,
         });
-        expect(pendingRevision?.questions[0]?.label).toBe(savedInput.questions[0]?.label);
+        expect(standaloneDraft?.questions[0]?.label).toBe(savedInput.questions[0]?.label);
       } else {
         expect(auditRows[0]?.action).toBe("published");
-        expect(root?.status).toBe("ARCHIVED");
-        expect(pendingRevision).toMatchObject({
+        expect(standaloneDraft).toMatchObject({
           status: "PUBLISHED",
           title: initialDraftDefinition.title,
           description: initialDraftDefinition.description,
         });
-        expect(pendingRevision?.questions[0]?.label).toBe(initialDraftDefinition.questionLabel);
+        expect(standaloneDraft?.questions[0]?.label).toBe(initialDraftDefinition.questionLabel);
       }
     } finally {
       await cleanupFixture(adminPrisma);

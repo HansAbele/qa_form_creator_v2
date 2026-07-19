@@ -4,11 +4,7 @@ import Credentials from "next-auth/providers/credentials";
 import { z } from "zod/v4";
 import { logger } from "./logger";
 import { prisma } from "./prisma";
-import {
-  completeLoginAttempt,
-  createLoginRateLimitKeys,
-  reserveLoginAttempt,
-} from "./rate-limit";
+import { completeLoginAttempt, createLoginRateLimitKeys, reserveLoginAttempt } from "./rate-limit";
 
 const loginSchema = z.object({
   email: z.email().transform((email) => email.trim().toLowerCase()),
@@ -39,7 +35,7 @@ export default {
             },
             "Login rate limited",
           );
-          throw new Error("Demasiados intentos. Intenta de nuevo en 15 minutos.");
+          throw new Error("Too many attempts. Try again in 15 minutes.");
         }
 
         let reservationCompleted = false;
@@ -60,11 +56,7 @@ export default {
                 ipBlocked: completion.states.some(
                   ({ scope, state }) => scope === "ip" && Boolean(state.blockedUntil),
                 ),
-                reason: !user
-                  ? "unknown_account"
-                  : user.password
-                    ? "invalid_password"
-                    : "sso_only",
+                reason: !user ? "unknown_account" : user.password ? "invalid_password" : "sso_only",
               },
               "Login failed",
             );
@@ -85,6 +77,7 @@ export default {
             role: user.role,
             campaignIds: user.campaigns.map((c) => c.campaignId),
             sessionVersion: user.sessionVersion,
+            locale: user.locale === "es" ? "es" : "en",
           };
         } finally {
           if (!reservationCompleted) {

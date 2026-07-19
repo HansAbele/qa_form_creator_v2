@@ -1,8 +1,8 @@
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getAgentPerformance } from "@/server/queries/analytics";
+import { auth } from "@/lib/auth";
 import { getKpiCampaigns } from "@/server/actions/campaigns";
 import { readSettings } from "@/server/actions/settings";
+import { getAgentPerformance } from "@/server/queries/analytics";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { AgentPerformanceClient } from "./agents-client";
 

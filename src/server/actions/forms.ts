@@ -80,7 +80,7 @@ function assertQaOwnsForm(
   form: { createdById: string },
 ) {
   if (user.role === "QA" && form.createdById !== user.id) {
-    throw new Error("Solo puedes modificar formularios creados por ti");
+    throw new Error("You can only modify forms you created");
   }
 }
 
@@ -105,7 +105,7 @@ async function listFormsForPermissions(
   options: { restrictOperationalReaders?: boolean; statuses?: string[] } = {},
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const campaignFilter = await getCampaignFilterForPermissions(permissions);
   const formVisibility: Prisma.FormWhereInput =
@@ -182,6 +182,13 @@ export async function getFormForEvaluation(id: string) {
   });
 }
 
+export async function getFormForEvaluationDraft(id: string) {
+  return getFormByIdWithPermission(id, "canEvaluate", {
+    allowedStatuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
+    requireActiveCampaign: true,
+  });
+}
+
 export async function getFormForEvaluationCorrection(id: string) {
   return getFormByIdWithPermission(id, "canEditEvaluations", {
     allowedStatuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
@@ -190,7 +197,7 @@ export async function getFormForEvaluationCorrection(id: string) {
 
 export async function getFormForDraftCorrection(id: string) {
   return getFormByIdWithPermission(id, "canEditEvaluations", {
-    requirePublished: true,
+    allowedStatuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
     requireActiveCampaign: true,
   });
 }
@@ -205,18 +212,12 @@ async function getFormByIdWithPermission(
   } = {},
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const form = await prisma.form.findUnique({
     where: { id },
     include: {
       campaign: { select: { id: true, name: true, active: true } },
-      parent: { select: { id: true, version: true, status: true, campaignId: true } },
-      revisions: {
-        where: { status: { not: FORM_STATUS.ARCHIVED } },
-        select: { id: true, version: true, status: true, campaignId: true },
-        orderBy: { createdAt: "desc" },
-      },
       questions: {
         orderBy: { order: "asc" },
         include: {
@@ -244,25 +245,22 @@ async function getFormByIdWithPermission(
     },
   });
 
-  if (!form) throw new Error("Formulario no encontrado");
+  if (!form) throw new Error("Form not found");
 
   await assertCampaignPermissionForUser(session.user, form.campaignId, permission);
   if (permission === "canEditForms") {
     assertQaOwnsForm(session.user, form);
   }
   if (options.requirePublished && form.status !== FORM_STATUS.PUBLISHED) {
-    throw new Error("Formulario no publicado");
+    throw new Error("Form is not published");
   }
   if (options.allowedStatuses && !options.allowedStatuses.includes(form.status)) {
-    throw new Error("Formulario no disponible para correccion");
+    throw new Error("Form is not available for correction");
   }
   if (options.requireActiveCampaign && !form.campaign.active) {
-    throw new Error("La campana del formulario esta inactiva");
+    throw new Error("The form campaign is inactive");
   }
 
-  let canManageFormHistory =
-    session.user.role === "ADMIN" ||
-    (permission === "canEditForms" && form.createdById === session.user.id);
   if (permission === "canViewForms" && session.user.role !== "ADMIN") {
     const access =
       session.user.role === "QA"
@@ -283,38 +281,23 @@ async function getFormByIdWithPermission(
     const canManageOwnForm =
       form.createdById === session.user.id &&
       Boolean(access?.canCreateForms || access?.canEditForms || access?.canPublishForms);
-    canManageFormHistory = canManageOwnForm;
-
     if (form.status !== FORM_STATUS.PUBLISHED || !form.campaign.active) {
       if (!canManageOwnForm) {
         throw new Error(
           form.status !== FORM_STATUS.PUBLISHED
-            ? "Formulario no publicado"
-            : "La campana del formulario esta inactiva",
+            ? "Form is not published"
+            : "The form campaign is inactive",
         );
       }
     }
   }
 
-  if (!canManageFormHistory) return { ...form, parent: null, revisions: [] };
-
-  const parent =
-    form.parent?.campaignId === form.campaignId
-      ? { id: form.parent.id, version: form.parent.version, status: form.parent.status }
-      : null;
-  const revisions = form.revisions
-    .filter((revision) => revision.campaignId === form.campaignId)
-    .map((revision) => ({
-      id: revision.id,
-      version: revision.version,
-      status: revision.status,
-    }));
-  return { ...form, parent, revisions };
+  return form;
 }
 
 export async function createForm(data: FormMutationInput) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   const input = await parseFormInput(data);
 
   await assertCampaignPermissionForUser(session.user, input.campaignId, "canCreateForms");
@@ -351,11 +334,10 @@ export async function createForm(data: FormMutationInput) {
           description: form.description,
           campaignId: form.campaignId,
           status: form.status,
-          version: form.version,
           questionCount: form.questions.length,
           categoryCount: form.categories.length,
         },
-        impact: "Formulario creado como borrador; requiere publicacion para evaluar.",
+        impact: "Form created as a draft; it must be published before evaluations can use it.",
       },
       tx,
     );
@@ -369,31 +351,31 @@ export async function createForm(data: FormMutationInput) {
 
 export async function updateForm(id: string, data: FormMutationInput) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   const input = await parseFormInput(data);
 
   const existing = await prisma.form.findUnique({
     where: { id },
     select: FORM_UPDATE_SNAPSHOT_SELECT,
   });
-  if (!existing) throw new Error("Formulario no encontrado");
+  if (!existing) throw new Error("Form not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canEditForms");
   await assertCampaignPermissionForUser(session.user, input.campaignId, "canEditForms");
   assertQaOwnsForm(session.user, existing);
 
   if (existing.status === FORM_STATUS.ARCHIVED) {
-    throw new Error("No se puede editar un formulario archivado");
+    throw new Error("An archived form cannot be edited");
   }
 
   if (existing.parent && existing.parent.campaignId !== existing.campaignId) {
-    throw new Error("La revision no pertenece a la misma campana que su formulario base");
+    throw new Error("The legacy form record belongs to a different campaign");
   }
 
   if (
     input.campaignId !== existing.campaignId &&
     (existing.status === FORM_STATUS.PUBLISHED || existing.parentFormId)
   ) {
-    throw new Error("No se puede cambiar la campana de una familia de revisiones");
+    throw new Error("A published or legacy form cannot be moved to another campaign");
   }
 
   const rootFormId = existing.parentFormId ?? existing.id;
@@ -403,64 +385,44 @@ export async function updateForm(id: string, data: FormMutationInput) {
       where: { id },
       select: FORM_UPDATE_SNAPSHOT_SELECT,
     });
-    if (!current) throw new Error("Formulario no encontrado");
+    if (!current) throw new Error("Form not found");
     assertUnchangedFormSnapshot(existing, current);
     assertQaOwnsForm(session.user, current);
 
     if (current.status === FORM_STATUS.ARCHIVED) {
-      throw new Error("No se puede editar un formulario archivado");
+      throw new Error("An archived form cannot be edited");
     }
     if (current.parent && current.parent.campaignId !== current.campaignId) {
-      throw new Error("La revision no pertenece a la misma campana que su formulario base");
+      throw new Error("The legacy form record belongs to a different campaign");
     }
     if (
       input.campaignId !== current.campaignId &&
       (current.status === FORM_STATUS.PUBLISHED || current.parentFormId)
     ) {
-      throw new Error("No se puede cambiar la campana de una familia de revisiones");
+      throw new Error("A published or legacy form cannot be moved to another campaign");
     }
 
     if (current.status === FORM_STATUS.PUBLISHED) {
-      const pendingDraft = await tx.form.findFirst({
-        where: {
-          campaignId: current.campaignId,
-          parentFormId: rootFormId,
-          status: FORM_STATUS.DRAFT,
-        },
-        select: { id: true },
-      });
-      if (pendingDraft) {
-        throw new Error(
-          "Este formulario ya tiene cambios pendientes. Abre el borrador desde Formularios.",
-        );
-      }
-      const familyVersions = await tx.form.findMany({
-        where: {
-          campaignId: current.campaignId,
-          OR: [{ id: rootFormId }, { parentFormId: rootFormId }],
-        },
-        select: { version: true },
-      });
-      const latestVersion =
-        [current.version, ...(familyVersions ?? []).map((item) => item.version)]
-          .sort(compareFormVersions)
-          .at(-1) ?? current.version;
-      const draft = await tx.form.create({
+      const replacedAt = new Date();
+      const replacement = await tx.form.create({
         data: {
           title: input.title,
           description: input.description,
           campaignId: current.campaignId,
-          createdById: session.user.id,
-          parentFormId: rootFormId,
-          status: FORM_STATUS.DRAFT,
-          version: nextFormVersion(latestVersion),
+          createdById: current.createdById,
+          status: FORM_STATUS.PUBLISHED,
+          publishedAt: replacedAt,
         },
       });
 
-      await createFormQuestionStructure(tx, draft.id, input.questions);
+      await createFormQuestionStructure(tx, replacement.id, input.questions);
+      await tx.form.update({
+        where: { id: current.id },
+        data: { status: FORM_STATUS.ARCHIVED, archivedAt: replacedAt },
+      });
 
       const form = await tx.form.findUniqueOrThrow({
-        where: { id: draft.id },
+        where: { id: replacement.id },
         include: { questions: true, categories: true },
       });
 
@@ -468,13 +430,13 @@ export async function updateForm(id: string, data: FormMutationInput) {
         sessionUserId: session.user.id,
         form,
         existing: current,
-        action: "revision_created",
+        action: "updated",
       });
       return form;
     }
 
     if (current.status !== FORM_STATUS.DRAFT) {
-      throw new Error("El formulario ya no esta disponible para edicion");
+      throw new Error("The form is no longer available for editing");
     }
 
     await tx.question.deleteMany({ where: { formId: id } });
@@ -513,18 +475,18 @@ export async function updateForm(id: string, data: FormMutationInput) {
 
 export async function publishForm(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const form = await prisma.form.findUnique({
     where: { id },
     select: FORM_PUBLISH_SNAPSHOT_SELECT,
   });
-  if (!form) throw new Error("Formulario no encontrado");
+  if (!form) throw new Error("Form not found");
   await assertCampaignPermissionForUser(session.user, form.campaignId, "canPublishForms");
   assertQaOwnsForm(session.user, form);
 
   if (form.parent && form.parent.campaignId !== form.campaignId) {
-    throw new Error("La revision no pertenece a la misma campana que su formulario base");
+    throw new Error("The legacy form record belongs to a different campaign");
   }
 
   const rootFormId = form.parentFormId ?? form.id;
@@ -534,21 +496,21 @@ export async function publishForm(id: string) {
       where: { id },
       select: FORM_PUBLISH_SNAPSHOT_SELECT,
     });
-    if (!current) throw new Error("Formulario no encontrado");
+    if (!current) throw new Error("Form not found");
     assertUnchangedFormSnapshot(form, current);
     assertQaOwnsForm(session.user, current);
 
     if (current.parent && current.parent.campaignId !== current.campaignId) {
-      throw new Error("La revision no pertenece a la misma campana que su formulario base");
+      throw new Error("The legacy form record belongs to a different campaign");
     }
     if (current.status === FORM_STATUS.ARCHIVED) {
-      throw new Error("No se puede publicar un formulario archivado");
+      throw new Error("An archived form cannot be published");
     }
     if (current.status === FORM_STATUS.PUBLISHED) {
       return current;
     }
     if (current.status !== FORM_STATUS.DRAFT) {
-      throw new Error("El formulario ya no esta disponible para publicacion");
+      throw new Error("The form is no longer available for publication");
     }
 
     validatePublishableForm(current.questions);
@@ -583,15 +545,12 @@ export async function publishForm(id: string) {
         action: "published",
         entityType: "form",
         entityId: current.id,
-        beforeValue: { id: current.id, status: current.status, version: current.version },
+        beforeValue: { id: current.id, status: current.status },
         afterValue: {
           id: published.id,
           status: published.status,
-          version: published.version,
-          parentFormId: published.parentFormId,
         },
-        impact:
-          "Formulario publicado para evaluaciones; la definicion activa previa se archivo.",
+        impact: "Form published for evaluations; any previous active definition was archived.",
       },
       tx,
     );
@@ -605,7 +564,7 @@ export async function publishForm(id: string) {
 
 export async function archiveForm(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const form = await prisma.form.findUnique({
     where: { id },
@@ -620,7 +579,7 @@ export async function archiveForm(id: string) {
       updatedAt: true,
     },
   });
-  if (!form) throw new Error("Formulario no encontrado");
+  if (!form) throw new Error("Form not found");
   await assertCampaignPermissionForUser(session.user, form.campaignId, "canPublishForms");
   assertQaOwnsForm(session.user, form);
 
@@ -640,11 +599,11 @@ export async function archiveForm(id: string) {
         updatedAt: true,
       },
     });
-    if (!current) throw new Error("Formulario no encontrado");
+    if (!current) throw new Error("Form not found");
     assertUnchangedFormSnapshot(form, current);
     assertQaOwnsForm(session.user, current);
     if (current.status !== FORM_STATUS.PUBLISHED) {
-      throw new Error("Solo se pueden archivar formularios publicados");
+      throw new Error("Only published forms can be archived");
     }
 
     const archived = await tx.form.update({
@@ -666,11 +625,9 @@ export async function archiveForm(id: string) {
         afterValue: {
           id: archived.id,
           status: archived.status,
-          version: archived.version,
           archivedAt: archived.archivedAt,
         },
-        impact:
-          "Formulario retirado de evaluaciones futuras; evaluaciones historicas se conservan.",
+        impact: "Form removed from future evaluations; historical evaluations are preserved.",
       },
       tx,
     );
@@ -684,7 +641,7 @@ export async function archiveForm(id: string) {
 
 export async function deleteForm(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const form = await prisma.form.findUnique({
     where: { id },
@@ -699,7 +656,7 @@ export async function deleteForm(id: string) {
       updatedAt: true,
     },
   });
-  if (!form) throw new Error("Formulario no encontrado");
+  if (!form) throw new Error("Form not found");
   await assertCampaignPermissionForUser(session.user, form.campaignId, "canEditForms");
   assertQaOwnsForm(session.user, form);
 
@@ -719,16 +676,16 @@ export async function deleteForm(id: string) {
         updatedAt: true,
       },
     });
-    if (!current) throw new Error("Formulario no encontrado");
+    if (!current) throw new Error("Form not found");
     assertUnchangedFormSnapshot(form, current);
     assertQaOwnsForm(session.user, current);
     if (current.status !== FORM_STATUS.DRAFT) {
-      throw new Error("Solo se pueden eliminar borradores; archiva formularios publicados");
+      throw new Error("Only drafts can be deleted; archive published forms");
     }
 
     const responseCount = await tx.response.count({ where: { formId: id } });
     if (responseCount > 0) {
-      throw new Error("No se puede eliminar un formulario que tiene evaluaciones registradas");
+      throw new Error("A form with recorded evaluations cannot be deleted");
     }
 
     await tx.form.delete({ where: { id } });
@@ -741,7 +698,7 @@ export async function deleteForm(id: string) {
         entityType: "form",
         entityId: id,
         beforeValue: current,
-        impact: "Formulario eliminado sin evaluaciones registradas.",
+        impact: "Form deleted with no recorded evaluations.",
       },
       tx,
     );
@@ -764,25 +721,6 @@ type PublishableQuestion = {
   fatalOptions: unknown;
   formCategoryId: string | null;
 };
-
-function nextFormVersion(version: string) {
-  const [major = 1, minor = 0] = version
-    .split(".")
-    .map((part) => Number.parseInt(part, 10))
-    .map((part) => (Number.isFinite(part) ? part : 0));
-
-  return `${major}.${minor + 1}.0`;
-}
-
-function compareFormVersions(left: string, right: string) {
-  const leftParts = left.split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const rightParts = right.split(".").map((part) => Number.parseInt(part, 10) || 0);
-  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index++) {
-    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
 
 function assertUnchangedFormSnapshot(
   initial: {
@@ -812,7 +750,7 @@ function assertUnchangedFormSnapshot(
     initial.status !== current.status
   ) {
     throw new Error(
-      "El formulario cambio mientras se procesaba la accion. Recarga la pagina e intenta de nuevo.",
+      "The form changed while the action was being processed. Reload the page and try again.",
     );
   }
 }
@@ -831,13 +769,11 @@ async function writeFormMutationAudit(
       description: string | null;
       campaignId: string;
       status: string;
-      version: string;
-      parentFormId: string | null;
       questions: unknown[];
       categories: unknown[];
     };
     existing: unknown;
-    action: "revision_created" | "updated";
+    action: "updated";
   },
 ) {
   await writeAuditLog(
@@ -857,13 +793,8 @@ async function writeFormMutationAudit(
         questionCount: input.form.questions.length,
         categoryCount: input.form.categories.length,
         status: input.form.status,
-        version: input.form.version,
-        parentFormId: input.form.parentFormId,
       },
-      impact:
-        input.action === "revision_created"
-          ? "Se guardaron cambios pendientes; el formulario publicado sigue vigente."
-          : "Formulario actualizado; afecta evaluaciones futuras si se publica.",
+      impact: "Form updated for future evaluations; historical evaluations remain unchanged.",
     },
     tx,
   );
@@ -871,11 +802,11 @@ async function writeFormMutationAudit(
 
 function validatePublishableForm(questions: PublishableQuestion[]) {
   if (questions.length === 0) {
-    throw new Error("Agrega al menos una pregunta antes de publicar");
+    throw new Error("Add at least one question before publishing");
   }
 
   if (questions.some((question) => !question.formCategoryId)) {
-    throw new Error("Todas las preguntas deben tener categoria QA antes de publicar");
+    throw new Error("Every question must have a QA category before publishing");
   }
 
   const invalidFatalOptionQuestion = questions.some((question) => {
@@ -885,7 +816,7 @@ function validatePublishableForm(questions: PublishableQuestion[]) {
     return fatalOptions.length === 0 || fatalOptions.some((option) => !options.includes(option));
   });
   if (invalidFatalOptionQuestion) {
-    throw new Error("Selecciona al menos una opcion fatal valida antes de publicar");
+    throw new Error("Select at least one valid critical option before publishing");
   }
 
   const scoredQuestions = questions.filter((question) => isScoredQuestionType(question.type));
@@ -893,14 +824,14 @@ function validatePublishableForm(questions: PublishableQuestion[]) {
 
   const scoredWeightTotal = scoredQuestions.reduce((sum, question) => sum + question.weight, 0);
   if (scoredWeightTotal !== 100) {
-    throw new Error("Los pesos de las preguntas puntuables deben sumar 100% antes de publicar");
+    throw new Error("Scored question weights must total 100% before publishing");
   }
 }
 
 async function parseFormInput(data: unknown): Promise<FormMutationInput> {
   const parsed = formMutationSchema.safeParse(data);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Datos del formulario invalidos");
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid form data");
   }
 
   const input = parsed.data;
@@ -916,13 +847,13 @@ async function parseFormInput(data: unknown): Promise<FormMutationInput> {
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
 
   if (categoriesById.size !== categoryIds.length) {
-    throw new Error("Una o mas categorias QA no estan disponibles");
+    throw new Error("One or more QA categories are unavailable");
   }
 
   for (const question of input.questions) {
     const category = categoriesById.get(question.qaCategoryId);
     if (question.fatal && !category?.canBeFatal) {
-      throw new Error("La categoria seleccionada no permite fallas fatales");
+      throw new Error("The selected category does not allow critical failures");
     }
   }
 

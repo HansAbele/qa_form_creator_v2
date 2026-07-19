@@ -1,10 +1,11 @@
 "use client";
 
-import { signIn } from "next-auth/react";
+import { ArrowRight, Languages, Loader2, Lock, Moon, Sun, User } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { Moon, Sun, User, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
@@ -19,9 +20,9 @@ function getTimeGreeting(): string {
 export default function LoginPage() {
   const router = useRouter();
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const { locale, setLocale, isChangingLocale, t } = useI18n();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [remember, setRemember] = useState(false);
   const [greeting, setGreeting] = useState("Welcome");
   const [mounted, setMounted] = useState(false);
 
@@ -50,7 +51,7 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setError("Invalid credentials");
+        setError(t("Invalid email or password."));
         return;
       }
 
@@ -60,7 +61,7 @@ export default function LoginPage() {
       // Auth.js may reject credentials by throwing instead of returning an
       // error result. Keep the response generic so account existence and
       // rate-limit details are not disclosed from the browser.
-      setError("Invalid credentials");
+      setError(t("Invalid email or password."));
     } finally {
       setLoading(false);
     }
@@ -100,14 +101,14 @@ export default function LoginPage() {
         {/* Headline + description */}
         <div className="relative max-w-md space-y-6">
           <h1 className="text-5xl font-bold leading-tight tracking-tight text-white">
-            Your quality signal,
+            {t("Your quality signal,")}
             <br />
-            <span className="text-white/90">always clear</span>
+            <span className="text-white/90">{t("always clear")}</span>
           </h1>
           <p className="text-base leading-relaxed text-white/60">
-            Telecom Networks&apos; QA platform to evaluate agents, track campaign
-            performance and power up team coaching — turning every conversation
-            into a clearer performance signal.
+            {t(
+              "Telecom Networks' QA platform for evaluating agents, tracking campaign performance, and strengthening team coaching.",
+            )}
           </p>
         </div>
 
@@ -119,7 +120,7 @@ export default function LoginPage() {
             <span className="h-3 w-3 rounded-full bg-sky-500 ring-2 ring-[hsl(215,46%,19%)]" />
           </div>
           <span className="text-xs font-medium uppercase tracking-[0.12em] text-white/50">
-            Built exclusively for Telecom Networks
+            {t("Built exclusively for Telecom Networks")}
           </span>
         </div>
       </aside>
@@ -128,8 +129,28 @@ export default function LoginPage() {
          RIGHT PANEL — login form
          ══════════════════════════════════════════════════════════ */}
       <main className="relative flex w-full flex-col lg:w-1/2">
-        {/* Theme toggle (top-right) */}
-        <div className="absolute right-6 top-6 lg:right-10 lg:top-10">
+        <div className="absolute right-6 top-6 flex items-center gap-2 lg:right-10 lg:top-10">
+          <fieldset className="inline-flex min-w-0 items-center gap-0.5 rounded-full border border-border bg-muted p-0.5">
+            <legend className="sr-only">{t("Language")}</legend>
+            <Languages aria-hidden="true" className="ml-2 size-3.5 text-muted-foreground" />
+            {(["en", "es"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                disabled={isChangingLocale}
+                aria-pressed={locale === option}
+                onClick={() => setLocale(option)}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-semibold uppercase transition-colors",
+                  locale === option
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {option}
+              </button>
+            ))}
+          </fieldset>
           <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-muted p-0.5">
             <button
               type="button"
@@ -143,7 +164,7 @@ export default function LoginPage() {
               )}
             >
               <Moon className="h-3.5 w-3.5" />
-              Dark
+              {t("Dark")}
             </button>
             <button
               type="button"
@@ -157,7 +178,7 @@ export default function LoginPage() {
               )}
             >
               <Sun className="h-3.5 w-3.5" />
-              Light
+              {t("Light")}
             </button>
           </div>
         </div>
@@ -168,34 +189,11 @@ export default function LoginPage() {
             {/* Heading */}
             <div className="mb-10 text-center">
               <h2 className="font-heading text-4xl font-bold tracking-tight text-foreground">
-                {greeting}
+                {t(greeting)}
               </h2>
               <p className="mt-3 text-sm text-muted-foreground">
-                Enter your credentials to access your dashboard.
+                {t("Enter your credentials to access Qore.")}
               </p>
-            </div>
-
-            {/* Microsoft SSO button (disabled placeholder — OAuth not yet wired) */}
-            <button
-              type="button"
-              disabled
-              title="Coming soon"
-              className="group relative flex w-full items-center justify-center gap-3 rounded-full border border-border bg-card px-4 py-3 text-sm font-semibold text-foreground shadow-sm transition-all hover:border-foreground/20 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <MicrosoftIcon className="h-4 w-4" />
-              Sign in with Microsoft
-              <span className="absolute right-4 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Soon
-              </span>
-            </button>
-
-            {/* Divider */}
-            <div className="my-7 flex items-center gap-4">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">
-                or
-              </span>
-              <div className="h-px flex-1 bg-border" />
             </div>
 
             {/* Credentials form */}
@@ -211,7 +209,7 @@ export default function LoginPage() {
                   htmlFor="email"
                   className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                 >
-                  Username
+                  {t("Work email")}
                 </label>
                 <div className="relative">
                   <User className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -232,7 +230,7 @@ export default function LoginPage() {
                   htmlFor="password"
                   className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                 >
-                  Password
+                  {t("Password")}
                 </label>
                 <div className="relative">
                   <Lock className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -248,27 +246,13 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Remember + Forgot */}
-              <div className="flex items-center justify-between">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={(e) => setRemember(e.target.checked)}
-                    className="h-4 w-4 rounded border-input text-[hsl(var(--tno-orange))] focus:ring-[hsl(var(--tno-orange))]/40"
-                  />
-                  Remember me
-                </label>
+              <div className="flex justify-end">
                 <button
                   type="button"
                   className="text-sm font-semibold text-[hsl(var(--tno-orange))] hover:underline"
-                  onClick={() =>
-                    setError(
-                      "Please contact your administrator to reset your password.",
-                    )
-                  }
+                  onClick={() => setError(t("Contact your QA Manager to reset your password."))}
                 >
-                  Forgot password?
+                  {t("Forgot password?")}
                 </button>
               </div>
 
@@ -281,11 +265,11 @@ export default function LoginPage() {
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Signing in...
+                    {t("Signing in...")}
                   </>
                 ) : (
                   <>
-                    Log in
+                    {t("Sign in")}
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </>
                 )}
@@ -294,19 +278,13 @@ export default function LoginPage() {
 
             {/* Contact admin footer */}
             <p className="mt-8 text-center text-sm text-muted-foreground">
-              Don&apos;t have an account?{" "}
-              <span className="font-semibold text-foreground">
-                Contact Administrator
-              </span>
+              {t("Need an account?")} {t("Contact your QA Manager.")}
             </p>
           </div>
         </div>
 
-        {/* Bottom footer links */}
-        <footer className="flex justify-center gap-8 pb-8 text-xs text-muted-foreground">
-          <span className="cursor-default hover:text-foreground">Privacy Policy</span>
-          <span className="cursor-default hover:text-foreground">Terms of Service</span>
-          <span className="cursor-default hover:text-foreground">Network Status</span>
+        <footer className="flex justify-center pb-8 text-xs text-muted-foreground">
+          <span>Qore · Powered by TNO</span>
         </footer>
       </main>
     </div>
@@ -314,14 +292,3 @@ export default function LoginPage() {
 }
 
 // ─── Microsoft logo SVG ──────────────────────────────────
-function MicrosoftIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 23 23" className={className} aria-hidden>
-      <title>Microsoft</title>
-      <rect x="1" y="1" width="10" height="10" fill="#F25022" />
-      <rect x="12" y="1" width="10" height="10" fill="#7FBA00" />
-      <rect x="1" y="12" width="10" height="10" fill="#00A4EF" />
-      <rect x="12" y="12" width="10" height="10" fill="#FFB900" />
-    </svg>
-  );
-}

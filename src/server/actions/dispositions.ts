@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { auth } from "@/lib/auth";
 import type { DispositionOutcomeValue } from "@/lib/disposition-outcome";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
 import {
   assertCampaignPermissionForUser,
@@ -14,7 +14,7 @@ import {
 
 export async function getDispositionCategories(campaignId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   await assertCampaignPermissionForUser(session.user, campaignId, "canManageDispositions");
 
   return prisma.dispositionCategory.findMany({
@@ -30,7 +30,7 @@ export async function getDispositionCategories(campaignId: string) {
 
 export async function createDispositionCategory(data: { name: string; campaignId: string }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
@@ -47,7 +47,7 @@ export async function createDispositionCategory(data: { name: string; campaignId
         entityType: "disposition_category",
         entityId: category.id,
         afterValue: category,
-        impact: "Categoria disponible para organizar disposiciones.",
+        impact: "Category made available to organize dispositions.",
       },
       tx,
     );
@@ -60,13 +60,13 @@ export async function createDispositionCategory(data: { name: string; campaignId
 
 export async function updateDispositionCategory(id: string, data: { name: string }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const existing = await prisma.dispositionCategory.findUnique({
     where: { id },
     select: { id: true, name: true, campaignId: true },
   });
-  if (!existing) throw new Error("Categoria no encontrada");
+  if (!existing) throw new Error("Category not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
 
   const category = await prisma.$transaction(async (tx) => {
@@ -84,7 +84,7 @@ export async function updateDispositionCategory(id: string, data: { name: string
         entityId: id,
         beforeValue: existing,
         afterValue: category,
-        impact: "Cambio operativo en categoria de disposiciones.",
+        impact: "Operational disposition category updated.",
       },
       tx,
     );
@@ -97,13 +97,13 @@ export async function updateDispositionCategory(id: string, data: { name: string
 
 export async function deleteDispositionCategory(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const existing = await prisma.dispositionCategory.findUnique({
     where: { id },
     select: { id: true, name: true, campaignId: true },
   });
-  if (!existing) throw new Error("Categoria no encontrada");
+  if (!existing) throw new Error("Category not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
 
   await prisma.$transaction(async (tx) => {
@@ -121,7 +121,7 @@ export async function deleteDispositionCategory(id: string) {
         entityType: "disposition_category",
         entityId: id,
         beforeValue: existing,
-        impact: "Categoria eliminada y disposiciones desvinculadas.",
+        impact: "Category deleted and dispositions unassigned.",
       },
       tx,
     );
@@ -134,7 +134,7 @@ export async function deleteDispositionCategory(id: string) {
 
 export async function getDispositions(campaignId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   await assertCampaignPermissionForUser(session.user, campaignId, "canManageDispositions");
 
   const dispositions = await prisma.disposition.findMany({
@@ -171,7 +171,7 @@ export async function getDispositions(campaignId: string) {
 
 export async function getDispositionsForSelector(campaignId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   try {
     await assertCampaignPermissionForUser(session.user, campaignId, "canEvaluate");
   } catch {
@@ -217,7 +217,7 @@ export async function getDispositionsForSelector(campaignId: string) {
 
 export async function getDispositionsForReports() {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   const campaignFilter = await getCampaignFilterForPermission("canViewReports");
 
   const dispositions = await prisma.disposition.findMany({
@@ -248,7 +248,7 @@ export async function createDisposition(data: {
   outcomeType?: DispositionOutcomeValue | null;
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
@@ -258,7 +258,7 @@ export async function createDisposition(data: {
       select: { campaignId: true },
     });
     if (!category || category.campaignId !== data.campaignId) {
-      throw new Error("Categoria invalida para esta campana");
+      throw new Error("Invalid category for this campaign");
     }
   }
 
@@ -282,7 +282,7 @@ export async function createDisposition(data: {
         entityType: "disposition",
         entityId: disposition.id,
         afterValue: disposition,
-        impact: "Disposicion disponible para evaluaciones.",
+        impact: "Disposition made available for evaluations.",
       },
       tx,
     );
@@ -309,13 +309,13 @@ const DEFAULT_TAXONOMIES: Record<
   ],
   outbound: [
     { name: "Venta", code: "SAL", outcomeType: "SALE" },
-    { name: "Sin venta", code: "NSL", outcomeType: "NO_SALE" },
+    { name: "No sale", code: "NSL", outcomeType: "NO_SALE" },
     { name: "No interesado", code: "NIN", outcomeType: "NO_SALE" },
     { name: "Rellamada agendada", code: "CBK", outcomeType: "CALLBACK" },
-    { name: "Sin respuesta", code: "NOA", outcomeType: "NO_CONTACT" },
+    { name: "No answer", code: "NOA", outcomeType: "NO_CONTACT" },
     { name: "Buzon de voz", code: "VML", outcomeType: "NO_CONTACT" },
     { name: "Ocupado", code: "BSY", outcomeType: "NO_CONTACT" },
-    { name: "Numero invalido", code: "INV", outcomeType: "SYSTEM", isSystem: true },
+    { name: "Invalid number", code: "INV", outcomeType: "SYSTEM", isSystem: true },
     { name: "No contactar (DNC)", code: "DNC", outcomeType: "DNC", isSystem: true },
   ],
 };
@@ -323,7 +323,7 @@ const DEFAULT_TAXONOMIES: Record<
 /** Seeds a starter inbound/outbound disposition taxonomy, skipping existing names. */
 export async function seedDefaultDispositions(campaignId: string, kind: "inbound" | "outbound") {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   await assertCampaignPermissionForUser(session.user, campaignId, "canManageDispositions");
 
   const existing = await prisma.disposition.findMany({
@@ -354,7 +354,7 @@ export async function seedDefaultDispositions(campaignId: string, kind: "inbound
         action: "seeded",
         entityType: "disposition",
         afterValue: { kind, created: toCreate.length },
-        impact: `Sembradas ${toCreate.length} disposiciones (${kind}).`,
+        impact: `Seeded ${toCreate.length} dispositions (${kind}).`,
       },
       tx,
     );
@@ -370,7 +370,7 @@ export async function createDispositionInline(data: {
   allowSimilar?: boolean;
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
   const trimmed = data.name.trim();
@@ -378,7 +378,7 @@ export async function createDispositionInline(data: {
     return {
       ok: false as const,
       code: "INVALID_NAME" as const,
-      message: "El nombre debe tener al menos 2 caracteres",
+      message: "Name must contain at least 2 characters",
     };
   }
 
@@ -389,7 +389,7 @@ export async function createDispositionInline(data: {
     return {
       ok: false as const,
       code: "DUPLICATE" as const,
-      message: `Ya existe "${trimmed}" en esta campaña`,
+      message: `"${trimmed}" already exists in this campaign`,
     };
   }
 
@@ -424,7 +424,7 @@ export async function createDispositionInline(data: {
         entityType: "disposition",
         entityId: disposition.id,
         afterValue: disposition,
-        impact: "Disposicion creada desde flujo de evaluacion.",
+        impact: "Disposition created from the evaluation workflow.",
       },
       tx,
     );
@@ -446,7 +446,7 @@ export async function updateDisposition(
   },
 ) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const existing = await prisma.disposition.findUnique({
     where: { id },
@@ -459,7 +459,7 @@ export async function updateDisposition(
       active: true,
     },
   });
-  if (!existing) throw new Error("Disposicion no encontrada");
+  if (!existing) throw new Error("Disposition not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
 
   if (data.categoryId) {
@@ -468,7 +468,7 @@ export async function updateDisposition(
       select: { campaignId: true },
     });
     if (!category || category.campaignId !== existing.campaignId) {
-      throw new Error("Categoria invalida para esta disposicion");
+      throw new Error("Invalid category for this disposition");
     }
   }
 
@@ -493,7 +493,7 @@ export async function updateDisposition(
         entityId: id,
         beforeValue: existing,
         afterValue: disposition,
-        impact: "Cambio operativo en disposicion.",
+        impact: "Operational disposition updated.",
       },
       tx,
     );
@@ -506,13 +506,13 @@ export async function updateDisposition(
 
 export async function deleteDisposition(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const existing = await prisma.disposition.findUnique({
     where: { id },
     select: { id: true, name: true, code: true, categoryId: true, campaignId: true, active: true },
   });
-  if (!existing) throw new Error("Disposicion no encontrada");
+  if (!existing) throw new Error("Disposition not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageDispositions");
 
   const usageCount = await prisma.response.count({ where: { dispositionId: id } });
@@ -529,7 +529,7 @@ export async function deleteDisposition(id: string) {
           entityId: id,
           beforeValue: existing,
           afterValue: updated,
-          impact: "Disposicion con historial desactivada para futuras evaluaciones.",
+          impact: "Disposition with history deactivated for future evaluations.",
         },
         tx,
       );
@@ -546,7 +546,7 @@ export async function deleteDisposition(id: string) {
         entityType: "disposition",
         entityId: id,
         beforeValue: existing,
-        impact: "Disposicion eliminada sin historial de evaluaciones.",
+        impact: "Disposition without evaluation history deleted.",
       },
       tx,
     );
@@ -561,7 +561,7 @@ export async function bulkImportDispositions(data: {
   names: string[];
 }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageDispositions");
 
   if (data.categoryId) {
@@ -570,12 +570,12 @@ export async function bulkImportDispositions(data: {
       select: { campaignId: true },
     });
     if (!category || category.campaignId !== data.campaignId) {
-      throw new Error("Categoria invalida para esta campana");
+      throw new Error("Invalid category for this campaign");
     }
   }
 
   const uniqueNames = [...new Set(data.names.map((n) => n.trim()).filter((n) => n.length > 0))];
-  if (uniqueNames.length === 0) throw new Error("No se proporcionaron nombres válidos");
+  if (uniqueNames.length === 0) throw new Error("No valid names were provided");
 
   const existing = await prisma.disposition.findMany({
     where: { campaignId: data.campaignId },
@@ -604,7 +604,7 @@ export async function bulkImportDispositions(data: {
         action: "bulk_imported",
         entityType: "disposition",
         afterValue: { created: toCreate.length, skipped: uniqueNames.length - toCreate.length },
-        impact: "Carga masiva de disposiciones para la campana.",
+        impact: "Bulk disposition import completed for the campaign.",
       },
       tx,
     );

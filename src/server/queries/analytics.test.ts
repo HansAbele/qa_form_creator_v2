@@ -795,7 +795,7 @@ describe("QA category analytics", () => {
     expect(insights.campaignRisks).toEqual([
       expect.objectContaining({
         id: "campaign-1",
-        missedTargets: expect.arrayContaining(["score", "pass rate", "volumen diario"]),
+        missedTargets: expect.arrayContaining(["score", "pass rate", "daily volume"]),
       }),
     ]);
     // The empty campaign must not appear as a risk.
@@ -838,7 +838,7 @@ describe("QA category analytics", () => {
       answers: [],
     });
 
-    await expect(getResponseDetail("response-draft")).rejects.toThrow("Evaluacion no disponible");
+    await expect(getResponseDetail("response-draft")).rejects.toThrow("Evaluation unavailable");
     expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(1);
     expect(prismaMock.response.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -970,7 +970,7 @@ describe("QA category analytics", () => {
     prismaMock.response.findFirst.mockResolvedValueOnce(null);
 
     await expect(getResponseDetail("response-peer-campaign-2")).rejects.toThrow(
-      "Evaluacion no disponible",
+      "Evaluation unavailable",
     );
     const authorizationWhere = prismaMock.response.findFirst.mock.calls[0]?.[0].where;
     expect(authorizationWhere).toEqual(
@@ -1225,7 +1225,7 @@ describe("QA category analytics", () => {
     });
 
     await expect(getReportResponseDetail("response-corrupt-team")).rejects.toThrow(
-      "Evaluacion no disponible",
+      "Evaluation unavailable",
     );
     expect(prismaMock.response.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2092,7 +2092,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
   it("uses scoped existence checks and uniform errors before loading drill-down PII", async () => {
     prismaMock.campaign.findMany.mockResolvedValue([{ id: "campaign-low" }]);
 
-    await expect(getAgentDetail("hidden-agent")).rejects.toThrow("Agente no disponible");
+    await expect(getAgentDetail("hidden-agent")).rejects.toThrow("Agent unavailable");
     expect(prismaMock.agent.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -2108,7 +2108,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       }),
     );
 
-    await expect(getTeamDetail("hidden-team")).rejects.toThrow("Equipo no disponible");
+    await expect(getTeamDetail("hidden-team")).rejects.toThrow("Team unavailable");
     expect(prismaMock.team.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ id: "hidden-team" }),
@@ -2117,7 +2117,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
     );
 
     await expect(getDispositionDetail("hidden-disposition")).rejects.toThrow(
-      "Disposicion no disponible",
+      "Disposition unavailable",
     );
     expect(prismaMock.disposition.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2134,7 +2134,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       }),
     );
 
-    await expect(getEvaluatorDetail("hidden-evaluator")).rejects.toThrow("Evaluador no disponible");
+    await expect(getEvaluatorDetail("hidden-evaluator")).rejects.toThrow("Evaluator unavailable");
     expect(prismaMock.user.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -2234,7 +2234,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
       })
       .mockResolvedValueOnce(null);
 
-    await expect(getResponseDetail("response-corrupt")).rejects.toThrow("Evaluacion no disponible");
+    await expect(getResponseDetail("response-corrupt")).rejects.toThrow("Evaluation unavailable");
     expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(2);
     expect(prismaMock.response.findFirst).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -2250,7 +2250,7 @@ describe("PASS/FAIL accuracy across analytics surfaces", () => {
   it("returns the same unavailable error for a nonexistent response", async () => {
     prismaMock.response.findFirst.mockResolvedValueOnce(null);
 
-    await expect(getResponseDetail("missing-response")).rejects.toThrow("Evaluacion no disponible");
+    await expect(getResponseDetail("missing-response")).rejects.toThrow("Evaluation unavailable");
     expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(1);
     expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
   });
@@ -2563,7 +2563,7 @@ describe("Evaluation history authorization", () => {
 
     await expect(
       getEvaluationHistory({ scope: "managed", campaignId: "campaign-1" }),
-    ).rejects.toThrow("No autorizado para esta accion en esta campana");
+    ).rejects.toThrow("Unauthorized for this action in this campaign");
     expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
 
@@ -2631,6 +2631,36 @@ describe("Evaluation history authorization", () => {
     expect(prismaMock.response.aggregate).toHaveBeenCalledWith({
       where: historyWhere,
       _avg: { score: true },
+    });
+  });
+
+  it("returns an explicit empty summary from the same authorized filter", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      userId: evaluatorUser.id,
+      campaignId: "campaign-1",
+      canViewEvaluations: true,
+    });
+    prismaMock.response.findMany.mockResolvedValue([]);
+    prismaMock.response.count.mockResolvedValue(0);
+    prismaMock.response.aggregate.mockResolvedValue({ _avg: { score: null } });
+
+    const result = await getEvaluationHistory({
+      scope: "managed",
+      campaignId: "campaign-1",
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-31",
+    });
+
+    expect(result.summary).toEqual({ totalEvaluations: 0, avgScore: 0, passRate: 0 });
+    expect(result.responses).toEqual([]);
+    const historyWhere = prismaMock.response.findMany.mock.calls[0]?.[0].where;
+    expect(prismaMock.response.count.mock.calls[0]?.[0]).toEqual({ where: historyWhere });
+    expect(prismaMock.response.aggregate).toHaveBeenCalledWith({
+      where: historyWhere,
+      _avg: { score: true },
+    });
+    expect(prismaMock.response.count.mock.calls[1]?.[0]).toEqual({
+      where: expect.objectContaining({ AND: expect.arrayContaining([historyWhere]) }),
     });
   });
 
@@ -2833,22 +2863,22 @@ describe("Evaluation history authorization", () => {
   ])("rejects the unsupported result status %j before querying responses", async (resultStatus) => {
     await expect(
       getEvaluationHistory({ scope: "own", campaignId: "campaign-1", resultStatus }),
-    ).rejects.toThrow("resultStatus debe ser PASS o FAIL");
+    ).rejects.toThrow("resultStatus must be PASS or FAIL");
     expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
 
   it.each([0, -1, 1.5, 10_001])("rejects the invalid page %s", async (page) => {
     await expect(
       getEvaluationHistory({ scope: "own", campaignId: "campaign-1", page }),
-    ).rejects.toThrow("page debe ser un entero entre 1 y 10000");
+    ).rejects.toThrow("page must be an integer between 1 and 10000");
     expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
 
   it.each([
-    [{ minScore: -1 }, "minScore debe ser un numero entre 0 y 100"],
-    [{ maxScore: 101 }, "maxScore debe ser un numero entre 0 y 100"],
-    [{ minScore: Number.NaN }, "minScore debe ser un numero entre 0 y 100"],
-    [{ minScore: 80, maxScore: 70 }, "minScore no puede ser mayor que maxScore"],
+    [{ minScore: -1 }, "minScore must be a number between 0 and 100"],
+    [{ maxScore: 101 }, "maxScore must be a number between 0 and 100"],
+    [{ minScore: Number.NaN }, "minScore must be a number between 0 and 100"],
+    [{ minScore: 80, maxScore: 70 }, "minScore cannot be greater than maxScore"],
   ] as const)("rejects invalid score boundaries", async (scoreParams, message) => {
     await expect(
       getEvaluationHistory({ scope: "own", campaignId: "campaign-1", ...scoreParams }),
@@ -2860,7 +2890,7 @@ describe("Evaluation history authorization", () => {
     prismaMock.response.findMany.mockResolvedValue([{ ...historyRow(), submittedAt: null }]);
 
     await expect(getEvaluationHistory({ scope: "own", campaignId: "campaign-1" })).rejects.toThrow(
-      "Evaluacion enviada sin fecha de envio",
+      "Submitted evaluation has no submission date",
     );
   });
 });

@@ -9,11 +9,7 @@ export default async function AdminAgentsPage() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") redirect("/");
 
-  const [agents, campaigns, teams] = await Promise.all([
-    getAgents(),
-    getCampaigns(),
-    getTeams(),
-  ]);
+  const [agents, campaigns, teams] = await Promise.all([getAgents(), getCampaigns(), getTeams()]);
 
   return (
     <AgentsClient

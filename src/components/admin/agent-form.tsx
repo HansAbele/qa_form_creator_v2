@@ -3,12 +3,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { createAgent, updateAgent } from "@/server/actions/agents";
 
 interface AgentFormProps {
@@ -30,6 +43,7 @@ const NONE = "__none__";
 
 export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: AgentFormProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const isEdit = !!agent;
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(agent?.name ?? "");
@@ -80,11 +94,11 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      toast.error("El nombre es obligatorio");
+      toast.error(t("Name is required"));
       return;
     }
     if (!isEdit && !campaignId) {
-      toast.error("Selecciona una campaña");
+      toast.error(t("Select a campaign"));
       return;
     }
 
@@ -97,7 +111,7 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
           teamId: teamId || undefined,
           active,
         });
-        toast.success("Agente actualizado");
+        toast.success(t("Agent updated"));
       } else {
         await createAgent({
           name: name.trim(),
@@ -105,12 +119,12 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
           campaignId,
           teamId: teamId || undefined,
         });
-        toast.success("Agente creado");
+        toast.success(t("Agent created"));
       }
       onOpenChange(false);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al guardar");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to save changes"));
     } finally {
       setSaving(false);
     }
@@ -120,34 +134,31 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Editar agente" : "Nuevo agente"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("Edit agent") : t("New agent")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="agent-name">Nombre</Label>
+            <Label htmlFor="agent-name">{t("Name")}</Label>
             <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="agent-code">Código (opcional)</Label>
+            <Label htmlFor="agent-code">{t("Code (optional)")}</Label>
             <Input
               id="agent-code"
               value={agentCode}
               onChange={(e) => setAgentCode(e.target.value)}
-              placeholder="Ej: AG001"
+              placeholder={t("Example: AG001")}
             />
           </div>
           {!isEdit && (
             <div className="space-y-2">
-              <Label>Campaña</Label>
+              <Label>{t("Campaign")}</Label>
               <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar campaña">
+                  <SelectValue placeholder={t("Select campaign")}>
                     {(value: string | null) => {
-                      if (!value) return "Seleccionar campaña";
-                      return (
-                        campaigns.find((c) => c.id === value)?.name ??
-                        "Seleccionar campaña"
-                      );
+                      if (!value) return t("Select campaign");
+                      return campaigns.find((c) => c.id === value)?.name ?? t("Select campaign");
                     }}
                   </SelectValue>
                 </SelectTrigger>
@@ -162,7 +173,7 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
             </div>
           )}
           <div className="space-y-2">
-            <Label>Equipo (opcional)</Label>
+            <Label>{t("Team (optional)")}</Label>
             <Select
               value={teamId || NONE}
               onValueChange={(v) => setTeamId(v === NONE || !v ? "" : v)}
@@ -171,17 +182,14 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {(value: string | null) => {
-                    if (!campaignId) return "Selecciona una campaña primero";
-                    if (!value || value === NONE) return "Sin equipo";
-                    return (
-                      availableTeams.find((t) => t.id === value)?.name ??
-                      "Sin equipo"
-                    );
+                    if (!campaignId) return t("Select a campaign first");
+                    if (!value || value === NONE) return t("No team");
+                    return availableTeams.find((team) => team.id === value)?.name ?? t("No team");
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Sin equipo</SelectItem>
+                <SelectItem value={NONE}>{t("No team")}</SelectItem>
                 {availableTeams.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     {t.name}
@@ -191,22 +199,22 @@ export function AgentForm({ agent, campaigns, teams, open, onOpenChange }: Agent
             </Select>
             {campaignId && availableTeams.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                Esta campaña no tiene equipos. Créalos en Admin → Equipos.
+                {t("This campaign has no teams. Create one in Administration → Teams.")}
               </p>
             )}
           </div>
           {isEdit && (
             <div className="flex items-center gap-2">
               <Switch checked={active} onCheckedChange={(v) => setActive(Boolean(v))} />
-              <Label>Activo</Label>
+              <Label>{t("Active")}</Label>
             </div>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Guardando..." : isEdit ? "Actualizar" : "Crear"}
+              {saving ? t("Saving...") : isEdit ? t("Update") : t("Create")}
             </Button>
           </DialogFooter>
         </form>

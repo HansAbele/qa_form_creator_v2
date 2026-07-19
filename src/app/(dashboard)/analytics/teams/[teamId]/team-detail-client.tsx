@@ -20,6 +20,7 @@ import {
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
 import { formatDateOnlyForDisplay } from "@/lib/date-display";
+import { getMetricDisplay } from "@/lib/metric-display";
 import { getTeamDetail } from "@/server/queries/analytics";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -65,11 +67,11 @@ interface TeamDetailData {
 // ─── Chart configs ───────────────────────────────────────────────────────────
 
 const trendConfig = {
-  avgScore: { label: "Score Promedio", color: "#ff6600" },
+  avgScore: { label: "Average Score", color: "#ff6600" },
 } satisfies ChartConfig;
 
 const rankingConfig = {
-  avgScore: { label: "Score Promedio", color: "#8b5cf6" },
+  avgScore: { label: "Average Score", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
 const BAR_COLORS = ["#ff6600", "#1a2b45", "#10b981", "#f43f5e", "#8b5cf6"];
@@ -118,10 +120,11 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState({ label = "Sin datos" }: { label?: string }) {
+function EmptyState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-      {label}
+      {label ?? t("No data")}
     </div>
   );
 }
@@ -129,6 +132,16 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function TeamDetailClient({ teamId }: { teamId: string }) {
+  const { locale, t } = useI18n();
+  const localizedTrendConfig = {
+    ...trendConfig,
+    avgScore: { ...trendConfig.avgScore, label: t("Average Score") },
+  } satisfies ChartConfig;
+  const localizedRankingConfig = {
+    ...rankingConfig,
+    avgScore: { ...rankingConfig.avgScore, label: t("Average Score") },
+  } satisfies ChartConfig;
+  const displayLocale = locale === "es" ? "es" : "en";
   const chartAnimation = useChartAnimation();
   const router = useRouter();
   const [data, setData] = useState<TeamDetailData | null>(null);
@@ -161,13 +174,31 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
 
   if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
   if (loadStatus === "error") {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar el equipo" />;
+    return <DataLoadError onRetry={() => void loadData()} title={t("Unable to load team")} />;
   }
   if (loadStatus === "empty" || !data) {
-    return <RestrictedResourceState resourceLabel="El equipo" />;
+    return <RestrictedResourceState resourceLabel={t("The team")} />;
   }
 
   const scoreTrendSpark = data.scoreTrend.map((t) => ({ value: t.avgScore }));
+  const evaluatedAgentRanking = data.agentRanking.filter((agent) => agent.totalEvaluations > 0);
+  const hasData = data.totalEvaluations > 0;
+  const metricStatus = loadStatus === "loading" ? "loading" : hasData ? "success" : "empty";
+  const metricStatusLabel = metricStatus === "empty" ? t("No data") : undefined;
+  const evaluationCountDisplay = getMetricDisplay({
+    kind: "count",
+    value: data.totalEvaluations,
+    hasData,
+    status: metricStatus,
+  });
+  const averageScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: data.avgScore,
+    hasData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
 
   return (
     <div className="space-y-6">
@@ -184,7 +215,7 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
           className="mb-3 -ml-2 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="mr-1 h-4 w-4" />
-          Volver
+          {t("Back")}
         </Button>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -194,14 +225,15 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
               <h1 className="font-heading text-3xl font-bold tracking-tight">{data.name}</h1>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Campana: <span className="font-medium text-foreground">{data.campaignName}</span>
+              {t("Campaign")}:{" "}
+              <span className="font-medium text-foreground">{data.campaignName}</span>
             </p>
           </div>
 
           {/* Date range filters */}
           <DateRangeFilter
             id="team-detail-date-range"
-            label="Periodo"
+            label={t("Period")}
             from={dateFrom}
             to={dateTo}
             onApply={(from, to) => {
@@ -215,22 +247,34 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
 
       {/* ─── KPI Cards ───────────────────────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <KpiCard label="Agentes" value={data.agentCount} icon={Users} tone="violet" index={0} />
+        <KpiCard label={t("Agents")} value={data.agentCount} icon={Users} tone="violet" index={0} />
         <KpiCard
-          label="Evaluaciones"
+          label={t("Evaluated Calls")}
           value={data.totalEvaluations}
+          display={evaluationCountDisplay}
+          statusLabel={metricStatusLabel}
           icon={ClipboardCheck}
           tone="orange"
           trend={scoreTrendSpark}
           index={1}
         />
         <KpiCard
-          label="Score Promedio"
+          label={t("Average Score")}
           value={data.avgScore}
+          display={averageScoreDisplay}
+          statusLabel={metricStatusLabel}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={data.avgScore >= 70 ? "emerald" : data.avgScore >= 50 ? "amber" : "rose"}
+          tone={
+            !hasData
+              ? "navy"
+              : data.avgScore >= 70
+                ? "emerald"
+                : data.avgScore >= 50
+                  ? "amber"
+                  : "rose"
+          }
           index={2}
         />
       </div>
@@ -245,19 +289,21 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-4 w-4 text-orange-500" />
-              Score Trend del Equipo
+              {t("Team Score trend")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {data.scoreTrend.length > 1 ? (
               <ChartContainer
-                config={trendConfig}
-                accessibilityLabel="Tendencia del score promedio del equipo por fecha"
+                config={localizedTrendConfig}
+                accessibilityLabel={t("Team Average Score trend by date")}
                 accessibilityDescription={summarizeChartData(
                   data.scoreTrend.map(
                     (point) =>
-                      `${formatDateOnlyForDisplay(point.date)}: ${point.avgScore.toFixed(1)}%`,
+                      `${formatDateOnlyForDisplay(point.date, undefined, displayLocale)}: ${point.avgScore.toFixed(1)}%`,
                   ),
+                  10,
+                  locale,
                 )}
                 className="h-[300px] w-full"
               >
@@ -275,7 +321,11 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
                     axisLine={false}
                     tickMargin={8}
                     tickFormatter={(v) =>
-                      formatDateOnlyForDisplay(String(v), { day: "2-digit", month: "short" })
+                      formatDateOnlyForDisplay(
+                        String(v),
+                        { day: "2-digit", month: "short" },
+                        displayLocale,
+                      )
                     }
                     className="text-xs"
                   />
@@ -291,7 +341,9 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
                     content={
                       <ChartTooltipContent
                         indicator="line"
-                        labelFormatter={(label) => formatDateOnlyForDisplay(String(label))}
+                        labelFormatter={(label) =>
+                          formatDateOnlyForDisplay(String(label), undefined, displayLocale)
+                        }
                         formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]}
                       />
                     }
@@ -309,7 +361,7 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
                 </LineChart>
               </ChartContainer>
             ) : (
-              <EmptyState label="Se necesitan al menos 2 puntos de datos" />
+              <EmptyState label={t("At least 2 data points are required")} />
             )}
           </CardContent>
         </Card>
@@ -327,21 +379,21 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Medal className="h-4 w-4 text-yellow-500" />
-                Ranking de Agentes
+                {t("Agent ranking")}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {data.agentRanking.length > 0 ? (
+              {evaluatedAgentRanking.length > 0 ? (
                 <div className="space-y-1.5">
                   <div className="grid grid-cols-[2rem_1fr_4.5rem_4.5rem_4.5rem] gap-2 border-b pb-2 text-xs font-medium text-muted-foreground">
                     <span>#</span>
-                    <span>Agente</span>
-                    <span className="text-center">Score</span>
-                    <span className="text-center">Pass</span>
-                    <span className="text-center">Evals</span>
+                    <span>{t("Agent")}</span>
+                    <span className="text-center">{t("Score")}</span>
+                    <span className="text-center">{t("Pass")}</span>
+                    <span className="text-center">{t("Evals")}</span>
                   </div>
                   <AnimatePresence>
-                    {data.agentRanking.map((agent, i) => (
+                    {evaluatedAgentRanking.map((agent, i) => (
                       <motion.div
                         key={agent.id}
                         initial={{ opacity: 0, x: -8 }}
@@ -390,7 +442,7 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
                   </AnimatePresence>
                 </div>
               ) : (
-                <EmptyState label="Sin evaluaciones de agentes" />
+                <EmptyState label={t("No agent evaluations")} />
               )}
             </CardContent>
           </Card>
@@ -400,24 +452,30 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Award className="h-4 w-4 text-violet-500" />
-                Ranking de Agentes
+                {t("Agent ranking")}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {data.agentRanking.length > 0 ? (
+              {evaluatedAgentRanking.length > 0 ? (
                 <ChartContainer
-                  config={rankingConfig}
-                  accessibilityLabel="Ranking de agentes del equipo por score promedio"
+                  config={localizedRankingConfig}
+                  accessibilityLabel={t("Team agent ranking by Average Score")}
                   accessibilityDescription={summarizeChartData(
-                    data.agentRanking.map(
-                      (agent) =>
-                        `${agent.name}: score ${agent.avgScore.toFixed(1)}%, pass rate ${agent.passRate}%, ${agent.totalEvaluations} evaluaciones`,
+                    evaluatedAgentRanking.map((agent) =>
+                      t("{name}: score {score}%, Pass Rate {passRate}%, {count} evaluations", {
+                        name: agent.name,
+                        score: agent.avgScore.toFixed(1),
+                        passRate: agent.passRate,
+                        count: agent.totalEvaluations,
+                      }),
                     ),
+                    10,
+                    locale,
                   )}
                   className="h-[300px] w-full"
                 >
                   <BarChart
-                    data={data.agentRanking}
+                    data={evaluatedAgentRanking}
                     layout="vertical"
                     margin={{ left: 20, right: 12 }}
                   >
@@ -459,14 +517,14 @@ export function TeamDetailClient({ teamId }: { teamId: string }) {
                         if (barData?.id) router.push(`/analytics/agents/${barData.id}`);
                       }}
                     >
-                      {data.agentRanking.map((agent, i) => (
+                      {evaluatedAgentRanking.map((agent, i) => (
                         <Cell key={agent.id} fill={BAR_COLORS[i % BAR_COLORS.length]} />
                       ))}
                     </Bar>
                   </BarChart>
                 </ChartContainer>
               ) : (
-                <EmptyState label="Sin agentes con evaluaciones" />
+                <EmptyState label={t("No agents with evaluations")} />
               )}
             </CardContent>
           </Card>

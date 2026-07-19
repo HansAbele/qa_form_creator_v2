@@ -1,6 +1,9 @@
+import { translate } from "@/lib/i18n";
+
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-export const UNAVAILABLE_DATE_LABEL = "Fecha no disponible";
+export const DEFAULT_DATE_DISPLAY_LOCALE = "en-US";
+export const UNAVAILABLE_DATE_LABEL = "Date unavailable";
 
 type DateTimeInput = Date | string | number;
 type DisplayFormatOptions = Omit<Intl.DateTimeFormatOptions, "timeZone">;
@@ -15,6 +18,27 @@ const DEFAULT_TIMESTAMP_OPTIONS: DisplayFormatOptions = {
   dateStyle: "short",
   timeStyle: "short",
 };
+
+function localeStrings(locale: Intl.LocalesArgument): string[] {
+  if (locale === undefined) return [DEFAULT_DATE_DISPLAY_LOCALE];
+  if (typeof locale === "string") return [locale];
+  if (locale instanceof Intl.Locale) return [locale.toString()];
+  return Array.from(locale, (item) => (item instanceof Intl.Locale ? item.toString() : item));
+}
+
+export function getUnavailableDateLabel(
+  locale: Intl.LocalesArgument = DEFAULT_DATE_DISPLAY_LOCALE,
+) {
+  try {
+    const canonicalLocale = Intl.getCanonicalLocales(localeStrings(locale))[0];
+    return translate(
+      canonicalLocale?.toLowerCase().startsWith("es") ? "es" : "en",
+      "Date unavailable",
+    );
+  } catch {
+    return UNAVAILABLE_DATE_LABEL;
+  }
+}
 
 function parseDateOnly(value: string) {
   const match = DATE_ONLY_PATTERN.exec(value);
@@ -44,15 +68,19 @@ function parseDateOnly(value: string) {
 export function formatDateOnlyForDisplay(
   value: string,
   options: DisplayFormatOptions = DEFAULT_DATE_OPTIONS,
-  locale: Intl.LocalesArgument = "es-ES",
+  locale: Intl.LocalesArgument = DEFAULT_DATE_DISPLAY_LOCALE,
 ) {
   const date = parseDateOnly(value);
-  if (!date) return UNAVAILABLE_DATE_LABEL;
+  if (!date) return getUnavailableDateLabel(locale);
 
-  return new Intl.DateTimeFormat(locale, {
-    ...options,
-    timeZone: "UTC",
-  }).format(date);
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      ...options,
+      timeZone: "UTC",
+    }).format(date);
+  } catch {
+    return getUnavailableDateLabel(locale);
+  }
 }
 
 /** Formats a real instant in the install-wide operational IANA time zone. */
@@ -60,10 +88,10 @@ export function formatOperationalTimestamp(
   value: DateTimeInput,
   timeZone: string,
   options: DisplayFormatOptions = DEFAULT_TIMESTAMP_OPTIONS,
-  locale: Intl.LocalesArgument = "es-ES",
+  locale: Intl.LocalesArgument = DEFAULT_DATE_DISPLAY_LOCALE,
 ) {
   const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return UNAVAILABLE_DATE_LABEL;
+  if (Number.isNaN(date.getTime())) return getUnavailableDateLabel(locale);
 
   try {
     return new Intl.DateTimeFormat(locale, {
@@ -71,6 +99,6 @@ export function formatOperationalTimestamp(
       timeZone,
     }).format(date);
   } catch {
-    return UNAVAILABLE_DATE_LABEL;
+    return getUnavailableDateLabel(locale);
   }
 }

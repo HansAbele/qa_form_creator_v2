@@ -25,10 +25,11 @@ import {
 } from "@/components/dashboard/data-load-state";
 import { EvaluatorCalibrationTable } from "@/components/dashboard/evaluator-calibration-table";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { AccessibleChart } from "@/components/ui/accessible-chart";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useChartAnimation } from "@/components/ui/use-chart-animation";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -37,6 +38,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useChartAnimation } from "@/components/ui/use-chart-animation";
+import { getMetricDisplay } from "@/lib/metric-display";
 import type { AppSettings } from "@/lib/settings";
 import { getKpiBundle } from "@/server/queries/analytics";
 
@@ -117,13 +120,19 @@ function RecapItem({
   label: string;
   value: string;
   target: string;
-  met: boolean;
+  met: boolean | null;
 }) {
   return (
     <span className="flex items-center gap-1.5">
       <span className="text-muted-foreground">{label}</span>
       <span
-        className={`font-semibold tabular-nums ${met ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+        className={`font-semibold tabular-nums ${
+          met === null
+            ? "text-muted-foreground"
+            : met
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-rose-600 dark:text-rose-400"
+        }`}
       >
         {value}
       </span>
@@ -132,7 +141,25 @@ function RecapItem({
   );
 }
 
+function KpisLoadingSkeleton({ label }: { label: string }) {
+  return (
+    <div className="space-y-6" role="status" aria-label={label} aria-busy="true">
+      <div className="flex items-end justify-between gap-4">
+        <Skeleton className="h-9 w-52" />
+        <Skeleton className="h-10 w-48" />
+      </div>
+      <Skeleton className="h-14 w-full rounded-lg" />
+      <Skeleton className="h-52 w-full rounded-xl" />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Skeleton className="h-[360px] rounded-xl" />
+        <Skeleton className="h-[360px] rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
 export function KpisClient({ settings }: { settings: AppSettings }) {
+  const { t } = useI18n();
   const chartAnimation = useChartAnimation();
   const router = useRouter();
   const [dateFrom, setDateFrom] = useState("");
@@ -150,6 +177,11 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
   const loadData = useCallback(async () => {
     const requestId = ++requestGeneration.current;
     setLoadStatus("loading");
+    setKpis([]);
+    setQuestionScores([]);
+    setEvaluators([]);
+    setQACategoryMetrics([]);
+    setCeaDetail(null);
     try {
       const data = await getKpiBundle(dateFrom || undefined, dateTo || undefined);
       if (requestId !== requestGeneration.current) return;
@@ -174,17 +206,13 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
   }, [loadData]);
 
   if (loadStatus === "loading" && kpis.length === 0) {
-    return (
-      <div className="flex h-[50vh] items-center justify-center text-muted-foreground">
-        Cargando KPIs...
-      </div>
-    );
+    return <KpisLoadingSkeleton label={t("Loading KPIs...")} />;
   }
   if (loadStatus === "error") {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar los KPIs" />;
+    return <DataLoadError onRetry={() => void loadData()} title={t("Unable to load KPIs")} />;
   }
   if (loadStatus === "empty") {
-    return <DataEmptyState title="No hay KPIs disponibles" />;
+    return <DataEmptyState title={t("No KPIs available")} />;
   }
 
   const totalEvaluations = kpis.reduce((sum, k) => sum + k.totalEvaluations, 0);
@@ -202,6 +230,30 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
       : 0;
   const overallDailyRate = kpis.reduce((sum, k) => sum + k.dailyRate, 0);
   const totalFatalFailures = kpis.reduce((sum, k) => sum + k.fatalFailCount, 0);
+  const hasEvaluationData = totalEvaluations > 0;
+  const metricStatus = hasEvaluationData ? "success" : "empty";
+  const averageScoreMetric = getMetricDisplay({
+    kind: "measure",
+    value: overallAvg,
+    hasData: hasEvaluationData,
+    status: metricStatus,
+    decimals: 1,
+    suffix: "%",
+  });
+  const passRateMetric = getMetricDisplay({
+    kind: "measure",
+    value: overallPassRate,
+    hasData: hasEvaluationData,
+    status: metricStatus,
+    suffix: "%",
+  });
+  const dailyRateMetric = getMetricDisplay({
+    kind: "measure",
+    value: overallDailyRate,
+    hasData: hasEvaluationData,
+    status: metricStatus,
+    decimals: 1,
+  });
   const targets = {
     passThreshold: weightedTarget(kpis, "passThreshold", settings.passThreshold),
     passRate: weightedTarget(kpis, "targetPassRate", settings.targetPassRate),
@@ -215,56 +267,85 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
 
   // Alerts
   const alerts: { type: "warning" | "success"; msg: string }[] = [];
-  if (overallPassRate < targets.passRate)
+  if (hasEvaluationData && overallPassRate < targets.passRate)
     alerts.push({
       type: "warning",
-      msg: `Pass Rate (${overallPassRate}%) por debajo del target (${targets.passRate}%)`,
+      msg: t("Pass Rate ({value}%) is below target ({target}%)", {
+        value: overallPassRate,
+        target: targets.passRate,
+      }),
     });
-  else
+  else if (hasEvaluationData)
     alerts.push({
       type: "success",
-      msg: `Pass Rate (${overallPassRate}%) cumple el target (${targets.passRate}%)`,
+      msg: t("Pass Rate ({value}%) meets target ({target}%)", {
+        value: overallPassRate,
+        target: targets.passRate,
+      }),
     });
 
-  if (overallAvg < targets.avgScore)
+  if (hasEvaluationData && overallAvg < targets.avgScore)
     alerts.push({
       type: "warning",
-      msg: `Score promedio (${overallAvg.toFixed(1)}%) por debajo del target (${targets.avgScore}%)`,
+      msg: t("Average Score ({value}%) is below target ({target}%)", {
+        value: overallAvg.toFixed(1),
+        target: targets.avgScore,
+      }),
     });
-  else
+  else if (hasEvaluationData)
     alerts.push({
       type: "success",
-      msg: `Score promedio (${overallAvg.toFixed(1)}%) cumple el target (${targets.avgScore}%)`,
+      msg: t("Average Score ({value}%) meets target ({target}%)", {
+        value: overallAvg.toFixed(1),
+        target: targets.avgScore,
+      }),
     });
 
-  if (overallDailyRate < targets.dailyRate)
+  if (hasEvaluationData && overallDailyRate < targets.dailyRate)
     alerts.push({
       type: "warning",
-      msg: `Tasa diaria (${overallDailyRate.toFixed(1)}/día) por debajo del target (${targets.dailyRate}/día)`,
+      msg: t("Daily Rate ({value}/day) is below target ({target}/day)", {
+        value: overallDailyRate.toFixed(1),
+        target: targets.dailyRate,
+      }),
     });
-  else
+  else if (hasEvaluationData)
     alerts.push({
       type: "success",
-      msg: `Tasa diaria (${overallDailyRate.toFixed(1)}/día) cumple el target (${targets.dailyRate}/día)`,
+      msg: t("Daily Rate ({value}/day) meets target ({target}/day)", {
+        value: overallDailyRate.toFixed(1),
+        target: targets.dailyRate,
+      }),
     });
 
-  if (totalFatalFailures > targets.fatalFailuresAllowed)
-    alerts.push({
-      type: "warning",
-      msg: `Fallas fatales (${totalFatalFailures}) exceden lo permitido (${targets.fatalFailuresAllowed})`,
-    });
-  else
-    alerts.push({
-      type: "success",
-      msg: `Fallas fatales (${totalFatalFailures}) dentro del límite (${targets.fatalFailuresAllowed})`,
-    });
+  if (hasEvaluationData) {
+    if (totalFatalFailures > targets.fatalFailuresAllowed)
+      alerts.push({
+        type: "warning",
+        msg: t("Critical Failures ({value}) exceed the allowed limit ({allowed})", {
+          value: totalFatalFailures,
+          allowed: targets.fatalFailuresAllowed,
+        }),
+      });
+    else
+      alerts.push({
+        type: "success",
+        msg: t("Critical Failures ({value}) are within the allowed limit ({allowed})", {
+          value: totalFatalFailures,
+          allowed: targets.fatalFailuresAllowed,
+        }),
+      });
+  }
 
   // Evaluator consistency alerts
   const inconsistentEvaluators = evaluators.filter((e) => e.stdDev > 20 && e.totalEvaluations >= 5);
   if (inconsistentEvaluators.length > 0) {
     alerts.push({
       type: "warning",
-      msg: `${inconsistentEvaluators.length} evaluador(es) con alta variabilidad (±>20): ${inconsistentEvaluators.map((e) => e.name).join(", ")}`,
+      msg: t("{count} evaluator(s) with high variability (±>20): {names}", {
+        count: inconsistentEvaluators.length,
+        names: inconsistentEvaluators.map((e) => e.name).join(", "),
+      }),
     });
   }
 
@@ -274,7 +355,9 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
   if (qaCategoriesAtRisk.length > 0) {
     alerts.push({
       type: "warning",
-      msg: `${qaCategoriesAtRisk.length} categoria(s) QA con fallas bajo umbral o fatales`,
+      msg: t("{count} QA category/categories with below-threshold or critical failures", {
+        count: qaCategoriesAtRisk.length,
+      }),
     });
   }
 
@@ -289,7 +372,11 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
       if (fam.configured && fam.accuracy !== null && fam.accuracy < fam.target) {
         alerts.push({
           type: "warning",
-          msg: `${CEA_LABEL[fam.family]} CEA (${fam.accuracy.toFixed(1)}%) por debajo del benchmark (${fam.target}%)`,
+          msg: t("{family} CEA ({value}%) is below benchmark ({target}%)", {
+            family: CEA_LABEL[fam.family],
+            value: fam.accuracy.toFixed(1),
+            target: fam.target,
+          }),
         });
       }
     }
@@ -304,10 +391,10 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
     <div className="space-y-6">
       {/* Header + Date Filter */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">KPIs por Campaña</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t("Campaign KPIs")}</h1>
         <DateRangeFilter
           id="kpi-period"
-          label="Periodo"
+          label={t("Period")}
           from={dateFrom}
           to={dateTo}
           onApply={(from, to) => {
@@ -321,33 +408,34 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
 
       {/* Compact target recap — the hero KPI cards live on the Dashboard; KPIs leads with diagnostics */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-card px-4 py-3 text-sm">
+        {!hasEvaluationData ? <Badge variant="outline">{t("No data")}</Badge> : null}
         <span className="flex items-center gap-1.5">
           <span className="font-semibold tabular-nums">{totalEvaluations}</span>
-          <span className="text-muted-foreground">evaluaciones</span>
+          <span className="text-muted-foreground">{t("evaluations")}</span>
         </span>
         <RecapItem
-          label="Score"
-          value={`${overallAvg.toFixed(1)}%`}
+          label={t("Score")}
+          value={averageScoreMetric.text ?? "—"}
           target={`${targets.avgScore}%`}
-          met={overallAvg >= targets.avgScore}
+          met={hasEvaluationData ? overallAvg >= targets.avgScore : null}
         />
         <RecapItem
-          label="Pass Rate"
-          value={`${overallPassRate}%`}
+          label={t("Pass Rate")}
+          value={passRateMetric.text ?? "—"}
           target={`${targets.passRate}%`}
-          met={overallPassRate >= targets.passRate}
+          met={hasEvaluationData ? overallPassRate >= targets.passRate : null}
         />
         <RecapItem
-          label="Tasa diaria"
-          value={overallDailyRate.toFixed(1)}
+          label={t("Daily Rate")}
+          value={dailyRateMetric.text ?? "—"}
           target={`${targets.dailyRate}/d`}
-          met={overallDailyRate >= targets.dailyRate}
+          met={hasEvaluationData ? overallDailyRate >= targets.dailyRate : null}
         />
         <RecapItem
-          label="Fatales"
+          label={t("Critical Failures")}
           value={String(totalFatalFailures)}
           target={String(targets.fatalFailuresAllowed)}
-          met={totalFatalFailures <= targets.fatalFailuresAllowed}
+          met={hasEvaluationData ? totalFatalFailures <= targets.fatalFailuresAllowed : null}
         />
       </div>
 
@@ -356,7 +444,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="h-4 w-4" /> Alertas
+              <Activity className="h-4 w-4" /> {t("Alerts")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -384,15 +472,17 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Score Promedio por Campaña</CardTitle>
+            <CardTitle className="text-base">{t("Average Score by Campaign")}</CardTitle>
           </CardHeader>
           <CardContent>
-            {kpis.length > 0 ? (
+            {kpis.some((kpi) => kpi.totalEvaluations > 0) ? (
               (() => {
-                const sorted = [...kpis].sort((a, b) => b.avgScore - a.avgScore);
+                const sorted = kpis
+                  .filter((kpi) => kpi.totalEvaluations > 0)
+                  .sort((a, b) => b.avgScore - a.avgScore);
                 return (
                   <AccessibleChart
-                    label="Score promedio por campaña"
+                    label={t("Average Score by Campaign")}
                     description={sorted
                       .map((item) => `${item.name}: ${item.avgScore.toFixed(1)}%`)
                       .join("; ")}
@@ -425,7 +515,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
               })()
             ) : (
               <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-                Sin datos
+                {t("No data")}
               </div>
             )}
           </CardContent>
@@ -433,14 +523,19 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Distribución de Evaluaciones</CardTitle>
+            <CardTitle className="text-base">{t("Evaluation distribution")}</CardTitle>
           </CardHeader>
           <CardContent>
             {pieData.length > 0 ? (
               <AccessibleChart
-                label="Distribución de evaluaciones por campaña"
+                label={t("Evaluation distribution by campaign")}
                 description={pieData
-                  .map((item) => `${item.name}: ${item.value} evaluaciones`)
+                  .map((item) =>
+                    t("{name}: {count} evaluations", {
+                      name: item.name,
+                      count: item.value,
+                    }),
+                  )
                   .join("; ")}
               >
                 <ResponsiveContainer width="100%" height={300}>
@@ -465,7 +560,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
               </AccessibleChart>
             ) : (
               <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-                Sin datos
+                {t("No data")}
               </div>
             )}
           </CardContent>
@@ -477,13 +572,13 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <TrendingDown className="h-4 w-4" />
-            Score por Pregunta (ordenado de menor a mayor)
+            {t("Score by Question (lowest to highest)")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {questionScores.length > 0 ? (
             <AccessibleChart
-              label="Score por pregunta, ordenado de menor a mayor"
+              label={t("Score by Question, lowest to highest")}
               description={questionScores
                 .map((item) => `${item.question}: ${item.avgScore.toFixed(1)}%`)
                 .join("; ")}
@@ -494,11 +589,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
                   <XAxis type="number" domain={[0, 100]} />
                   <YAxis dataKey="question" type="category" width={145} className="text-xs" />
                   <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Score"]} />
-                  <Bar
-                    dataKey="avgScore"
-                    radius={[0, 4, 4, 0]}
-                    isAnimationActive={chartAnimation}
-                  >
+                  <Bar dataKey="avgScore" radius={[0, 4, 4, 0]} isAnimationActive={chartAnimation}>
                     {questionScores.map((q) => (
                       <Cell
                         key={q.question}
@@ -517,7 +608,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
             </AccessibleChart>
           ) : (
             <div className="flex h-[200px] items-center justify-center text-muted-foreground">
-              Sin datos de preguntas tipo RATING
+              {t("No RATING question data")}
             </div>
           )}
         </CardContent>
@@ -529,13 +620,13 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <ShieldAlert className="h-4 w-4" />
-              Score por Categoria QA
+              {t("Score by QA Category")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {qaCategoryChartData.length > 0 ? (
               <AccessibleChart
-                label="Score por categoría QA"
+                label={t("Score by QA Category")}
                 description={qaCategoryChartData
                   .map((item) => `${item.name}: ${item.avgScore.toFixed(1)}%`)
                   .join("; ")}
@@ -582,7 +673,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
               </AccessibleChart>
             ) : (
               <div className="flex h-[240px] items-center justify-center text-muted-foreground">
-                Sin datos por categoria QA
+                {t("No QA category data")}
               </div>
             )}
           </CardContent>
@@ -590,18 +681,18 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Riesgo por Categoria QA</CardTitle>
+            <CardTitle className="text-base">{t("Risk by QA Category")}</CardTitle>
           </CardHeader>
           <CardContent>
             {qaCategoryMetrics.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead className="text-right">Score</TableHead>
-                    <TableHead className="text-right">Eval.</TableHead>
-                    <TableHead className="text-right">Bajo umbral</TableHead>
-                    <TableHead className="text-right">Fatales</TableHead>
+                    <TableHead>{t("Category")}</TableHead>
+                    <TableHead className="text-right">{t("Score")}</TableHead>
+                    <TableHead className="text-right">{t("Eval.")}</TableHead>
+                    <TableHead className="text-right">{t("Below threshold")}</TableHead>
+                    <TableHead className="text-right">{t("Critical")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -651,7 +742,7 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
               </Table>
             ) : (
               <div className="flex h-[240px] items-center justify-center text-muted-foreground">
-                Sin categorias QA evaluadas
+                {t("No evaluated QA categories")}
               </div>
             )}
           </CardContent>
@@ -667,16 +758,17 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
       />
 
       {/* Campaign Detail Cards */}
-      <h2 className="text-xl font-semibold">Detalle por Campaña</h2>
+      <h2 className="text-xl font-semibold">{t("Campaign details")}</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {kpis.map((kpi) => (
           <Card
             key={kpi.id}
             className={
-              kpi.avgScore < kpi.targetAvgScore ||
-              kpi.passRate < kpi.targetPassRate ||
-              kpi.dailyRate < kpi.targetDailyRate ||
-              kpi.fatalFailCount > kpi.fatalFailuresAllowed
+              kpi.totalEvaluations > 0 &&
+              (kpi.avgScore < kpi.targetAvgScore ||
+                kpi.passRate < kpi.targetPassRate ||
+                kpi.dailyRate < kpi.targetDailyRate ||
+                kpi.fatalFailCount > kpi.fatalFailuresAllowed)
                 ? "border-red-200"
                 : ""
             }
@@ -687,44 +779,66 @@ export function KpisClient({ settings }: { settings: AppSettings }) {
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
-                  <p className="text-muted-foreground">Formularios</p>
+                  <p className="text-muted-foreground">{t("Forms")}</p>
                   <p className="font-medium">{kpi.totalForms}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Agentes</p>
+                  <p className="text-muted-foreground">{t("Agents")}</p>
                   <p className="font-medium">{kpi.totalAgents}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Evaluadores</p>
+                  <p className="text-muted-foreground">{t("Evaluators")}</p>
                   <p className="font-medium">{kpi.totalEvaluators}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Evaluaciones</p>
+                  <p className="text-muted-foreground">{t("Evaluated Calls")}</p>
                   <p className="font-medium">{kpi.totalEvaluations}</p>
                 </div>
               </div>
               <div className="flex items-center justify-between border-t pt-3">
                 <div>
-                  <p className="text-xs text-muted-foreground">Score</p>
-                  <Badge variant={targetVariant(kpi.avgScore >= kpi.targetAvgScore)}>
-                    {kpi.avgScore.toFixed(1)}% / {kpi.targetAvgScore}%
+                  <p className="text-xs text-muted-foreground">{t("Score")}</p>
+                  <Badge
+                    variant={
+                      kpi.totalEvaluations > 0
+                        ? targetVariant(kpi.avgScore >= kpi.targetAvgScore)
+                        : "outline"
+                    }
+                  >
+                    {kpi.totalEvaluations > 0
+                      ? `${kpi.avgScore.toFixed(1)}% / ${kpi.targetAvgScore}%`
+                      : "—"}
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Pass Rate</p>
-                  <Badge variant={targetVariant(kpi.passRate >= kpi.targetPassRate)}>
-                    {kpi.passRate}% / {kpi.targetPassRate}%
+                  <p className="text-xs text-muted-foreground">{t("Pass Rate")}</p>
+                  <Badge
+                    variant={
+                      kpi.totalEvaluations > 0
+                        ? targetVariant(kpi.passRate >= kpi.targetPassRate)
+                        : "outline"
+                    }
+                  >
+                    {kpi.totalEvaluations > 0 ? `${kpi.passRate}% / ${kpi.targetPassRate}%` : "—"}
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Diario</p>
-                  <Badge variant={kpi.dailyRate >= kpi.targetDailyRate ? "outline" : "destructive"}>
-                    {kpi.dailyRate.toFixed(1)}/{kpi.targetDailyRate}/d
+                  <p className="text-xs text-muted-foreground">{t("Daily")}</p>
+                  <Badge
+                    variant={
+                      kpi.totalEvaluations === 0 || kpi.dailyRate >= kpi.targetDailyRate
+                        ? "outline"
+                        : "destructive"
+                    }
+                  >
+                    {kpi.totalEvaluations > 0
+                      ? `${kpi.dailyRate.toFixed(1)}/${kpi.targetDailyRate}/d`
+                      : "—"}
                   </Badge>
                 </div>
               </div>
               <div className="flex items-center justify-between border-t pt-3 text-sm">
-                <span className="text-muted-foreground">Fatal failures</span>
+                <span className="text-muted-foreground">{t("Critical Failures")}</span>
                 <Badge
                   variant={
                     kpi.fatalFailCount <= kpi.fatalFailuresAllowed ? "outline" : "destructive"

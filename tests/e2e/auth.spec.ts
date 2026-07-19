@@ -6,7 +6,7 @@ test.describe("Authentication", () => {
   test("should show login page", async ({ page }) => {
     await page.goto("/login");
     await expect(page.getByRole("img", { name: "TNO" })).toBeVisible();
-    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page.getByLabel("Work email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
   });
 
@@ -17,10 +17,10 @@ test.describe("Authentication", () => {
 
   test("should show error on invalid credentials", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Username").fill("wrong@example.com");
+    await page.getByLabel("Work email").fill("wrong@example.com");
     await page.getByLabel("Password").fill("wrongpassword");
-    await page.getByRole("button", { name: "Log in" }).click();
-    await expect(page.getByText("Invalid credentials")).toBeVisible();
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByText("Invalid email or password.")).toBeVisible();
   });
 
   test("should login successfully as QA Manager", async ({ page }) => {

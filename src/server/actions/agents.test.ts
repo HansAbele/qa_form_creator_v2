@@ -50,13 +50,13 @@ describe("agent mutations RBAC", () => {
     });
 
     await expect(createAgent({ name: "Ana", campaignId: "campaign-1" })).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+      "Unauthorized for this action in this campaign",
     );
     expect(prismaMock.agent.create).not.toHaveBeenCalled();
   });
 
   it("keeps the detailed agent reader admin-only", async () => {
-    await expect(getAgents()).rejects.toThrow("No autorizado");
+    await expect(getAgents()).rejects.toThrow("Unauthorized");
     expect(prismaMock.agent.findMany).not.toHaveBeenCalled();
   });
 
@@ -147,7 +147,7 @@ describe("agent mutations RBAC", () => {
         campaignId: "campaign-1",
         teamId: "team-2",
       }),
-    ).rejects.toThrow("Equipo invalido para esta campana");
+    ).rejects.toThrow("Invalid team for this campaign");
     expect(prismaMock.agent.create).not.toHaveBeenCalled();
   });
 

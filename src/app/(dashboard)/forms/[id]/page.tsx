@@ -1,12 +1,14 @@
 import { redirect } from "next/navigation";
 import { FormViewer } from "@/components/forms/form-viewer";
 import { auth } from "@/lib/auth";
+import { getServerI18n } from "@/lib/i18n-server";
 import { resolveResponseScoringPolicy } from "@/lib/response-scoring-policy";
 import { getCampaignScoringSettings } from "@/lib/settings";
 import {
   getFormForDraftCorrection,
   getFormForEvaluation,
   getFormForEvaluationCorrection,
+  getFormForEvaluationDraft,
 } from "@/server/actions/forms";
 import { getResponseById } from "@/server/actions/responses";
 import { hasCampaignPermissionForUser } from "@/server/queries/campaign-filter";
@@ -44,17 +46,20 @@ export default async function FormEvaluatePage({
       ? await getFormForEvaluationCorrection(id)
       : requiresCorrection
         ? await getFormForDraftCorrection(id)
-        : await getFormForEvaluation(id);
+        : initialResponse
+          ? await getFormForEvaluationDraft(id)
+          : await getFormForEvaluation(id);
   const [scoringSettings, canManageDispositions] = await Promise.all([
     getCampaignScoringSettings(form.campaignId),
     hasCampaignPermissionForUser(session.user, form.campaignId, "canManageDispositions"),
   ]);
   const viewerScoringPolicy = resolveResponseScoringPolicy(initialResponse, scoringSettings);
+  const { t } = await getServerI18n();
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <h1 className="font-heading text-3xl font-bold tracking-tight">
-        {initialResponse?.status === "SUBMITTED" ? "Editar evaluacion" : "Nueva evaluacion"}
+        {initialResponse?.status === "SUBMITTED" ? t("Edit Evaluation") : t("New Evaluation")}
       </h1>
       <FormViewer
         key={initialResponse?.id ?? `new:${form.id}`}

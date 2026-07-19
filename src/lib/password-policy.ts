@@ -13,10 +13,10 @@ const COMMON_PASSWORD_FRAGMENTS = [
 /** Shared client/server policy. The server remains the authoritative enforcement point. */
 export function getPasswordPolicyError(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) {
-    return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`;
+    return `Password must contain at least ${MIN_PASSWORD_LENGTH} characters`;
   }
   if (password.length > MAX_PASSWORD_LENGTH) {
-    return `La contraseña no puede exceder ${MAX_PASSWORD_LENGTH} caracteres`;
+    return `Password cannot exceed ${MAX_PASSWORD_LENGTH} characters`;
   }
 
   const characterClasses = [
@@ -27,12 +27,12 @@ export function getPasswordPolicyError(password: string): string | null {
   ].filter(Boolean).length;
 
   if (characterClasses < 3) {
-    return "La contraseña debe combinar al menos tres tipos: mayúsculas, minúsculas, números y símbolos";
+    return "Password must combine at least three character types: uppercase, lowercase, numbers, and symbols";
   }
 
-  const normalized = password.toLocaleLowerCase("es");
+  const normalized = password.toLocaleLowerCase("en");
   if (COMMON_PASSWORD_FRAGMENTS.some((fragment) => normalized.includes(fragment))) {
-    return "La contraseña contiene una expresión común o temporal";
+    return "Password contains a common or temporary phrase";
   }
 
   return null;

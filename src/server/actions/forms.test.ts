@@ -28,6 +28,7 @@ import {
   getFormForDraftCorrection,
   getFormForEvaluation,
   getFormForEvaluationCorrection,
+  getFormForEvaluationDraft,
   getForms,
   getFormsForExport,
   getFormsForReports,
@@ -61,7 +62,7 @@ const formInput = {
 const formFindFirstMock = vi.fn();
 Object.assign(prismaMock.form, { findFirst: formFindFirstMock });
 
-describe("form revision workflow", () => {
+describe("form lifecycle", () => {
   beforeEach(() => {
     resetPrismaMock();
     authMock.mockReset();
@@ -102,7 +103,7 @@ describe("form revision workflow", () => {
     expect(formActions).not.toHaveProperty("getFormByIdForPermission");
   });
 
-  it("creates a draft revision when editing a published form", async () => {
+  it("replaces a published form immediately while preserving its historical record", async () => {
     prismaMock.form.findUnique.mockResolvedValue({
       id: "form-1",
       title: "QA Form",
@@ -114,48 +115,44 @@ describe("form revision workflow", () => {
       version: "1.0.0",
       questions: [],
     });
-    prismaMock.form.create.mockResolvedValue({ id: "form-draft" });
+    prismaMock.form.create.mockResolvedValue({ id: "form-replacement" });
     prismaMock.form.findUniqueOrThrow.mockResolvedValue({
-      id: "form-draft",
+      id: "form-replacement",
       title: "QA Form",
       description: "Updated",
       campaignId: "campaign-1",
-      status: "DRAFT",
-      version: "1.1.0",
-      parentFormId: "form-1",
+      status: "PUBLISHED",
+      version: "1.0.0",
+      parentFormId: null,
       questions: [{ id: "q-1" }],
       categories: [{ id: "form-category-1" }],
     });
 
     await expect(updateForm("form-1", formInput)).resolves.toMatchObject({
-      id: "form-draft",
-      status: "DRAFT",
-      version: "1.1.0",
-      parentFormId: "form-1",
+      id: "form-replacement",
+      status: "PUBLISHED",
+      parentFormId: null,
     });
 
     expect(prismaMock.question.deleteMany).not.toHaveBeenCalled();
     expect(prismaMock.formCategory.deleteMany).not.toHaveBeenCalled();
-    expect(formFindFirstMock).toHaveBeenCalledWith({
-      where: {
-        campaignId: "campaign-1",
-        parentFormId: "form-1",
-        status: "DRAFT",
-      },
-      select: { id: true },
-    });
+    expect(formFindFirstMock).not.toHaveBeenCalled();
     expect(prismaMock.form.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          parentFormId: "form-1",
-          status: "DRAFT",
-          version: "1.1.0",
+          createdById: "qa-1",
+          status: "PUBLISHED",
+          publishedAt: expect.any(Date),
         }),
       }),
     );
+    expect(prismaMock.form.update).toHaveBeenCalledWith({
+      where: { id: "form-1" },
+      data: { status: "ARCHIVED", archivedAt: expect.any(Date) },
+    });
   });
 
-  it("publishes a draft and archives the previously published revision", async () => {
+  it("publishes a draft and archives the previously published form", async () => {
     prismaMock.form.findUnique.mockResolvedValue({
       id: "form-draft",
       title: "QA Form",
@@ -238,7 +235,7 @@ describe("form revision workflow", () => {
       });
 
     await expect(updateForm("form-draft", formInput)).rejects.toThrow(
-      "El formulario cambio mientras se procesaba la accion",
+      "The form changed while the action was being processed",
     );
 
     expect(prismaMock.$executeRaw).toHaveBeenCalled();
@@ -283,7 +280,7 @@ describe("form revision workflow", () => {
       });
 
     await expect(publishForm("form-draft")).rejects.toThrow(
-      "El formulario cambio mientras se procesaba la accion",
+      "The form changed while the action was being processed",
     );
 
     expect(prismaMock.$executeRaw).toHaveBeenCalled();
@@ -317,7 +314,7 @@ describe("form revision workflow", () => {
     });
 
     await expect(publishForm("form-draft")).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+      "Unauthorized for this action in this campaign",
     );
 
     expect(prismaMock.form.updateMany).not.toHaveBeenCalled();
@@ -341,7 +338,7 @@ describe("form revision workflow", () => {
     });
 
     await expect(archiveForm("form-1")).rejects.toThrow(
-      "No autorizado para esta accion en esta campana",
+      "Unauthorized for this action in this campaign",
     );
 
     expect(prismaMock.form.update).not.toHaveBeenCalled();
@@ -356,7 +353,7 @@ describe("form revision workflow", () => {
       questions: [],
     });
 
-    await expect(getFormForEvaluation("form-draft")).rejects.toThrow("Formulario no publicado");
+    await expect(getFormForEvaluation("form-draft")).rejects.toThrow("Form is not published");
   });
 
   it("does not allow evaluating published forms from an inactive campaign", async () => {
@@ -369,11 +366,11 @@ describe("form revision workflow", () => {
     });
 
     await expect(getFormForEvaluation("form-published")).rejects.toThrow(
-      "La campana del formulario esta inactiva",
+      "The form campaign is inactive",
     );
   });
 
-  it("loads an archived form for historical correction but not for a draft", async () => {
+  it("loads an archived form for historical correction but blocks draft work in an inactive campaign", async () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canEditEvaluations: true,
@@ -393,8 +390,23 @@ describe("form revision workflow", () => {
       status: "ARCHIVED",
     });
     await expect(getFormForDraftCorrection("form-archived")).rejects.toThrow(
-      "Formulario no publicado",
+      "The form campaign is inactive",
     );
+  });
+
+  it("loads an archived form for an existing evaluation draft in an active campaign", async () => {
+    prismaMock.form.findUnique.mockResolvedValue({
+      id: "form-archived",
+      campaignId: "campaign-1",
+      status: "ARCHIVED",
+      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
+      questions: [],
+    });
+
+    await expect(getFormForEvaluationDraft("form-archived")).resolves.toMatchObject({
+      id: "form-archived",
+      status: "ARCHIVED",
+    });
   });
 
   it("does not expose a draft by id to a read-only evaluator", async () => {
@@ -414,7 +426,7 @@ describe("form revision workflow", () => {
       questions: [],
     });
 
-    await expect(getFormById("form-draft")).rejects.toThrow("Formulario no publicado");
+    await expect(getFormById("form-draft")).rejects.toThrow("Form is not published");
   });
 
   it("does not expose another QA's draft by id even with form-management permissions", async () => {
@@ -429,7 +441,7 @@ describe("form revision workflow", () => {
       questions: [],
     });
 
-    await expect(getFormById("foreign-draft")).rejects.toThrow("Formulario no publicado");
+    await expect(getFormById("foreign-draft")).rejects.toThrow("Form is not published");
   });
 
   it("allows a QA to open their own draft with form-management permissions", async () => {
@@ -469,76 +481,7 @@ describe("form revision workflow", () => {
       questions: [],
     });
 
-    await expect(getFormById("form-published")).rejects.toThrow(
-      "La campana del formulario esta inactiva",
-    );
-  });
-
-  it("does not expose draft revision metadata to a read-only evaluator", async () => {
-    prismaMock.userCampaign.findUnique
-      .mockResolvedValueOnce({ campaignId: "campaign-1", canViewForms: true })
-      .mockResolvedValueOnce({
-        campaignId: "campaign-1",
-        canCreateForms: false,
-        canEditForms: false,
-        canPublishForms: false,
-      });
-    prismaMock.form.findUnique.mockResolvedValue({
-      id: "form-published",
-      campaignId: "campaign-1",
-      createdById: "qa-1",
-      status: "PUBLISHED",
-      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
-      parent: { id: "form-parent", version: "1.0.0", status: "ARCHIVED" },
-      revisions: [{ id: "form-secret-draft", version: "1.1.0", status: "DRAFT" }],
-      questions: [],
-    });
-
-    const form = await getFormById("form-published");
-
-    expect(form.revisions).toEqual([]);
-    expect(form.parent).toBeNull();
-  });
-
-  it("does not expose revision-family metadata linked from another campaign", async () => {
-    prismaMock.userCampaign.findUnique.mockResolvedValue({
-      campaignId: "campaign-1",
-      canViewForms: true,
-      canEditForms: true,
-    });
-    prismaMock.form.findUnique.mockResolvedValue({
-      id: "form-published",
-      campaignId: "campaign-1",
-      createdById: "qa-1",
-      status: "PUBLISHED",
-      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
-      parent: {
-        id: "foreign-parent",
-        version: "9.0.0",
-        status: "DRAFT",
-        campaignId: "campaign-2",
-      },
-      revisions: [
-        {
-          id: "local-revision",
-          version: "1.1.0",
-          status: "DRAFT",
-          campaignId: "campaign-1",
-        },
-        {
-          id: "foreign-revision",
-          version: "9.1.0",
-          status: "DRAFT",
-          campaignId: "campaign-2",
-        },
-      ],
-      questions: [],
-    });
-
-    const form = await getFormById("form-published");
-
-    expect(form.parent).toBeNull();
-    expect(form.revisions).toEqual([{ id: "local-revision", version: "1.1.0", status: "DRAFT" }]);
+    await expect(getFormById("form-published")).rejects.toThrow("The form campaign is inactive");
   });
 
   it("lists only active published forms for a QA without form-management permissions", async () => {
@@ -584,7 +527,7 @@ describe("form revision workflow", () => {
     });
 
     await expect(updateForm("foreign-draft", formInput)).rejects.toThrow(
-      "Solo puedes modificar formularios creados por ti",
+      "You can only modify forms you created",
     );
 
     expect(prismaMock.form.update).not.toHaveBeenCalled();
@@ -602,7 +545,7 @@ describe("form revision workflow", () => {
     });
 
     await expect(deleteForm("foreign-draft")).rejects.toThrow(
-      "Solo puedes modificar formularios creados por ti",
+      "You can only modify forms you created",
     );
 
     expect(prismaMock.response.count).not.toHaveBeenCalled();
@@ -646,7 +589,7 @@ describe("form revision workflow", () => {
     });
 
     await expect(publishForm("foreign-draft")).rejects.toThrow(
-      "Solo puedes modificar formularios creados por ti",
+      "You can only modify forms you created",
     );
 
     expect(prismaMock.form.updateMany).not.toHaveBeenCalled();
@@ -778,7 +721,7 @@ describe("form revision workflow", () => {
       questions: [],
     });
 
-    await expect(getFormById("form-draft")).rejects.toThrow("Formulario no publicado");
+    await expect(getFormById("form-draft")).rejects.toThrow("Form is not published");
   });
 
   it("does not allow moving a draft revision to another campaign", async () => {
@@ -799,7 +742,7 @@ describe("form revision workflow", () => {
 
     await expect(
       updateForm("form-draft", { ...formInput, campaignId: "campaign-2" }),
-    ).rejects.toThrow("No se puede cambiar la campana de una familia de revisiones");
+    ).rejects.toThrow("A published or legacy form cannot be moved to another campaign");
 
     expect(prismaMock.form.update).not.toHaveBeenCalled();
   });
@@ -819,7 +762,7 @@ describe("form revision workflow", () => {
     });
 
     await expect(updateForm("form-draft", formInput)).rejects.toThrow(
-      "La revision no pertenece a la misma campana que su formulario base",
+      "The legacy form record belongs to a different campaign",
     );
     expect(prismaMock.form.update).not.toHaveBeenCalled();
   });
@@ -838,7 +781,7 @@ describe("form revision workflow", () => {
     });
 
     await expect(publishForm("form-draft")).rejects.toThrow(
-      "La revision no pertenece a la misma campana que su formulario base",
+      "The legacy form record belongs to a different campaign",
     );
 
     expect(prismaMock.form.updateMany).not.toHaveBeenCalled();

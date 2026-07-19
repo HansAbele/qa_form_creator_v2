@@ -22,7 +22,7 @@ function attachSafeTeamCounts<
 
 export async function getTeams(campaignId?: string) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") throw new Error("No autorizado");
+  if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
 
   const where = campaignId ? { campaignId } : {};
 
@@ -40,7 +40,7 @@ export async function getTeams(campaignId?: string) {
 
 export async function getTeamsForManagement(campaignId?: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const where = await getCampaignFilterForPermission("canManageAgents", campaignId);
 
@@ -58,7 +58,7 @@ export async function getTeamsForManagement(campaignId?: string) {
 
 export async function createTeam(data: { name: string; campaignId: string }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   await assertCampaignPermissionForUser(session.user, data.campaignId, "canManageAgents");
 
@@ -75,7 +75,7 @@ export async function createTeam(data: { name: string; campaignId: string }) {
         entityType: "team",
         entityId: team.id,
         afterValue: team,
-        impact: "Equipo disponible para asignar agentes.",
+        impact: "Team available for agent assignment.",
       },
       tx,
     );
@@ -89,13 +89,13 @@ export async function createTeam(data: { name: string; campaignId: string }) {
 
 export async function updateTeam(id: string, data: { name: string }) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const existing = await prisma.team.findUnique({
     where: { id },
     select: { id: true, name: true, campaignId: true },
   });
-  if (!existing) throw new Error("Equipo no encontrado");
+  if (!existing) throw new Error("Team not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageAgents");
 
   const team = await prisma.$transaction(async (tx) => {
@@ -110,7 +110,7 @@ export async function updateTeam(id: string, data: { name: string }) {
         entityId: id,
         beforeValue: existing,
         afterValue: team,
-        impact: "Cambio operativo en nombre de equipo.",
+        impact: "Operational change to the team name.",
       },
       tx,
     );
@@ -124,13 +124,13 @@ export async function updateTeam(id: string, data: { name: string }) {
 
 export async function deleteTeam(id: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const existing = await prisma.team.findUnique({
     where: { id },
     select: { id: true, name: true, campaignId: true },
   });
-  if (!existing) throw new Error("Equipo no encontrado");
+  if (!existing) throw new Error("Team not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canManageAgents");
 
   await prisma.$transaction(async (tx) => {
@@ -148,7 +148,7 @@ export async function deleteTeam(id: string) {
         entityType: "team",
         entityId: id,
         beforeValue: existing,
-        impact: "Equipo eliminado y agentes desvinculados del equipo.",
+        impact: "Team deleted and its agents unassigned.",
       },
       tx,
     );
@@ -160,13 +160,13 @@ export async function deleteTeam(id: string) {
 
 export async function assignAgentsToTeam(teamId: string, agentIds: string[]) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const team = await prisma.team.findUnique({
     where: { id: teamId },
     select: { campaignId: true },
   });
-  if (!team) throw new Error("Equipo no encontrado");
+  if (!team) throw new Error("Team not found");
   await assertCampaignPermissionForUser(session.user, team.campaignId, "canManageAgents");
 
   const agents = await prisma.agent.findMany({
@@ -178,7 +178,7 @@ export async function assignAgentsToTeam(teamId: string, agentIds: string[]) {
     agents.length !== agentIds.length ||
     agents.some((agent) => agent.campaignId !== team.campaignId)
   ) {
-    throw new Error("Agentes invalidos para este equipo");
+    throw new Error("Invalid agents for this team");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -195,7 +195,7 @@ export async function assignAgentsToTeam(teamId: string, agentIds: string[]) {
         entityType: "team",
         entityId: teamId,
         afterValue: { agentIds },
-        impact: "Agentes reasignados a equipo.",
+        impact: "Agents reassigned to the team.",
       },
       tx,
     );
@@ -207,13 +207,13 @@ export async function assignAgentsToTeam(teamId: string, agentIds: string[]) {
 
 export async function removeAgentFromTeam(agentId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
     select: { campaignId: true },
   });
-  if (!agent) throw new Error("Agente no encontrado");
+  if (!agent) throw new Error("Agent not found");
   await assertCampaignPermissionForUser(session.user, agent.campaignId, "canManageAgents");
 
   await prisma.$transaction(async (tx) => {
@@ -227,7 +227,7 @@ export async function removeAgentFromTeam(agentId: string) {
         entityType: "agent",
         entityId: agentId,
         afterValue: { teamId: null },
-        impact: "Agente removido de equipo.",
+        impact: "Agent removed from the team.",
       },
       tx,
     );

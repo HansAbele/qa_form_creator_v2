@@ -24,6 +24,7 @@ import {
   RestrictedResourceState,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,7 +107,7 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState({ label = "Sin datos" }: { label?: string }) {
+function EmptyState({ label }: { label: string }) {
   return (
     <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
       {label}
@@ -115,6 +116,7 @@ function EmptyState({ label = "Sin datos" }: { label?: string }) {
 }
 
 export function ResponseDetailClient({ responseId }: { responseId: string }) {
+  const { locale, t } = useI18n();
   const operationalTimeZone = useOperationalTimeZone();
   const router = useRouter();
   const [data, setData] = useState<ResponseDetailData | null>(null);
@@ -147,15 +149,15 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
   if (loadStatus === "loading" && !data) return <LoadingSkeleton />;
   if (loadStatus === "error") {
     return (
-      <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar la evaluación" />
+      <DataLoadError onRetry={() => void loadData()} title={t("We couldn't load the evaluation")} />
     );
   }
   if (loadStatus === "empty" || !data) {
-    return <RestrictedResourceState resourceLabel="La evaluación" />;
+    return <RestrictedResourceState resourceLabel={t("This evaluation")} />;
   }
 
   const handleCancel = async () => {
-    const reason = window.prompt("Razon de anulacion");
+    const reason = window.prompt(t("Cancellation reason"));
     if (!reason?.trim()) return;
 
     setCancelling(true);
@@ -166,10 +168,10 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
         expectedUpdatedAt: data.updatedAt,
       });
       if (!result.ok) throw new Error(result.error.message);
-      toast.success("Evaluación anulada");
+      toast.success(t("Evaluation cancelled"));
       await loadData();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al anular evaluacion");
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to cancel evaluation"));
     } finally {
       setCancelling(false);
     }
@@ -184,7 +186,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
         className="gap-1.5 text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Volver
+        {t("Back")}
       </Button>
 
       <Card>
@@ -206,11 +208,18 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                         dateStyle: "medium",
                         timeStyle: "short",
                       },
+                      locale === "es" ? "es-ES" : "en-US",
                     )}
                   </Badge>
                   <Badge variant="secondary">{data.agent.campaignName}</Badge>
                   <Badge variant={data.status === "CANCELLED" ? "destructive" : "outline"}>
-                    {data.status}
+                    {data.status === "CANCELLED"
+                      ? t("Cancelled")
+                      : data.status === "SUBMITTED"
+                        ? t("Submitted")
+                        : data.status === "DRAFT"
+                          ? t("Draft")
+                          : data.status}
                   </Badge>
                   {data.result && (
                     <Badge variant={data.result === "PASS" ? "default" : "destructive"}>
@@ -220,7 +229,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                   {data.hasFatalFail && (
                     <Badge variant="destructive" className="gap-1">
                       <ShieldAlert className="h-3 w-3" />
-                      Falla fatal activada
+                      {t("Critical failure triggered")}
                     </Badge>
                   )}
                 </div>
@@ -230,7 +239,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
             <div className="flex flex-col items-start gap-3 sm:items-end">
               <div className="text-left sm:text-right">
                 <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Score final
+                  {t("Final Score")}
                 </span>
                 <div
                   className={`font-heading text-5xl font-bold tabular-nums ${scoreTone(
@@ -251,7 +260,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                     onClick={() => router.push(`/forms/${data.form.id}?responseId=${data.id}`)}
                   >
                     <Pencil className="h-4 w-4" />
-                    Editar
+                    {t("Edit")}
                   </Button>
                   <Button
                     variant="destructive"
@@ -261,14 +270,14 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                     disabled={cancelling}
                   >
                     <Ban className="h-4 w-4" />
-                    {cancelling ? "Anulando..." : "Anular"}
+                    {cancelling ? t("Cancelling...") : t("Cancel evaluation")}
                   </Button>
                 </div>
               )}
 
               {data.status === "CANCELLED" && data.cancellationReason && (
                 <p className="max-w-xs text-sm text-muted-foreground">
-                  Anulada: {data.cancellationReason}
+                  {t("Cancelled: {reason}", { reason: data.cancellationReason })}
                 </p>
               )}
             </div>
@@ -279,7 +288,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
       <div className="grid gap-4 md:grid-cols-3">
         <InfoCard
           icon={<User className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
-          label="Agente"
+          label={t("Agent")}
           title={data.agent.name}
           detail={data.agent.agentCode ? `#${data.agent.agentCode}` : null}
           onClick={
@@ -290,7 +299,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
         />
         <InfoCard
           icon={<Users className="h-5 w-5 text-violet-600 dark:text-violet-400" />}
-          label="Evaluador"
+          label={t("Evaluator")}
           title={data.evaluator.name}
           detail={null}
           onClick={
@@ -301,8 +310,8 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
         />
         <InfoCard
           icon={<Tag className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />}
-          label="Disposición"
-          title={data.disposition?.name ?? "Sin disposicion"}
+          label={t("Disposition")}
+          title={data.disposition?.name ?? t("No disposition")}
           detail={data.disposition?.code ? `#${data.disposition.code}` : null}
           onClick={
             data.disposition && data.canOpenAnalytics
@@ -316,7 +325,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <FileText className="h-4 w-4 text-slate-500" />
-            Respuestas ({data.answers.length})
+            {t("Answers ({count})", { count: data.answers.length })}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -324,11 +333,11 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[38%]">Pregunta</TableHead>
-                  <TableHead>Categoría QA</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Respuesta</TableHead>
-                  <TableHead className="text-right">Score QA</TableHead>
+                  <TableHead className="w-[38%]">{t("Question")}</TableHead>
+                  <TableHead>{t("QA Category")}</TableHead>
+                  <TableHead>{t("Type")}</TableHead>
+                  <TableHead>{t("Answer")}</TableHead>
+                  <TableHead className="text-right">{t("QA Score")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -340,17 +349,17 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                         <div className="flex flex-wrap gap-1">
                           {answer.questionWeight > 0 && (
                             <Badge variant="outline" className="text-xs">
-                              Peso {answer.questionWeight}%
+                              {t("Weight {weight}%", { weight: answer.questionWeight })}
                             </Badge>
                           )}
                           {answer.fatal && (
                             <Badge variant="destructive" className="text-xs">
-                              Fatal
+                              {t("Critical")}
                             </Badge>
                           )}
                           {answer.requiresCommentOnFail && (
                             <Badge variant="secondary" className="text-xs">
-                              Comentario si falla
+                              {t("Comment required on failure")}
                             </Badge>
                           )}
                         </div>
@@ -366,12 +375,12 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                           {answer.category.name}
                         </Badge>
                       ) : (
-                        <span className="text-xs text-muted-foreground">Sin categoria</span>
+                        <span className="text-xs text-muted-foreground">{t("No category")}</span>
                       )}
                     </TableCell>
                     <TableCell className="align-top text-muted-foreground">
                       <Badge variant="outline" className="text-xs">
-                        {questionTypeLabel(answer.questionType)}
+                        {t(questionTypeLabel(answer.questionType))}
                       </Badge>
                     </TableCell>
                     <TableCell className="align-top">
@@ -418,7 +427,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
               </TableBody>
             </Table>
           ) : (
-            <EmptyState label="Sin respuestas" />
+            <EmptyState label={t("No answers")} />
           )}
         </CardContent>
       </Card>

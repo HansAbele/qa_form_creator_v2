@@ -4,7 +4,6 @@ import { updateTag, revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { writeAuditLog } from "@/server/audit-log";
-import { emitNotification } from "@/server/notifications";
 import {
   DEFAULT_SETTINGS,
   getSettings,
@@ -16,7 +15,7 @@ import {
 /** Read all settings (for server components). */
 export async function readSettings(): Promise<AppSettings> {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
   return getSettings();
 }
 
@@ -26,7 +25,7 @@ export async function updateSettings(
 ): Promise<AppSettings> {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
-    throw new Error("No autorizado");
+    throw new Error("Unauthorized");
   }
 
   const userId = session.user.id;
@@ -39,7 +38,7 @@ export async function updateSettings(
   const validated: { key: SettingKey; value: number }[] = [];
   for (const k of keys) {
     if (!(k in DEFAULT_SETTINGS)) {
-      throw new Error(`Setting key desconocido: ${k}`);
+      throw new Error(`Unknown setting key: ${k}`);
     }
     const v = validateSetting(k, patch[k]);
     validated.push({ key: k, value: v });
@@ -67,7 +66,7 @@ export async function updateSettings(
         beforeValue: beforeSettings,
         afterValue: afterSettings,
         impact:
-          "Dashboard, KPIs, reportes y evaluaciones futuras usan los nuevos parametros globales.",
+          "Dashboard, KPIs, reports, and future evaluations use the new global parameters.",
       },
       tx,
     );
@@ -77,16 +76,6 @@ export async function updateSettings(
   updateTag("settings");
   revalidatePath("/", "layout");
 
-  await emitNotification({
-    type: "settings_changed",
-    severity: "INFO",
-    title: "Settings globales actualizados",
-    body: "Los targets globales de scoring fueron actualizados.",
-    href: "/settings",
-    entityType: "app_settings",
-    metadata: { beforeSettings, afterSettings },
-  });
-
   return afterSettings;
 }
 
@@ -94,7 +83,7 @@ export async function updateSettings(
 export async function resetSettings(): Promise<AppSettings> {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
-    throw new Error("No autorizado");
+    throw new Error("Unauthorized");
   }
 
   const patch: Record<SettingKey, number> = { ...DEFAULT_SETTINGS };

@@ -142,10 +142,7 @@ async function run() {
   assert.equal(
     await prisma.loginRateLimitReservation.count({
       where: {
-        OR: [
-          { accountKeyHash: { in: [...touchedKeys] } },
-          { ipKeyHash: { in: [...touchedKeys] } },
-        ],
+        OR: [{ accountKeyHash: { in: [...touchedKeys] } }, { ipKeyHash: { in: [...touchedKeys] } }],
       },
     }),
     0,
@@ -159,10 +156,7 @@ run()
   .finally(async () => {
     await prisma.loginRateLimitReservation.deleteMany({
       where: {
-        OR: [
-          { accountKeyHash: { in: [...touchedKeys] } },
-          { ipKeyHash: { in: [...touchedKeys] } },
-        ],
+        OR: [{ accountKeyHash: { in: [...touchedKeys] } }, { ipKeyHash: { in: [...touchedKeys] } }],
       },
     });
     await prisma.loginRateLimit.deleteMany({ where: { keyHash: { in: [...touchedKeys] } } });

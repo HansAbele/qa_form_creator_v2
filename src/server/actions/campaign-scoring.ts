@@ -22,12 +22,11 @@ type CampaignScoringDelegate = {
 };
 
 function getScoringDelegate(database: typeof prisma | Prisma.TransactionClient = prisma) {
-  const delegate = (
-    database as unknown as { campaignScoringSettings?: CampaignScoringDelegate }
-  ).campaignScoringSettings;
+  const delegate = (database as unknown as { campaignScoringSettings?: CampaignScoringDelegate })
+    .campaignScoringSettings;
 
   if (!delegate) {
-    throw new Error("El cliente de Prisma debe regenerarse para usar scoring por campana");
+    throw new Error("The Prisma client must be regenerated to use campaign scoring");
   }
 
   return delegate;
@@ -35,7 +34,7 @@ function getScoringDelegate(database: typeof prisma | Prisma.TransactionClient =
 
 async function assertCanManageCampaignScoring(campaignId: string) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   if (session.user.role !== "ADMIN") {
     await assertCampaignPermissionForUser(session.user, campaignId, "canManageCampaignScoring");
@@ -46,7 +45,7 @@ async function assertCanManageCampaignScoring(campaignId: string) {
 
 export async function readCampaignScoringSettings(campaignIds: string[]) {
   const session = await auth();
-  if (!session?.user) throw new Error("No autorizado");
+  if (!session?.user) throw new Error("Unauthorized");
 
   if (session.user.role !== "ADMIN") {
     for (const campaignId of campaignIds) {
@@ -67,7 +66,7 @@ export async function updateCampaignScoringSettings(
     where: { id: campaignId },
     select: { id: true, name: true },
   });
-  if (!campaign) throw new Error("Campana no encontrada");
+  if (!campaign) throw new Error("Campaign not found");
 
   const beforeValue = await getCampaignScoringSettings(campaignId);
   const validatedPatch = validateCampaignScoringPatch(patch);
@@ -107,7 +106,7 @@ export async function updateCampaignScoringSettings(
         beforeValue,
         afterValue: { saved, effective: { ...beforeValue, ...validatedPatch } },
         impact:
-          "Dashboard, KPIs, reportes y evaluaciones futuras usan los overrides de la campana.",
+          "Dashboard, KPIs, reports, and future evaluations use the campaign overrides.",
       },
       tx,
     );

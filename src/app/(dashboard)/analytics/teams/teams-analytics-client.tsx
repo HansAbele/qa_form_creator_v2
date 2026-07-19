@@ -10,6 +10,7 @@ import {
   type DataLoadStatus,
   reportDataLoadError,
 } from "@/components/dashboard/data-load-state";
+import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,11 +23,12 @@ import {
 import { KpiCard } from "@/components/ui/kpi-card";
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
+import { getMetricDisplay } from "@/lib/metric-display";
 import type { AppSettings } from "@/lib/settings";
 import { getTeamPerformance } from "@/server/queries/analytics";
 
 const scoreConfig = {
-  avgScore: { label: "Score Promedio", color: "#8b5cf6" },
+  avgScore: { label: "Average Score", color: "#8b5cf6" },
 } satisfies ChartConfig;
 
 const BAR_COLORS = ["#8b5cf6", "#ff6600", "#10b981", "#06b6d4", "#f59e0b", "#1a2b45"];
@@ -46,6 +48,11 @@ function Section({ children, delay = 0 }: { children: React.ReactNode; delay?: n
 }
 
 export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
+  const { locale, t } = useI18n();
+  const localizedScoreConfig = {
+    ...scoreConfig,
+    avgScore: { ...scoreConfig.avgScore, label: t("Average Score") },
+  } satisfies ChartConfig;
   const chartAnimation = useChartAnimation();
   const router = useRouter();
   const [teams, setTeams] = useState<TeamPerf[]>([]);
@@ -87,7 +94,7 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
   }
 
   if (loadStatus === "error") {
-    return <DataLoadError onRetry={() => void loadData()} title="No pudimos cargar los equipos" />;
+    return <DataLoadError onRetry={() => void loadData()} title={t("Unable to load teams")} />;
   }
 
   const evaluatedTeams = teams.filter((team) => team.evalCount > 0);
@@ -97,6 +104,14 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
       ? evaluatedTeams.reduce((sum, team) => sum + team.avgScore * team.evalCount, 0) /
         evaluationCount
       : 0;
+  const averageScoreDisplay = getMetricDisplay({
+    kind: "measure",
+    value: avgAll,
+    hasData: evaluationCount > 0,
+    status: evaluationCount > 0 ? "success" : "empty",
+    decimals: 1,
+    suffix: "%",
+  });
   const chartTeams = evaluatedTeams.map((team) => ({
     ...team,
     displayName: `${team.name} \u00b7 ${team.campaignName}`,
@@ -115,24 +130,35 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
         <div>
           <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <UsersRound className="h-7 w-7 text-violet-500" />
-            Performance por Equipo
+            {t("Team performance")}
           </h1>
         </div>
       </motion.div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <KpiCard label="Equipos" value={teams.length} icon={UsersRound} tone="violet" index={0} />
         <KpiCard
-          label="Score Promedio Global"
+          label={t("Teams")}
+          value={teams.length}
+          statusLabel={teams.length > 0 ? undefined : t("No data")}
+          icon={UsersRound}
+          tone="violet"
+          index={0}
+        />
+        <KpiCard
+          label={t("Overall Average Score")}
           value={avgAll}
+          display={averageScoreDisplay}
+          statusLabel={evaluationCount > 0 ? undefined : t("No data")}
           decimals={1}
           suffix="%"
           icon={TrendingUp}
-          tone={avgAll >= settings.passThreshold ? "emerald" : "amber"}
+          tone={
+            evaluationCount > 0 ? (avgAll >= settings.passThreshold ? "emerald" : "amber") : "navy"
+          }
           index={1}
         />
         <KpiCard
-          label="Target Pass Rate"
+          label={t("Target Pass Rate")}
           value={settings.targetPassRate}
           suffix="%"
           icon={Target}
@@ -146,19 +172,24 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Award className="h-4 w-4 text-violet-500" />
-              Ranking de Equipos
+              {t("Team ranking")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {chartTeams.length > 0 ? (
               <ChartContainer
-                config={scoreConfig}
-                accessibilityLabel="Comparación de equipos por score promedio"
+                config={localizedScoreConfig}
+                accessibilityLabel={t("Team comparison by Average Score")}
                 accessibilityDescription={summarizeChartData(
-                  chartTeams.map(
-                    (team) =>
-                      `${team.displayName}: score ${team.avgScore.toFixed(1)}%, ${team.evalCount} evaluaciones`,
+                  chartTeams.map((team) =>
+                    t("{name}: score {score}%, {count} evaluations", {
+                      name: team.displayName,
+                      score: team.avgScore.toFixed(1),
+                      count: team.evalCount,
+                    }),
                   ),
+                  10,
+                  locale,
                 )}
                 className="h-[400px] w-full"
               >
@@ -210,7 +241,7 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
               </ChartContainer>
             ) : (
               <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-                No hay equipos con evaluaciones
+                {t("No teams with evaluations")}
               </div>
             )}
           </CardContent>
@@ -220,36 +251,52 @@ export function TeamsAnalyticsClient({ settings }: { settings: AppSettings }) {
       <Section delay={0.2}>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Detalle por Equipo</CardTitle>
+            <CardTitle className="text-base">{t("Team details")}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {teams.map((t, i) => (
-                <motion.button
-                  key={t.id}
-                  type="button"
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.04, duration: 0.3 }}
-                  className="grid w-full cursor-pointer grid-cols-2 items-center gap-2 rounded-lg border border-border/60 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40 sm:grid-cols-5"
-                  onClick={() => router.push(`/analytics/teams/${t.id}`)}
-                >
-                  <span className="font-medium">{t.name}</span>
-                  <Badge variant="outline" className="w-fit">
-                    {t.campaignName}
-                  </Badge>
-                  <span className="text-center">{t.agentCount} agentes</span>
-                  <div className="flex justify-center">
-                    <Badge
-                      variant={t.avgScore >= settings.passThreshold ? "default" : "destructive"}
-                    >
-                      {t.avgScore.toFixed(1)}%
+            {teams.length > 0 ? (
+              <div className="space-y-2">
+                {teams.map((team, i) => (
+                  <motion.button
+                    key={team.id}
+                    type="button"
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.04, duration: 0.3 }}
+                    className="grid w-full cursor-pointer grid-cols-2 items-center gap-2 rounded-lg border border-border/60 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40 sm:grid-cols-5"
+                    onClick={() => router.push(`/analytics/teams/${team.id}`)}
+                  >
+                    <span className="font-medium">{team.name}</span>
+                    <Badge variant="outline" className="w-fit">
+                      {team.campaignName}
                     </Badge>
-                  </div>
-                  <span className="text-right text-muted-foreground">{t.evalCount} evals</span>
-                </motion.button>
-              ))}
-            </div>
+                    <span className="text-center">
+                      {t("{count} agents", { count: team.agentCount })}
+                    </span>
+                    <div className="flex justify-center">
+                      <Badge
+                        variant={
+                          team.evalCount === 0
+                            ? "outline"
+                            : team.avgScore >= settings.passThreshold
+                              ? "default"
+                              : "destructive"
+                        }
+                      >
+                        {team.evalCount > 0 ? `${team.avgScore.toFixed(1)}%` : "—"}
+                      </Badge>
+                    </div>
+                    <span className="text-right text-muted-foreground">
+                      {t("{count} evals", { count: team.evalCount })}
+                    </span>
+                  </motion.button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex min-h-32 items-center justify-center text-sm text-muted-foreground">
+                {t("No teams available")}
+              </div>
+            )}
           </CardContent>
         </Card>
       </Section>

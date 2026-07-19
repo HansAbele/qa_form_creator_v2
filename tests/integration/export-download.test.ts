@@ -107,6 +107,7 @@ async function createFixture(admin: PrismaClient) {
         userId: fixtureIds.user,
         campaignId: fixtureIds.campaign,
         roleInCampaign: "CAMPAIGN_ADMIN",
+        canViewReports: true,
         canExport: true,
       },
     });
@@ -181,7 +182,6 @@ async function cleanupFixture(admin: PrismaClient) {
     });
   });
 
-  await admin.notification.deleteMany({ where: { userId: fixtureIds.user } });
   await admin.response.deleteMany({ where: { id: fixtureIds.response } });
   await admin.form.deleteMany({ where: { id: fixtureIds.form } });
   await admin.agent.deleteMany({ where: { id: fixtureIds.agent } });
@@ -194,10 +194,9 @@ async function cleanupFixture(admin: PrismaClient) {
   await admin.campaign.deleteMany({ where: { id: fixtureIds.campaign } });
   await admin.user.deleteMany({ where: { id: fixtureIds.user } });
 
-  const [audit, notification, answer, response, question, form, agent, access, campaign, user] =
+  const [audit, answer, response, question, form, agent, access, campaign, user] =
     await Promise.all([
       admin.auditLog.count({ where: { userId: fixtureIds.user, module: "exports" } }),
-      admin.notification.count({ where: { userId: fixtureIds.user } }),
       admin.answer.count({ where: { id: fixtureIds.answer } }),
       admin.response.count({ where: { id: fixtureIds.response } }),
       admin.question.count({ where: { id: fixtureIds.question } }),
@@ -212,7 +211,6 @@ async function cleanupFixture(admin: PrismaClient) {
 
   expect({
     audit,
-    notification,
     answer,
     response,
     question,
@@ -223,7 +221,6 @@ async function cleanupFixture(admin: PrismaClient) {
     user,
   }).toEqual({
     audit: 0,
-    notification: 0,
     answer: 0,
     response: 0,
     question: 0,
@@ -264,7 +261,7 @@ integrationDescribe("authorized export download with PostgreSQL 16", () => {
     await Promise.allSettled([appPrisma?.$disconnect(), adminPrisma?.$disconnect()]);
   });
 
-  it("streams answers to EOF and records generated audit and notification", async () => {
+  it("streams answers to EOF and records the generated audit lifecycle", async () => {
     const { adminPrisma, exportActions } = requireIntegrationClients();
 
     try {
@@ -281,24 +278,15 @@ integrationDescribe("authorized export download with PostgreSQL 16", () => {
         extension: "csv",
       });
 
-      const [preConsumptionAudits, preConsumptionNotifications] = await Promise.all([
-        adminPrisma.auditLog.findMany({
-          where: {
-            userId: fixtureIds.user,
-            module: "exports",
-            entityType: "export",
-          },
-        }),
-        adminPrisma.notification.count({
-          where: {
-            userId: fixtureIds.user,
-            type: "export_generated",
-          },
-        }),
-      ]);
+      const preConsumptionAudits = await adminPrisma.auditLog.findMany({
+        where: {
+          userId: fixtureIds.user,
+          module: "exports",
+          entityType: "export",
+        },
+      });
       expect(preConsumptionAudits).toHaveLength(2);
       expect(preConsumptionAudits.map((row) => row.action).sort()).toEqual(["reserved", "started"]);
-      expect(preConsumptionNotifications).toBe(0);
 
       const csv = await new Response(download.body).text();
       const lines = csv.split(/\r?\n/);
@@ -364,27 +352,6 @@ integrationDescribe("authorized export download with PostgreSQL 16", () => {
       expect(startedAudit?.createdAt.getTime()).toBeLessThanOrEqual(
         generatedAudit?.createdAt.getTime() ?? 0,
       );
-
-      const notifications = await adminPrisma.notification.findMany({
-        where: {
-          userId: fixtureIds.user,
-          type: "export_generated",
-        },
-      });
-      expect(notifications).toHaveLength(1);
-      expect(notifications[0]).toMatchObject({
-        campaignId: fixtureIds.campaign,
-        severity: "SUCCESS",
-        entityType: "export",
-        entityId: null,
-        metadata: {
-          exportId,
-          format: "csv",
-          selectedFields: [...selectedFields],
-          rowCount: 1,
-          detailRowCount: 1,
-        },
-      });
     } finally {
       await cleanupFixture(adminPrisma);
     }

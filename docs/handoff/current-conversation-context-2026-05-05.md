@@ -2,6 +2,8 @@
 
 Ultima actualizacion: 2026-05-18
 
+> Actualización de vigencia (2026-07-17): las referencias a notificaciones in-app son históricas. La capacidad fue retirada completamente y `AuditLog` permanece como fuente durable de trazabilidad.
+
 Este documento resume el estado actual de la conversacion y del trabajo realizado para poder continuar en una nueva conversacion sin perder contexto.
 
 ## Referencias principales

@@ -106,8 +106,7 @@ export function ThemeProvider({
   const setTheme = useCallback(
     (nextTheme: SetStateAction<ThemeName>) => {
       setThemeState((currentTheme) => {
-        const value =
-          typeof nextTheme === "function" ? nextTheme(currentTheme) : nextTheme;
+        const value = typeof nextTheme === "function" ? nextTheme(currentTheme) : nextTheme;
         window.localStorage.setItem(storageKey, value);
         return value;
       });

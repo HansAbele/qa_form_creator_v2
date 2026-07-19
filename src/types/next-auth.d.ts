@@ -6,6 +6,7 @@ declare module "next-auth" {
     role: Role;
     campaignIds: string[];
     sessionVersion?: number;
+    locale: "en" | "es";
   }
 
   interface Session {
@@ -14,6 +15,7 @@ declare module "next-auth" {
       role: Role;
       campaignIds: string[];
       sessionVersion?: number;
+      locale: "en" | "es";
     } & DefaultSession["user"];
   }
 }
@@ -24,5 +26,6 @@ declare module "next-auth/jwt" {
     role?: Role;
     campaignIds?: string[];
     sessionVersion?: number;
+    locale?: "en" | "es";
   }
 }
