@@ -62,6 +62,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   'Create "{name}"': 'Crear "{name}"',
   "Create anyway": "Crear de todos modos",
   "Create form": "Crear formulario",
+  "Creating ZIP...": "Creando ZIP...",
   "Create draft": "Crear borrador",
   "Create official Parker Davis scorecard": "Crear scorecard oficial de Parker Davis",
   "Creating...": "Creando...",
@@ -107,7 +108,12 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Evaluation Drafts": "Borradores de evaluación",
   "Evaluation filters": "Filtros de evaluación",
   "Evaluation submitted": "Evaluación enviada",
+  "Evaluation timer": "Cronómetro de evaluación",
+  "Evaluation timer unavailable": "El cronómetro de evaluación no está disponible",
   "Evaluation updated": "Evaluación actualizada",
+  "Export Excel + call ({count})": "Exportar Excel + llamada ({count})",
+  "HAPUSA package exported for {count} evaluations":
+    "Paquete HAPUSA exportado para {count} evaluaciones",
   Evaluations: "Evaluaciones",
   "Evaluations from other QA specialists that you can correct or complete.":
     "Evaluaciones de otros especialistas de QA que puedes corregir o completar.",
@@ -173,6 +179,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   No: "No",
   "No active QA categories are available": "No hay categorías QA activas disponibles",
   "No answers": "Sin respuestas",
+  "No comment recorded": "No se registró ningún comentario",
   "No category": "Sin categoría",
   "No data": "Sin datos",
   "No disposition": "Sin disposición",
@@ -198,6 +205,8 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Pending changes": "Cambios pendientes",
   Period: "Periodo",
   "Points for option {number}": "Puntos de la opción {number}",
+  "Points scored": "Puntos obtenidos",
+  questions: "preguntas",
   Poor: "Deficiente",
   Preview: "Vista previa",
   Previous: "Anterior",
@@ -231,6 +240,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Save draft": "Guardar borrador",
   "Saving draft...": "Guardando borrador...",
   "Saving...": "Guardando...",
+  "Starting secure timer...": "Iniciando cronómetro seguro...",
   "Score / status": "Puntuación / estado",
   "Score {score} percent": "Puntuación: {score} por ciento",
   "Score Below Threshold": "Puntuación bajo el umbral",
@@ -253,6 +263,10 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Select an agent and disposition to save changes":
     "Selecciona un agente y una disposición para guardar los cambios",
   "Select an agent.": "Selecciona un agente.",
+  "Select all exportable HAPUSA evaluations on this page":
+    "Seleccionar todas las evaluaciones HAPUSA exportables de esta página",
+  "Select evaluation for {agent}": "Seleccionar evaluación de {agent}",
+  "Select HAPUSA evaluations with recordings": "Selecciona evaluaciones HAPUSA con grabación",
   "Select an agent...": "Seleccionar agente...",
   "Select at least one critical option for each critical question":
     "Selecciona al menos una opción crítica para cada pregunta crítica",
@@ -283,6 +297,8 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Triggered Rules": "Reglas activadas",
   "Try another period, campaign, or score range.":
     "Prueba otro periodo, campaña o rango de puntuación.",
+  "Time is recorded automatically in QA Activity.":
+    "El tiempo se registra automáticamente en Actividad QA.",
   Type: "Tipo",
   "Unable to archive form": "No se pudo archivar el formulario",
   "Unable to cancel evaluation": "No se pudo anular la evaluación",
@@ -293,6 +309,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Unable to save draft": "No se pudo guardar el borrador",
   "Unable to save form": "No se pudo guardar el formulario",
   "Unable to submit evaluation": "No se pudo enviar la evaluación",
+  "Unable to export HAPUSA package": "No se pudo exportar el paquete HAPUSA",
   Unavailable: "No disponible",
   Unclassified: "Sin clasificar",
   "Unsaved draft: {error}": "Borrador sin guardar: {error}",
@@ -310,6 +327,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Weight balance complete": "Balance de pesos completo",
   "Yes / No": "Sí / No",
   Yes: "Sí",
+  "on this page": "en esta página",
   "You have unsaved changes. Leave anyway?":
     "Hay cambios sin guardar. ¿Deseas salir de todos modos?",
   "Your activity only": "Solo tu actividad",

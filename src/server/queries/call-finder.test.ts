@@ -74,15 +74,35 @@ describe("buildInteractionWhere", () => {
     expect(where).toEqual(
       expect.objectContaining({
         campaignId: "campaign-1",
-        OR: [
-          { mediaAssets: { some: { durationMs: { gte: 60_000, lte: 300_000 } } } },
+        AND: expect.arrayContaining([
           {
-            AND: [
-              { mediaAssets: { none: { durationMs: { not: null } } } },
-              { durationSeconds: { gte: 60, lte: 300 } },
+            OR: [
+              { mediaAssets: { some: { durationMs: { gte: 60_000, lte: 300_000 } } } },
+              {
+                AND: [
+                  { mediaAssets: { none: { durationMs: { not: null } } } },
+                  { durationSeconds: { gte: 60, lte: 300 } },
+                ],
+              },
             ],
           },
-        ],
+        ]),
+      }),
+    );
+  });
+
+  it("should exclude provider contacts that have no agent identity", () => {
+    const where = buildInteractionWhere(parseCallFinderFilters({}), {
+      campaignId: "campaign-1",
+    });
+
+    expect(where).toEqual(
+      expect.objectContaining({
+        AND: expect.arrayContaining([
+          {
+            OR: [{ agentId: { not: null } }, { providerAgentName: { not: null } }],
+          },
+        ]),
       }),
     );
   });

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { reportOperationalError } from "@/lib/observability";
 import {
   getEvaluationHistoryCampaigns,
+  getExportCampaigns,
   getOwnEvaluationHistoryCampaigns,
 } from "@/server/actions/campaigns";
 import {
@@ -58,9 +59,10 @@ export default async function EvaluationsPage({
     forms: [],
     dispositions: [],
   };
-  const [ownCampaigns, managedCampaigns, loadedFilterOptions] = await Promise.all([
+  const [ownCampaigns, managedCampaigns, exportCampaigns, loadedFilterOptions] = await Promise.all([
     canViewOwn ? getOwnEvaluationHistoryCampaigns() : Promise.resolve([]),
     canViewManaged ? getEvaluationHistoryCampaigns() : Promise.resolve([]),
+    getExportCampaigns(),
     getEvaluationHistoryFilterOptions(initialScope),
   ]);
   const ownFilterOptions = initialScope === "own" ? loadedFilterOptions : emptyFilterOptions;
@@ -159,6 +161,7 @@ export default async function EvaluationsPage({
       initialLoadStatus={initialLoadStatus}
       ownCampaigns={ownCampaigns}
       managedCampaigns={managedCampaigns}
+      exportCampaignIds={exportCampaigns.map((campaign) => campaign.id)}
       ownFilterOptions={ownFilterOptions}
       managedFilterOptions={managedFilterOptions}
       ownFilterOptionsLoaded={initialScope === "own" || !canViewOwn}

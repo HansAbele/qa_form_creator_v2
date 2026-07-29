@@ -35,6 +35,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import type { CallMetadataSummary } from "@/lib/call-metadata";
 import { cn } from "@/lib/utils";
 import {
   attachCallRecording,
@@ -49,6 +50,9 @@ export type InteractionMediaContext = {
   direction: string;
   phoneNumber: string | null;
   queueName: string | null;
+  status?: string | null;
+  dispositionName?: string | null;
+  callMetadata?: CallMetadataSummary;
   startedAt: string;
   durationSeconds: number;
   audioUrl: string | null;
@@ -376,6 +380,37 @@ export function InteractionMediaPanel({
             </p>
           )}
 
+          <div className="grid gap-2 rounded-lg border bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-5">
+            <MediaFact
+              label={t("Disposition")}
+              value={
+                interaction.dispositionName ?? interaction.callMetadata?.primaryDispositionId ?? "—"
+              }
+            />
+            <MediaFact
+              label={t("Hold time")}
+              value={
+                interaction.callMetadata?.holdSeconds == null
+                  ? "—"
+                  : `${formatDuration(interaction.callMetadata.holdSeconds)} · ${t(
+                      "{count} holds",
+                      {
+                        count: interaction.callMetadata.holdCount ?? 0,
+                      },
+                    )}`
+              }
+            />
+            <MediaFact
+              label={t("Skill / queue")}
+              value={interaction.callMetadata?.skillName ?? interaction.queueName ?? "—"}
+            />
+            <MediaFact label={t("Team")} value={interaction.callMetadata?.teamName ?? "—"} />
+            <MediaFact
+              label={t("Contact point")}
+              value={interaction.callMetadata?.pointOfContactName ?? interaction.status ?? "—"}
+            />
+          </div>
+
           {playbackError ? (
             <p className="flex items-center gap-1.5 text-xs text-destructive">
               <TriangleAlert className="size-3.5" />
@@ -604,5 +639,18 @@ export function InteractionMediaPanel({
         </SheetContent>
       </Sheet>
     </>
+  );
+}
+
+function MediaFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="truncate text-xs font-medium" title={value}>
+        {value}
+      </p>
+    </div>
   );
 }

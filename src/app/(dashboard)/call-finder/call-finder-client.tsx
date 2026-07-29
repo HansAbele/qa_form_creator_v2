@@ -436,6 +436,8 @@ export function CallFinderClient({
                     <TableHead>{t("Campaign")}</TableHead>
                     <TableHead>{t("Date")}</TableHead>
                     <TableHead>{t("Duration")}</TableHead>
+                    <TableHead>{t("Disposition")}</TableHead>
+                    <TableHead>{t("Hold")}</TableHead>
                     <TableHead>{t("Direction")}</TableHead>
                     <TableHead>{t("Recording")}</TableHead>
                     <TableHead>{t("Transcript")}</TableHead>
@@ -469,6 +471,16 @@ export function CallFinderClient({
                       </TableCell>
                       <TableCell className="font-mono text-xs tabular-nums">
                         {durationLabel(interaction.durationSeconds)}
+                      </TableCell>
+                      <TableCell className="max-w-40 truncate text-xs">
+                        {interaction.disposition?.name ??
+                          interaction.callMetadata.primaryDispositionId ??
+                          "—"}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs tabular-nums">
+                        {interaction.callMetadata.holdSeconds == null
+                          ? "—"
+                          : durationLabel(interaction.callMetadata.holdSeconds)}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">

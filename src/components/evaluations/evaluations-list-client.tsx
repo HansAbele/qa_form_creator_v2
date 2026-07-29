@@ -6,9 +6,11 @@ import {
   CircleCheck,
   ClipboardCheck,
   Eye,
+  FileArchive,
   FileText,
   Filter,
   Gauge,
+  LoaderCircle,
   Megaphone,
   ShieldAlert,
   Tags,
@@ -17,6 +19,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   DataLoadError,
   type DataLoadStatus,
@@ -29,6 +32,7 @@ import { useOperationalTimeZone } from "@/components/providers/operational-time-
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -42,6 +46,7 @@ import {
 } from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import { getMetricDisplay } from "@/lib/metric-display";
+import { HAPUSA_SCORECARD_KEY } from "@/lib/official-form-templates";
 import { cn } from "@/lib/utils";
 import {
   type EvaluationHistoryFilterOptions,
@@ -76,6 +81,7 @@ export function EvaluationsListClient({
   initialLoadStatus,
   ownCampaigns,
   managedCampaigns,
+  exportCampaignIds,
   ownFilterOptions,
   managedFilterOptions,
   ownFilterOptionsLoaded,
@@ -100,6 +106,7 @@ export function EvaluationsListClient({
   initialLoadStatus: DataLoadStatus;
   ownCampaigns: CampaignOption[];
   managedCampaigns: CampaignOption[];
+  exportCampaignIds: string[];
   ownFilterOptions: EvaluationHistoryFilterOptions;
   managedFilterOptions: EvaluationHistoryFilterOptions;
   ownFilterOptionsLoaded: boolean;
@@ -138,6 +145,8 @@ export function EvaluationsListClient({
   const debouncedMaxScore = useDebouncedValue(maxScore, 350);
   const [page, setPage] = useState(initialPage);
   const [data, setData] = useState<EvaluationHistoryData | null>(initialData);
+  const [selectedResponseIds, setSelectedResponseIds] = useState<Set<string>>(() => new Set());
+  const [exportingPackage, setExportingPackage] = useState(false);
   const [loadStatus, setLoadStatus] = useState<DataLoadStatus>(initialLoadStatus);
   const [filterOptionsByScope, setFilterOptionsByScope] = useState({
     own: ownFilterOptions,
@@ -148,6 +157,27 @@ export function EvaluationsListClient({
     managed: managedFilterOptionsLoaded,
   });
   const requestGeneration = useRef(0);
+
+  const exportableResponses = useMemo(
+    () =>
+      (data?.responses ?? []).filter(
+        (response) =>
+          response.form.templateKey === HAPUSA_SCORECARD_KEY &&
+          response.interaction?.recordingAvailable === true &&
+          exportCampaignIds.includes(response.campaignId),
+      ),
+    [data?.responses, exportCampaignIds],
+  );
+  const allVisibleExportableSelected =
+    exportableResponses.length > 0 &&
+    exportableResponses.every((response) => selectedResponseIds.has(response.id));
+
+  useEffect(() => {
+    const visibleIds = new Set((data?.responses ?? []).map((response) => response.id));
+    setSelectedResponseIds(
+      (current) => new Set([...current].filter((responseId) => visibleIds.has(responseId))),
+    );
+  }, [data?.responses]);
 
   const requestSignature = useMemo(
     () =>
@@ -364,6 +394,69 @@ export function EvaluationsListClient({
     setFormId("");
     setDispositionId("");
     setFatalOnly(false);
+  };
+
+  const toggleResponseSelection = (responseId: string, checked: boolean) => {
+    setSelectedResponseIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(responseId);
+      else next.delete(responseId);
+      return next;
+    });
+  };
+
+  const toggleVisibleExportable = (checked: boolean) => {
+    setSelectedResponseIds((current) => {
+      const next = new Set(current);
+      for (const response of exportableResponses) {
+        if (checked) next.add(response.id);
+        else next.delete(response.id);
+      }
+      return next;
+    });
+  };
+
+  const exportHapusaPackage = async () => {
+    if (selectedResponseIds.size === 0) return;
+    setExportingPackage(true);
+    try {
+      const response = await fetch("/api/evaluations/hapusa-package", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responseIds: [...selectedResponseIds] }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        throw new Error(payload?.error?.message ?? t("Unable to export HAPUSA package"));
+      }
+
+      const contentDisposition = response.headers.get("content-disposition") ?? "";
+      const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition)?.[1];
+      const plainName = /filename="([^"]+)"/i.exec(contentDisposition)?.[1];
+      const fileName = encodedName
+        ? decodeURIComponent(encodedName)
+        : plainName || "HAPUSA QA Reports.zip";
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(blobUrl);
+      toast.success(
+        t("HAPUSA package exported for {count} evaluations", {
+          count: selectedResponseIds.size,
+        }),
+      );
+      setSelectedResponseIds(new Set());
+    } catch (error) {
+      toast.error(error instanceof Error ? t(error.message) : t("Unable to export HAPUSA package"));
+    } finally {
+      setExportingPackage(false);
+    }
   };
 
   return (
@@ -687,6 +780,44 @@ export function EvaluationsListClient({
             ) : null}
           </div>
 
+          {exportableResponses.length > 0 ? (
+            <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-600/20 bg-emerald-500/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <label
+                htmlFor="select-visible-hapusa-evaluations"
+                className="flex cursor-pointer items-center gap-2 text-sm"
+              >
+                <Checkbox
+                  id="select-visible-hapusa-evaluations"
+                  checked={allVisibleExportableSelected}
+                  onCheckedChange={(checked) => toggleVisibleExportable(checked === true)}
+                  aria-label={t("Select all exportable HAPUSA evaluations on this page")}
+                />
+                <span>
+                  {t("Select HAPUSA evaluations with recordings")}
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    ({exportableResponses.length} {t("on this page")})
+                  </span>
+                </span>
+              </label>
+              <Button
+                type="button"
+                size="sm"
+                className="gap-2"
+                disabled={selectedResponseIds.size === 0 || exportingPackage}
+                onClick={() => void exportHapusaPackage()}
+              >
+                {exportingPackage ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <FileArchive className="size-4" />
+                )}
+                {exportingPackage
+                  ? t("Creating ZIP...")
+                  : t("Export Excel + call ({count})", { count: selectedResponseIds.size })}
+              </Button>
+            </div>
+          ) : null}
+
           {loadStatus === "loading" ? (
             <div className="space-y-2 pt-4">
               {["agent", "evaluator", "form", "disposition", "score", "submitted"].map((field) => (
@@ -707,6 +838,11 @@ export function EvaluationsListClient({
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {exportableResponses.length > 0 ? (
+                        <TableHead className="w-10">
+                          <span className="sr-only">{t("Select")}</span>
+                        </TableHead>
+                      ) : null}
                       <TableHead>{t("Agent")}</TableHead>
                       <TableHead>{t("Campaign")}</TableHead>
                       {scope === "managed" ? <TableHead>{t("Evaluator")}</TableHead> : null}
@@ -720,6 +856,23 @@ export function EvaluationsListClient({
                   <TableBody>
                     {data.responses.map((response) => (
                       <TableRow key={response.id}>
+                        {exportableResponses.length > 0 ? (
+                          <TableCell>
+                            {exportableResponses.some((item) => item.id === response.id) ? (
+                              <Checkbox
+                                checked={selectedResponseIds.has(response.id)}
+                                onCheckedChange={(checked) =>
+                                  toggleResponseSelection(response.id, checked === true)
+                                }
+                                aria-label={t("Select evaluation for {agent}", {
+                                  agent: response.agent.name,
+                                })}
+                              />
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        ) : null}
                         <TableCell>
                           <Link
                             href={`/evaluations/${response.id}`}

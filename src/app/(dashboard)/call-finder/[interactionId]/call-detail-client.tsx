@@ -10,6 +10,7 @@ import {
   Radio,
   Tags,
   User,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -130,6 +131,9 @@ export function CallDetailClient({ interaction }: { interaction: CallFinderInter
           queueName: interaction.queueName,
           startedAt: interaction.startedAt,
           durationSeconds: interaction.durationSeconds,
+          status: interaction.status,
+          dispositionName: interaction.disposition?.name ?? null,
+          callMetadata: interaction.callMetadata,
           audioUrl: interaction.audioUrl,
           recordingExpected: interaction.hasRecording,
           transcript: interaction.transcript,
@@ -157,7 +161,36 @@ export function CallDetailClient({ interaction }: { interaction: CallFinderInter
               value={durationLabel(interaction.durationSeconds)}
               icon={Clock3}
             />
+            <Metadata
+              label={t("Hold time")}
+              value={
+                interaction.callMetadata.holdSeconds == null
+                  ? "—"
+                  : `${durationLabel(interaction.callMetadata.holdSeconds)} · ${interaction.callMetadata.holdCount ?? 0} ${t("holds")}`
+              }
+              icon={Clock3}
+            />
             <Metadata label={t("Status")} value={interaction.status ?? t("Unknown")} icon={Tags} />
+            <Metadata
+              label={t("Skill / queue")}
+              value={interaction.callMetadata.skillName ?? interaction.queueName ?? "—"}
+              icon={Radio}
+            />
+            <Metadata
+              label={t("Team")}
+              value={interaction.callMetadata.teamName ?? "—"}
+              icon={Users}
+            />
+            <Metadata
+              label={t("Contact point")}
+              value={interaction.callMetadata.pointOfContactName ?? "—"}
+              icon={Phone}
+            />
+            <Metadata
+              label={t("Transfer")}
+              value={interaction.callMetadata.transferIndicatorName ?? "—"}
+              icon={Tags}
+            />
           </CardContent>
         </Card>
 

@@ -8,6 +8,7 @@ import {
   FileText,
   Hash,
   Mail,
+  MessageSquareText,
   Pencil,
   ShieldAlert,
   Tag,
@@ -19,8 +20,8 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  InteractionMediaPanel,
   type InteractionMediaContext,
+  InteractionMediaPanel,
 } from "@/components/call-finder/interaction-media-panel";
 import {
   DataLoadError,
@@ -34,14 +35,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import { cancelResponseAction } from "@/server/actions/responses";
 import { getResponseDetail } from "@/server/queries/analytics";
@@ -89,17 +82,16 @@ interface ResponseDetailData {
   answers: Answer[];
 }
 
-function scoreBadgeVariant(score: number): "default" | "secondary" | "destructive" {
-  if (score >= 70) return "default";
-  if (score >= 50) return "secondary";
-  return "destructive";
-}
-
 function scoreTone(result: string | null, status: string): string {
   if (status === "CANCELLED") return "text-muted-foreground";
   if (result === "PASS") return "text-emerald-600 dark:text-emerald-400";
   if (result === "FAIL") return "text-rose-600 dark:text-rose-400";
   return "text-amber-600 dark:text-amber-400";
+}
+
+function getEarnedPoints(answer: Answer): number {
+  if (answer.notApplicable || answer.score === null) return 0;
+  return (answer.score / 100) * answer.questionWeight;
 }
 
 function LoadingSkeleton() {
@@ -160,6 +152,8 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
   if (loadStatus === "empty" || !data) {
     return <RestrictedResourceState resourceLabel={t("This evaluation")} />;
   }
+
+  const answerGroups = groupAnswersByCategory(data.answers, t("No category"));
 
   const handleCancel = async () => {
     const reason = window.prompt(t("Cancellation reason"));
@@ -328,118 +322,156 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileText className="h-4 w-4 text-slate-500" />
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <FileText className="size-5 text-primary" />
+          <h2 className="font-heading text-xl font-semibold">
             {t("Answers ({count})", { count: data.answers.length })}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.answers.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[38%]">{t("Question")}</TableHead>
-                  <TableHead>{t("QA Category")}</TableHead>
-                  <TableHead>{t("Type")}</TableHead>
-                  <TableHead>{t("Answer")}</TableHead>
-                  <TableHead className="text-right">{t("QA Score")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.answers.map((answer) => (
-                  <TableRow key={answer.id}>
-                    <TableCell className="align-top font-medium">
-                      <div className="space-y-1">
-                        <p>{answer.questionLabel}</p>
-                        <div className="flex flex-wrap gap-1">
-                          {answer.questionWeight > 0 && (
-                            <Badge variant="outline" className="text-xs">
-                              {t("Weight {weight}%", { weight: answer.questionWeight })}
+          </h2>
+        </div>
+        {answerGroups.length > 0 ? (
+          answerGroups.map((group) => {
+            const possiblePoints = group.answers.reduce(
+              (total, answer) => total + (answer.notApplicable ? 0 : answer.questionWeight),
+              0,
+            );
+            const categoryEarnedPoints = group.answers.reduce(
+              (total, answer) => total + getEarnedPoints(answer),
+              0,
+            );
+            const categoryPercent =
+              possiblePoints > 0
+                ? Math.round((categoryEarnedPoints / possiblePoints) * 1000) / 10
+                : null;
+
+            return (
+              <Card key={group.id} className="overflow-hidden">
+                <CardHeader
+                  className="border-b"
+                  style={{ backgroundColor: `${group.color ?? "#ff6600"}14` }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <span
+                        className="size-3 rounded-full"
+                        style={{ backgroundColor: group.color ?? "#ff6600" }}
+                      />
+                      {group.name}
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">
+                        {group.answers.length} {t("questions")}
+                      </Badge>
+                      <Badge className="tabular-nums">
+                        {categoryPercent == null
+                          ? "N/A"
+                          : `${categoryEarnedPoints.toFixed(1)} / ${possiblePoints.toFixed(1)} ${t("pts")} · ${categoryPercent.toFixed(1)}%`}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="divide-y p-0">
+                  {group.answers.map((answer, index) => (
+                    <article key={answer.id} className="space-y-4 p-5 sm:p-6">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {t("Question {number}", { number: index + 1 })}
+                          </p>
+                          <h3 className="text-base font-semibold leading-6">
+                            {answer.questionLabel}
+                          </h3>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Badge variant="outline">
+                              {t(questionTypeLabel(answer.questionType))}
                             </Badge>
-                          )}
-                          {answer.fatal && (
-                            <Badge variant="destructive" className="text-xs">
-                              {t("Critical")}
-                            </Badge>
-                          )}
-                          {answer.requiresCommentOnFail && (
-                            <Badge variant="secondary" className="text-xs">
-                              {t("Comment required on failure")}
-                            </Badge>
-                          )}
+                            {answer.fatal ? (
+                              <Badge variant="destructive">{t("Critical")}</Badge>
+                            ) : null}
+                            {answer.notApplicable ? (
+                              <Badge variant="secondary">{t("Not applicable")}</Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="shrink-0 rounded-xl border bg-background px-4 py-3 text-right">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            {t("Points scored")}
+                          </p>
+                          <p
+                            className={`font-heading text-xl font-bold tabular-nums ${
+                              answer.isFatalFail
+                                ? "text-destructive"
+                                : answer.score !== null && answer.score >= 100
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-amber-600 dark:text-amber-400"
+                            }`}
+                          >
+                            {answer.notApplicable || answer.score === null
+                              ? "N/A"
+                              : `${getEarnedPoints(answer).toFixed(1)} / ${answer.questionWeight.toFixed(1)}`}
+                          </p>
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell className="align-top text-muted-foreground">
-                      {answer.category ? (
-                        <Badge variant="outline" className="gap-1.5 text-xs">
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{ backgroundColor: answer.category.color ?? "#ff6600" }}
-                          />
-                          {answer.category.name}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">{t("No category")}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="align-top text-muted-foreground">
-                      <Badge variant="outline" className="text-xs">
-                        {t(questionTypeLabel(answer.questionType))}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="align-top">
-                      {answer.notApplicable ? (
-                        <Badge variant="secondary">N/A</Badge>
-                      ) : answer.questionType === "RATING" ? (
-                        <Badge
-                          variant={
-                            answer.score !== null ? scoreBadgeVariant(answer.score) : "secondary"
-                          }
-                          className="tabular-nums"
-                        >
-                          {answer.value} / {answer.ratingMax ?? 5}
-                        </Badge>
-                      ) : (
-                        <span className="whitespace-pre-wrap text-sm">
-                          {answer.value || <span className="text-muted-foreground italic">-</span>}
-                        </span>
-                      )}
-                      {answer.comment && (
-                        <p className="mt-2 whitespace-pre-wrap border-l-2 border-orange-500/50 pl-2 text-xs text-muted-foreground">
-                          {answer.comment}
-                        </p>
-                      )}
-                    </TableCell>
-                    <TableCell className="align-top text-right">
-                      {answer.notApplicable ? (
-                        <span className="text-xs text-muted-foreground">N/A</span>
-                      ) : answer.score !== null ? (
-                        <Badge
-                          variant={
-                            answer.isFatalFail ? "destructive" : scoreBadgeVariant(answer.score)
-                          }
-                          className="tabular-nums"
-                        >
-                          {answer.score.toFixed(1)}%
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">N/A</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState label={t("No answers")} />
-          )}
-        </CardContent>
-      </Card>
+
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                        <div className="rounded-xl border bg-muted/25 p-4">
+                          <p className="text-xs font-medium text-muted-foreground">{t("Answer")}</p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm font-medium leading-6">
+                            {answer.notApplicable ? "N/A" : answer.value || "—"}
+                            {answer.questionType === "RATING" && !answer.notApplicable
+                              ? ` / ${answer.ratingMax ?? 5}`
+                              : ""}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border bg-muted/25 p-4">
+                          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                            <MessageSquareText className="size-3.5" />
+                            {t("QA Comment")}
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
+                            {answer.comment || (
+                              <span className="italic text-muted-foreground">
+                                {t("No comment recorded")}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })
+        ) : (
+          <Card>
+            <CardContent>
+              <EmptyState label={t("No answers")} />
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
+}
+
+function groupAnswersByCategory(answers: Answer[], fallbackName: string) {
+  const groups = new Map<
+    string,
+    { id: string; name: string; color: string | null; answers: Answer[] }
+  >();
+  for (const answer of answers) {
+    const id = answer.category?.id ?? "uncategorized";
+    const group = groups.get(id) ?? {
+      id,
+      name: answer.category?.name ?? fallbackName,
+      color: answer.category?.color ?? null,
+      answers: [],
+    };
+    group.answers.push(answer);
+    groups.set(id, group);
+  }
+  return [...groups.values()];
 }
 
 function InfoCard({

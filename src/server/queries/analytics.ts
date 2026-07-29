@@ -2,6 +2,7 @@
 
 import { type Prisma, TranscriptionStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
+import { summarizeCallMetadata } from "@/lib/call-metadata";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
 import {
   getOperationalDateBounds,
@@ -2631,6 +2632,8 @@ export async function getResponseDetail(responseId: string) {
           direction: true,
           phoneNumber: true,
           queueName: true,
+          status: true,
+          metadata: true,
           startedAt: true,
           durationSeconds: true,
           mediaAssets: {
@@ -2767,6 +2770,9 @@ export async function getResponseDetail(responseId: string) {
           direction: response.interaction.direction,
           phoneNumber: response.interaction.phoneNumber,
           queueName: response.interaction.queueName,
+          status: response.interaction.status,
+          dispositionName: response.disposition?.name ?? null,
+          callMetadata: summarizeCallMetadata(response.interaction.metadata),
           startedAt: response.interaction.startedAt.toISOString(),
           durationSeconds:
             response.interaction.mediaAssets[0]?.durationMs != null
@@ -3139,8 +3145,16 @@ export async function getEvaluationHistory(params: {
           },
         },
         evaluator: { select: { id: true, name: true } },
-        form: { select: { id: true, title: true, campaignId: true } },
+        form: { select: { id: true, title: true, campaignId: true, templateKey: true } },
         disposition: { select: { id: true, name: true } },
+        interaction: {
+          select: {
+            id: true,
+            providerInteractionId: true,
+            hasRecording: true,
+            mediaAssets: { select: { id: true }, take: 1 },
+          },
+        },
       },
       orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * pageSize,
@@ -3180,7 +3194,19 @@ export async function getEvaluationHistory(params: {
           campaignName: response.agent.campaign.name,
         },
         evaluator: { id: response.evaluator.id, name: response.evaluator.name },
-        form: { id: response.form.id, title: response.form.title },
+        form: {
+          id: response.form.id,
+          title: response.form.title,
+          templateKey: response.form.templateKey,
+        },
+        interaction: response.interaction
+          ? {
+              id: response.interaction.id,
+              providerInteractionId: response.interaction.providerInteractionId,
+              recordingAvailable:
+                response.interaction.hasRecording || response.interaction.mediaAssets.length > 0,
+            }
+          : null,
         disposition: response.disposition
           ? { id: response.disposition.id, name: response.disposition.name }
           : null,

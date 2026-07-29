@@ -330,6 +330,15 @@ export async function getPerformanceWorkspace(filters: PerformanceFilters = {}) 
               totalSeconds: true,
               user: { select: { id: true, name: true } },
               campaign: { select: { name: true } },
+              response: {
+                select: {
+                  id: true,
+                  score: true,
+                  agent: { select: { id: true, name: true } },
+                  form: { select: { id: true, title: true } },
+                  interaction: { select: { providerInteractionId: true } },
+                },
+              },
               coachingSession: { select: { id: true, title: true } },
               pipPlan: { select: { id: true, title: true } },
               intervals: {
@@ -490,6 +499,12 @@ export async function getPerformanceWorkspace(filters: PerformanceFilters = {}) 
     openIntervalStartedAt: activity.intervals[0]?.startedAt.toISOString() ?? null,
     coachingSession: activity.coachingSession,
     pipPlan: activity.pipPlan,
+    response: activity.response
+      ? {
+          ...activity.response,
+          score: Number(activity.response.score),
+        }
+      : null,
   }));
 
   const coachingSessions = coachingRows.map((coaching) => ({

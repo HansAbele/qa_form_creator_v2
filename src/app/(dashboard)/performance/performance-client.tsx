@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  Eye,
   HeartHandshake,
   Pause,
   Play,
@@ -14,15 +15,14 @@ import {
   TimerReset,
   TrendingUp,
   UserCheck,
-  Eye,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
-import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -647,6 +647,22 @@ function ActivityPanel({ data, onChanged }: { data: WorkspaceData; onChanged: ()
                       <p className="text-xs text-muted-foreground">
                         {t(titleCase(activity.activityType))}
                       </p>
+                      {activity.response ? (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {activity.response.agent.name} · {activity.response.form.title}
+                            {activity.response.interaction
+                              ? ` · #${activity.response.interaction.providerInteractionId}`
+                              : ""}
+                          </span>
+                          <Link
+                            href={`/evaluations/${activity.response.id}`}
+                            className="font-medium text-primary underline-offset-4 hover:underline"
+                          >
+                            {t("View evaluation")}
+                          </Link>
+                        </div>
+                      ) : null}
                     </TableCell>
                     <TableCell>{activity.userName}</TableCell>
                     <TableCell>{activity.campaignName}</TableCell>

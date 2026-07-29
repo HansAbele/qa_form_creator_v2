@@ -1,7 +1,7 @@
 "use client";
 
 import type { QuestionType } from "@prisma/client";
-import { AlertTriangle, ClipboardCheck, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Clock3, Save, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -11,8 +11,8 @@ import {
 } from "@/components/call-finder/interaction-media-panel";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -23,17 +23,17 @@ import {
 } from "@/components/ui/select";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import {
-  HAPUSA_SCORECARD_KEY,
-  PARKER_DAVIS_SCORECARD_KEY,
-  isOfficialScorecardKey,
-  parseOfficialQuestionLabel,
-} from "@/lib/official-form-templates";
-import {
   APP_NAVIGATION_REQUEST_EVENT,
   type AppNavigationRequestEvent,
   consumeDocumentUnloadPermission,
   requestAppNavigation,
 } from "@/lib/navigation-guard";
+import {
+  HAPUSA_SCORECARD_KEY,
+  isOfficialScorecardKey,
+  PARKER_DAVIS_SCORECARD_KEY,
+  parseOfficialQuestionLabel,
+} from "@/lib/official-form-templates";
 import {
   computeScore,
   type ScoringAnswer,
@@ -42,7 +42,12 @@ import {
 } from "@/lib/scoring";
 import { cn } from "@/lib/utils";
 import { getAgentsForEvaluation } from "@/server/actions/agents";
-import { saveResponseDraftAction, submitResponseAction } from "@/server/actions/responses";
+import {
+  pauseEvaluationActivityAction,
+  saveResponseDraftAction,
+  startEvaluationActivityAction,
+  submitResponseAction,
+} from "@/server/actions/responses";
 import type { RatingStyleValue } from "@/types/form-builder";
 import { DispositionCombobox } from "./disposition-combobox";
 import { EvaluationSummary } from "./evaluation-summary";
@@ -169,6 +174,14 @@ function toScoringQuestion(question: ViewerQuestion): ScoringQuestion {
   };
 }
 
+function formatTimerDuration(totalSeconds: number) {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
 export function FormViewer({
   form,
   passThreshold,
@@ -217,7 +230,16 @@ export function FormViewer({
     disposition?: string;
   }>({});
   const [submitting, setSubmitting] = useState(false);
+  const [evaluationActivity, setEvaluationActivity] = useState<{
+    id: string;
+    status: string;
+    totalSeconds: number;
+    openIntervalStartedAt: string;
+  } | null>(null);
+  const [evaluationTimerError, setEvaluationTimerError] = useState<string | null>(null);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const autosaveInitializedRef = useRef(false);
+  const activityStartRequestedRef = useRef(false);
   const draftIdRef = useRef(draftId);
   const responseVersionRef = useRef(initialResponse?.updatedAt ?? null);
   const clientResponseIdRef = useRef(crypto.randomUUID());
@@ -302,6 +324,41 @@ export function FormViewer({
     });
   }, [form.campaignId, initialResponse?.agent]);
 
+  useEffect(() => {
+    if (activityStartRequestedRef.current) return;
+    activityStartRequestedRef.current = true;
+    void startEvaluationActivityAction({
+      formId: form.id,
+      responseId: initialResponse?.id,
+      interactionId: linkedInteraction?.id,
+    })
+      .then((activity) => {
+        setEvaluationActivity(activity);
+        setEvaluationTimerError(null);
+      })
+      .catch((error) => {
+        setEvaluationTimerError(
+          error instanceof Error ? t(error.message) : t("Evaluation timer unavailable"),
+        );
+      });
+  }, [form.id, initialResponse?.id, linkedInteraction?.id, t]);
+
+  useEffect(() => {
+    if (!evaluationActivity) return;
+    const interval = window.setInterval(() => setTimerNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [evaluationActivity]);
+
+  const trackedEvaluationSeconds = evaluationActivity
+    ? evaluationActivity.totalSeconds +
+      Math.max(
+        0,
+        Math.floor(
+          (timerNow - new Date(evaluationActivity.openIntervalStartedAt).getTime()) / 1_000,
+        ),
+      )
+    : 0;
+
   const setAnswer = (questionId: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
     if (errors[questionId]) {
@@ -379,6 +436,7 @@ export function FormViewer({
       agentId,
       dispositionId: dispositionId || null,
       interactionId: linkedInteraction?.id ?? null,
+      ...(evaluationActivity ? { evaluationActivityId: evaluationActivity.id } : {}),
       answers: form.questions.map((question) => ({
         questionId: question.id,
         value: notApplicable[question.id] ? "" : (answers[question.id] ?? ""),
@@ -393,6 +451,7 @@ export function FormViewer({
       dispositionId,
       form.id,
       form.questions,
+      evaluationActivity,
       linkedInteraction?.id,
       notApplicable,
     ],
@@ -717,13 +776,23 @@ export function FormViewer({
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (draftSavePromiseRef.current) {
       toast.info(t("Wait for the draft to finish saving"));
       return;
     }
     if (hasUnsavedChanges && !window.confirm(t("You have unsaved changes. Leave anyway?"))) {
       return;
+    }
+    if (evaluationActivity?.status === "ACTIVE") {
+      try {
+        await pauseEvaluationActivityAction({
+          activitySessionId: evaluationActivity.id,
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? t(error.message) : t("Evaluation timer unavailable"));
+        return;
+      }
     }
     router.push(linkedInteraction ? `/call-finder/${linkedInteraction.id}` : "/forms");
   };
@@ -827,6 +896,36 @@ export function FormViewer({
         {linkedInteraction ? (
           <InteractionMediaPanel interaction={linkedInteraction} compact />
         ) : null}
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3",
+            evaluationTimerError
+              ? "border-destructive/30 bg-destructive/5"
+              : "border-emerald-600/25 bg-emerald-500/5",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <Clock3
+              className={cn(
+                "size-4",
+                evaluationTimerError ? "text-destructive" : "text-emerald-600",
+              )}
+            />
+            <div>
+              <p className="text-sm font-semibold">{t("Evaluation timer")}</p>
+              <p className="text-xs text-muted-foreground">
+                {evaluationTimerError
+                  ? evaluationTimerError
+                  : evaluationActivity
+                    ? t("Time is recorded automatically in QA Activity.")
+                    : t("Starting secure timer...")}
+              </p>
+            </div>
+          </div>
+          <Badge variant={evaluationTimerError ? "destructive" : "outline"} className="font-mono">
+            {evaluationActivity ? formatTimerDuration(trackedEvaluationSeconds) : "00:00:00"}
+          </Badge>
+        </div>
         {/* Context bar */}
         <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
           <div className="space-y-1">

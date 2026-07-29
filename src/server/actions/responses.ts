@@ -6,6 +6,7 @@ import type { Session } from "next-auth";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveScorecardBand } from "@/lib/official-form-templates";
+import { elapsedSeconds } from "@/lib/performance-management";
 import { prisma } from "@/lib/prisma";
 import { resolveResponseScoringPolicy } from "@/lib/response-scoring-policy";
 import type { ResponseStatus } from "@/lib/response-status";
@@ -98,6 +99,7 @@ const responseMutationSchema = z
     agentId: z.string().trim().min(1),
     dispositionId: z.string().trim().min(1).nullable(),
     interactionId: z.string().trim().min(1).nullable().optional(),
+    evaluationActivityId: z.string().trim().min(1).max(100).optional(),
     answers: z.array(responseAnswerSchema).max(MAX_ANSWERS_PER_SUBMISSION),
   })
   .strict()
@@ -128,6 +130,20 @@ const cancelResponseSchema = z
 
 type ResponseMutationInput = z.infer<typeof responseMutationSchema>;
 type ResponseAnswerInput = z.infer<typeof responseAnswerSchema>;
+
+const startEvaluationActivitySchema = z
+  .object({
+    formId: z.string().trim().min(1).max(100),
+    responseId: z.string().trim().min(1).max(100).optional(),
+    interactionId: z.string().trim().min(1).max(100).optional(),
+  })
+  .strict();
+
+const pauseEvaluationActivitySchema = z
+  .object({
+    activitySessionId: z.string().trim().min(1).max(100),
+  })
+  .strict();
 
 type ResponseQuestion = {
   id: string;
@@ -775,6 +791,246 @@ async function loadMutationForm(
   });
 }
 
+async function closeEvaluationActivityInterval(
+  tx: Prisma.TransactionClient,
+  activitySessionId: string,
+  endedAt: Date,
+  stopReason: string,
+) {
+  const interval = await tx.qaActivityInterval.findFirst({
+    where: { activitySessionId, endedAt: null },
+    orderBy: { startedAt: "desc" },
+    select: { id: true, startedAt: true },
+  });
+  if (!interval) return 0;
+
+  const durationSeconds = elapsedSeconds(interval.startedAt, endedAt);
+  const closed = await tx.qaActivityInterval.updateMany({
+    where: { id: interval.id, endedAt: null },
+    data: { endedAt, durationSeconds, stopReason },
+  });
+  return closed.count === 1 ? durationSeconds : 0;
+}
+
+export async function startEvaluationActivityAction(data: unknown) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const parsed = startEvaluationActivitySchema.safeParse(data);
+  if (!parsed.success) throw new Error("Invalid evaluation timer context");
+  const input = parsed.data;
+  const existingResponse = input.responseId
+    ? await loadExistingResponse(input.responseId, session.user, "READ_OR_MUTATE")
+    : null;
+  if (input.responseId && !existingResponse) failResponseUnavailable();
+  if (existingResponse) {
+    await assertResponsePermissionOrUnavailable(session.user, existingResponse, "READ_OR_MUTATE");
+    if (existingResponse.formId !== input.formId) failFormUnavailable();
+  }
+
+  const form = await loadMutationForm(
+    existingResponse?.formId ?? input.formId,
+    session.user,
+    existingResponse
+      ? mutationPermissionForResponse(session.user, existingResponse)
+      : "canEvaluate",
+  );
+  if (!form) failFormUnavailable();
+
+  const interaction = input.interactionId
+    ? await prisma.interaction.findFirst({
+        where: {
+          id: input.interactionId,
+          campaignId: form.campaignId,
+          ...(existingResponse ? { response: { id: existingResponse.id } } : {}),
+        },
+        select: { id: true, providerInteractionId: true },
+      })
+    : null;
+  if (input.interactionId && !interaction) {
+    failResponseAction("VALIDATION", "The selected call is unavailable for this evaluation");
+  }
+
+  const marker = existingResponse
+    ? `AUTO_EVALUATION:response:${existingResponse.id}`
+    : interaction
+      ? `AUTO_EVALUATION:interaction:${interaction.id}`
+      : `AUTO_EVALUATION:form:${form.id}`;
+  const label = [
+    "Evaluation",
+    form.title,
+    interaction ? `Call ${interaction.providerInteractionId}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const now = new Date();
+
+  const activity = await prisma.$transaction(async (tx) => {
+    const matching = await tx.qaActivitySession.findFirst({
+      where: {
+        userId: session.user.id,
+        campaignId: form.campaignId,
+        activityType: "EVALUATION",
+        status: { in: ["ACTIVE", "PAUSED"] },
+        OR: [...(existingResponse ? [{ responseId: existingResponse.id }] : []), { notes: marker }],
+      },
+      orderBy: { startedAt: "desc" },
+      select: { id: true, status: true, totalSeconds: true },
+    });
+    const current = await tx.qaActivitySession.findFirst({
+      where: { userId: session.user.id, status: "ACTIVE" },
+      select: { id: true, campaignId: true },
+    });
+
+    if (current && current.id !== matching?.id) {
+      const addedSeconds = await closeEvaluationActivityInterval(
+        tx,
+        current.id,
+        now,
+        "Automatically paused when an evaluation opened",
+      );
+      await tx.qaActivitySession.update({
+        where: { id: current.id },
+        data: { status: "PAUSED", totalSeconds: { increment: addedSeconds } },
+      });
+      await writeAuditLog(
+        {
+          userId: session.user.id,
+          campaignId: current.campaignId,
+          module: "performance_management",
+          action: "qa_activity_auto_paused",
+          entityType: "qa_activity_session",
+          entityId: current.id,
+          afterValue: { addedSeconds, reason: "evaluation_opened" },
+          impact: "The prior activity was paused to prevent overlapping tracked time.",
+        },
+        tx,
+      );
+    }
+
+    if (matching) {
+      if (matching.status === "PAUSED") {
+        await tx.qaActivityInterval.create({
+          data: { activitySessionId: matching.id, startedAt: now },
+        });
+      }
+      const updated = await tx.qaActivitySession.update({
+        where: { id: matching.id },
+        data: {
+          status: "ACTIVE",
+          label,
+          notes: marker,
+          ...(existingResponse ? { responseId: existingResponse.id } : {}),
+        },
+        select: { id: true, status: true, totalSeconds: true },
+      });
+      const openInterval = await tx.qaActivityInterval.findFirst({
+        where: { activitySessionId: updated.id, endedAt: null },
+        orderBy: { startedAt: "desc" },
+        select: { startedAt: true },
+      });
+      return { ...updated, openIntervalStartedAt: openInterval?.startedAt ?? now };
+    }
+
+    const created = await tx.qaActivitySession.create({
+      data: {
+        userId: session.user.id,
+        campaignId: form.campaignId,
+        responseId: existingResponse?.id ?? null,
+        activityType: "EVALUATION",
+        status: "ACTIVE",
+        label,
+        notes: marker,
+        startedAt: now,
+        intervals: { create: { startedAt: now } },
+      },
+      select: { id: true, status: true, totalSeconds: true },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: form.campaignId,
+        module: "performance_management",
+        action: "evaluation_activity_started",
+        entityType: "qa_activity_session",
+        entityId: created.id,
+        afterValue: {
+          formId: form.id,
+          responseId: existingResponse?.id ?? null,
+          interactionId: interaction?.id ?? null,
+        },
+        impact: "Server-controlled evaluation timing started when the form opened.",
+      },
+      tx,
+    );
+    return { ...created, openIntervalStartedAt: now };
+  });
+
+  revalidatePath("/performance");
+  return {
+    ...activity,
+    openIntervalStartedAt: activity.openIntervalStartedAt.toISOString(),
+  };
+}
+
+export async function pauseEvaluationActivityAction(data: unknown) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const parsed = pauseEvaluationActivitySchema.safeParse(data);
+  if (!parsed.success) throw new Error("Invalid evaluation timer");
+
+  const activity = await prisma.qaActivitySession.findFirst({
+    where: {
+      id: parsed.data.activitySessionId,
+      userId: session.user.id,
+      activityType: "EVALUATION",
+    },
+    select: { id: true, campaignId: true, status: true, totalSeconds: true },
+  });
+  if (!activity) throw new Error("Evaluation timer unavailable");
+  if (activity.status !== "ACTIVE") return activity;
+
+  const now = new Date();
+  const paused = await prisma.$transaction(async (tx) => {
+    const addedSeconds = await closeEvaluationActivityInterval(
+      tx,
+      activity.id,
+      now,
+      "Evaluation form cancelled",
+    );
+    const updated = await tx.qaActivitySession.update({
+      where: { id: activity.id },
+      data: {
+        status: "PAUSED",
+        totalSeconds: { increment: addedSeconds },
+      },
+      select: { id: true, campaignId: true, status: true, totalSeconds: true },
+    });
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: activity.campaignId,
+        module: "performance_management",
+        action: "evaluation_activity_paused",
+        entityType: "qa_activity_session",
+        entityId: activity.id,
+        afterValue: {
+          addedSeconds,
+          totalSeconds: updated.totalSeconds,
+          reason: "evaluation_form_cancelled",
+        },
+        impact: "Evaluation timing was paused when the QA left through Cancel.",
+      },
+      tx,
+    );
+    return updated;
+  });
+
+  revalidatePath("/performance");
+  return paused;
+}
+
 function isSameCreateContext(
   response: ExistingResponseForMutation,
   input: ResponseMutationInput,
@@ -873,6 +1129,7 @@ async function saveEvaluation(
             campaignId: true,
             agentId: true,
             dispositionId: true,
+            providerInteractionId: true,
             response: { select: { id: true } },
           },
         })
@@ -906,6 +1163,22 @@ async function saveEvaluation(
       (interaction.response !== null && interaction.response.id !== existing?.id))
   ) {
     failResponseAction("VALIDATION", "The selected call is unavailable for this evaluation");
+  }
+
+  const evaluationActivity = input.evaluationActivityId
+    ? await prisma.qaActivitySession.findFirst({
+        where: {
+          id: input.evaluationActivityId,
+          userId: session.user.id,
+          campaignId: form.campaignId,
+          activityType: "EVALUATION",
+          status: { in: ["ACTIVE", "PAUSED", "COMPLETED"] },
+        },
+        select: { id: true },
+      })
+    : null;
+  if (input.evaluationActivityId && !evaluationActivity) {
+    failResponseAction("VALIDATION", "Evaluation timer unavailable");
   }
 
   const scoringPolicy = resolveResponseScoringPolicy(existing, {
@@ -1088,6 +1361,75 @@ async function saveEvaluation(
           tx,
         );
 
+        if (evaluationActivity) {
+          const activity = await tx.qaActivitySession.findFirst({
+            where: {
+              id: evaluationActivity.id,
+              userId: session.user.id,
+              campaignId: form.campaignId,
+              activityType: "EVALUATION",
+            },
+            select: { id: true, status: true, totalSeconds: true },
+          });
+          if (!activity) failResponseAction("VALIDATION", "Evaluation timer unavailable");
+
+          const completedAt = new Date();
+          const addedSeconds =
+            status === RESPONSE_STATUS.SUBMITTED && activity.status === "ACTIVE"
+              ? await closeEvaluationActivityInterval(
+                  tx,
+                  activity.id,
+                  completedAt,
+                  "Evaluation submitted",
+                )
+              : 0;
+          const activityLabel = [
+            "Evaluation",
+            agent.name,
+            form.title,
+            interaction ? `Call ${interaction.providerInteractionId}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          await tx.qaActivitySession.update({
+            where: { id: activity.id },
+            data: {
+              responseId: savedResponse.id,
+              label: activityLabel,
+              notes: "Automatically measured from evaluation form open to submission.",
+              ...(status === RESPONSE_STATUS.SUBMITTED
+                ? {
+                    status: "COMPLETED",
+                    endedAt: completedAt,
+                    totalSeconds: { increment: addedSeconds },
+                  }
+                : {}),
+            },
+          });
+          if (status === RESPONSE_STATUS.SUBMITTED && activity.status !== "COMPLETED") {
+            await writeAuditLog(
+              {
+                userId: session.user.id,
+                campaignId: form.campaignId,
+                module: "performance_management",
+                action: "evaluation_activity_completed",
+                entityType: "qa_activity_session",
+                entityId: activity.id,
+                afterValue: {
+                  responseId: savedResponse.id,
+                  agentId: input.agentId,
+                  agentName: agent.name,
+                  interactionId: input.interactionId ?? null,
+                  addedSeconds,
+                  totalSeconds: activity.totalSeconds + addedSeconds,
+                },
+                impact: "Evaluation work time was closed and linked to the submitted evaluation.",
+              },
+              tx,
+            );
+          }
+        }
+
         return savedResponse;
       });
       return { response: savedResponse, replayed: false };
@@ -1225,6 +1567,7 @@ function revalidateEvaluationPaths() {
   revalidatePath("/reports");
   revalidatePath("/kpis");
   revalidatePath("/evaluations");
+  revalidatePath("/performance");
   revalidatePath("/analytics/agents");
   revalidatePath("/analytics/dispositions");
   revalidatePath("/");

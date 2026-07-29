@@ -8,6 +8,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { summarizeCallMetadata } from "@/lib/call-metadata";
 import { getOperationalDateBounds } from "@/lib/operational-time";
 import { prisma } from "@/lib/prisma";
 import { getCampaignFilter } from "@/server/queries/campaign-filter";
@@ -128,6 +129,26 @@ export function buildInteractionWhere(
   };
   return {
     ...campaignFilter,
+    AND: [
+      {
+        OR: [{ agentId: { not: null } }, { providerAgentName: { not: null } }],
+      },
+      ...(hasDurationFilter
+        ? [
+            {
+              OR: [
+                { mediaAssets: { some: { durationMs } } },
+                {
+                  AND: [
+                    { mediaAssets: { none: { durationMs: { not: null } } } },
+                    { durationSeconds },
+                  ],
+                },
+              ],
+            } satisfies Prisma.InteractionWhereInput,
+          ]
+        : []),
+    ],
     ...(filters.agentId
       ? filters.agentId.startsWith("provider:")
         ? { providerAgentId: filters.agentId.slice("provider:".length) }
@@ -139,16 +160,6 @@ export function buildInteractionWhere(
       ? { phoneNumber: { contains: filters.phoneNumber, mode: "insensitive" } }
       : {}),
     ...(Object.keys(startedAt).length > 0 ? { startedAt } : {}),
-    ...(hasDurationFilter
-      ? {
-          OR: [
-            { mediaAssets: { some: { durationMs } } },
-            {
-              AND: [{ mediaAssets: { none: { durationMs: { not: null } } } }, { durationSeconds }],
-            },
-          ],
-        }
-      : {}),
   };
 }
 
@@ -196,6 +207,7 @@ export async function getCallFinderPageData(filters: CallFinderFilters) {
           startedAt: true,
           durationSeconds: true,
           hasRecording: true,
+          metadata: true,
           campaign: { select: { id: true, name: true } },
           agent: { select: { id: true, name: true, agentCode: true } },
           disposition: { select: { id: true, name: true, code: true } },
@@ -291,6 +303,8 @@ export async function getCallFinderPageData(filters: CallFinderFilters) {
     ],
     interactions: interactions.map((interaction) => ({
       ...interaction,
+      callMetadata: summarizeCallMetadata(interaction.metadata),
+      metadata: undefined,
       startedAt: interaction.startedAt.toISOString(),
       durationSeconds:
         interaction.mediaAssets[0]?.durationMs != null
@@ -332,6 +346,7 @@ export async function getCallFinderInteractionDetail(id: string) {
       endedAt: true,
       durationSeconds: true,
       hasRecording: true,
+      metadata: true,
       campaign: { select: { id: true, name: true } },
       agent: { select: { id: true, name: true, agentCode: true, active: true } },
       disposition: { select: { id: true, name: true, code: true, active: true } },
@@ -400,6 +415,8 @@ export async function getCallFinderInteractionDetail(id: string) {
 
   return {
     ...interaction,
+    callMetadata: summarizeCallMetadata(interaction.metadata),
+    metadata: undefined,
     startedAt: interaction.startedAt.toISOString(),
     endedAt: interaction.endedAt?.toISOString() ?? null,
     mediaAsset: mediaAsset ? { ...mediaAsset, byteSize: mediaAsset.byteSize.toString() } : null,
@@ -436,6 +453,7 @@ const evaluationInteractionSelect = {
   startedAt: true,
   durationSeconds: true,
   hasRecording: true,
+  metadata: true,
   agent: { select: { id: true, name: true, agentCode: true, active: true } },
   disposition: { select: { id: true, name: true, code: true, active: true } },
   response: { select: { id: true, formId: true, status: true } },
@@ -505,6 +523,8 @@ async function loadInteractionForForm(
 
   return {
     ...interaction,
+    callMetadata: summarizeCallMetadata(interaction.metadata),
+    metadata: undefined,
     startedAt: interaction.startedAt.toISOString(),
     durationSeconds:
       interaction.mediaAssets[0]?.durationMs != null
