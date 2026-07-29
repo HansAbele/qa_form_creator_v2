@@ -1,7 +1,7 @@
 "use client";
 
 import type { QuestionType } from "@prisma/client";
-import { AlertTriangle, Save } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Save, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import {
 import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -21,6 +22,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import {
+  PARKER_DAVIS_SCORECARD_KEY,
+  parseOfficialQuestionLabel,
+} from "@/lib/official-form-templates";
 import {
   APP_NAVIGATION_REQUEST_EVENT,
   type AppNavigationRequestEvent,
@@ -73,6 +78,9 @@ interface FormViewerProps {
     title: string;
     description: string | null;
     campaignId: string;
+    templateKey: string | null;
+    templateVersion: string | null;
+    gradingScale: unknown;
     questions: ViewerQuestion[];
     campaign: { name: string };
   };
@@ -220,6 +228,17 @@ export function FormViewer({
     isEditingSubmitted && initialResponse?.dispositionId === null && !dispositionId;
 
   const scoringQuestions = useMemo(() => form.questions.map(toScoringQuestion), [form.questions]);
+  const isParkerDavisScorecard = form.templateKey === PARKER_DAVIS_SCORECARD_KEY;
+  const partsWarrantyQuestionIds = useMemo(
+    () =>
+      form.questions
+        .filter((question) => parseOfficialQuestionLabel(question.label).partsWarranty)
+        .map((question) => question.id),
+    [form.questions],
+  );
+  const partsWarrantyDisabled =
+    partsWarrantyQuestionIds.length > 0 &&
+    partsWarrantyQuestionIds.every((questionId) => notApplicable[questionId]);
 
   const scoreResult = useMemo(() => {
     const map = new Map<string, ScoringAnswer>();
@@ -315,6 +334,33 @@ export function FormViewer({
         delete next[questionId];
         return next;
       });
+    }
+  };
+
+  const togglePartsWarrantyApplicability = () => {
+    const markNotApplicable = !partsWarrantyDisabled;
+    const questionIds = new Set(partsWarrantyQuestionIds);
+    setNotApplicableState((previous) => {
+      const next = { ...previous };
+      for (const questionId of questionIds) next[questionId] = markNotApplicable;
+      return next;
+    });
+    if (markNotApplicable) {
+      setAnswers((previous) => {
+        const next = { ...previous };
+        for (const questionId of questionIds) next[questionId] = "";
+        return next;
+      });
+      setErrors((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).filter(([questionId]) => !questionIds.has(questionId)),
+        ),
+      );
+      setCommentErrors((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).filter(([questionId]) => !questionIds.has(questionId)),
+        ),
+      );
     }
   };
 
@@ -686,6 +732,66 @@ export function FormViewer({
         aria-busy={submitting}
         className="m-0 min-w-0 flex-1 space-y-4 border-0 p-0"
       >
+        {isParkerDavisScorecard && (
+          <section className="overflow-hidden rounded-2xl border border-[#003366]/25 bg-card shadow-sm">
+            <div className="bg-[#003366] px-5 py-5 text-white sm:px-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="border-white/25 bg-white/10 text-white hover:bg-white/10">
+                      <ClipboardCheck className="mr-1 size-3.5" />
+                      {t("Official scorecard")}
+                    </Badge>
+                    {form.templateVersion && (
+                      <Badge className="border-white/25 bg-white/10 text-white hover:bg-white/10">
+                        {form.templateVersion}
+                      </Badge>
+                    )}
+                  </div>
+                  <h2 className="font-heading text-2xl font-bold tracking-tight">{form.title}</h2>
+                  {form.description && (
+                    <p className="max-w-3xl text-sm text-white/80">{form.description}</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-right">
+                  <p className="text-xs font-medium uppercase tracking-wider text-white/70">
+                    {t("Passing score")}
+                  </p>
+                  <p className="font-heading text-3xl font-bold tabular-nums">{passThreshold}%</p>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-4 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:px-6">
+              <div className="space-y-2 text-sm">
+                <p className="flex items-start gap-2 text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 size-4 shrink-0 text-destructive" />
+                  <span>
+                    {t(
+                      "Any critical failure forces FAIL regardless of the total score. Award full points when the entire procedure is correct; otherwise award half points.",
+                    )}
+                  </span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline">95–100 · {t("Pass (Excellent)")}</Badge>
+                  <Badge variant="outline">90–94.9 · {t("Acceptable")}</Badge>
+                  <Badge variant="outline">80–89.9 · {t("Needs Improvement")}</Badge>
+                  <Badge variant="outline">70–79.9 · {t("Below Standard")}</Badge>
+                  <Badge variant="outline">&lt;70 · {t("Unsatisfactory")}</Badge>
+                </div>
+              </div>
+              {partsWarrantyQuestionIds.length > 0 && (
+                <Button
+                  type="button"
+                  variant={partsWarrantyDisabled ? "default" : "outline"}
+                  onClick={togglePartsWarrantyApplicability}
+                  className="border-[#2E75B6]/40"
+                >
+                  {partsWarrantyDisabled ? t("Apply P&W checks") : t("This call is not P&W")}
+                </Button>
+              )}
+            </div>
+          </section>
+        )}
         {linkedInteraction ? (
           <InteractionMediaPanel interaction={linkedInteraction} compact />
         ) : null}
@@ -820,7 +926,7 @@ export function FormViewer({
                   <QuestionRenderer
                     key={question.id}
                     question={question}
-                    index={`${group.index + 1}.${i + 1}`}
+                    index={isParkerDavisScorecard ? undefined : `${group.index + 1}.${i + 1}`}
                     value={answers[question.id] ?? ""}
                     onChange={(value) => setAnswer(question.id, value)}
                     comment={comments[question.id] ?? ""}
@@ -878,6 +984,7 @@ export function FormViewer({
       <div className="lg:sticky lg:top-[82px] lg:w-[328px] lg:shrink-0">
         <EvaluationSummary
           scoreResult={scoreResult}
+          gradingScale={form.gradingScale}
           categories={categoryInfos}
           totalQuestions={form.questions.length}
           answeredQuestions={answeredQuestions}

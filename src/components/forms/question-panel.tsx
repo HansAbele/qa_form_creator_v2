@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { parseOfficialQuestionLabel } from "@/lib/official-form-templates";
 import {
   CRITICAL_TYPES,
   type CriticalTypeValue,
@@ -57,7 +58,7 @@ const CRITICAL_TYPE_LABELS: Record<CriticalTypeValue, string> = {
   COMPLIANCE: "Compliance critical",
 };
 
-const MAX_LABEL = 200;
+const MAX_LABEL = 500;
 
 interface QuestionPanelProps {
   draft: QuestionData;
@@ -79,9 +80,13 @@ export function QuestionPanel({
 }: QuestionPanelProps) {
   const { t } = useI18n();
   const showOptions = isOptionQuestionType(draft.type);
+  const officialMetadata = parseOfficialQuestionLabel(draft.label);
+  const metadataPrefix = `${officialMetadata.checkpoint ? "[[CHECK]]" : ""}${
+    officialMetadata.partsWarranty ? "[[P&W]]" : ""
+  }`;
   const selectedCategory = qaCategories.find((category) => category.id === draft.qaCategoryId);
   const canConfigureFatalOptions = showOptions && draft.fatal;
-  const canSubmit = draft.label.trim().length > 0 && Boolean(draft.qaCategoryId);
+  const canSubmit = officialMetadata.label.trim().length > 0 && Boolean(draft.qaCategoryId);
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
@@ -95,12 +100,14 @@ export function QuestionPanel({
           rows={2}
           maxLength={MAX_LABEL}
           placeholder={t("Enter the question...")}
-          value={draft.label}
-          onChange={(event) => onChange({ ...draft, label: event.target.value })}
+          value={officialMetadata.label}
+          onChange={(event) =>
+            onChange({ ...draft, label: `${metadataPrefix}${event.target.value}` })
+          }
           className="resize-none"
         />
         <p className="text-right text-[11px] tabular-nums text-muted-foreground">
-          {draft.label.length}/{MAX_LABEL}
+          {officialMetadata.label.length}/{MAX_LABEL}
         </p>
       </div>
 
@@ -360,6 +367,7 @@ export function QuestionPanel({
                   type="number"
                   min={0}
                   max={100}
+                  step={0.5}
                   value={draft.optionPoints[i] ?? 0}
                   aria-label={t("Points for option {number}", { number: i + 1 })}
                   onChange={(event) => {

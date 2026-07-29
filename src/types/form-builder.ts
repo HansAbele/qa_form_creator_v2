@@ -44,7 +44,7 @@ export const formQuestionInputSchema = z
     type: z.enum(QUESTION_TYPES),
     label: z.string().trim().min(1, "Question text is required").max(500),
     options: z.array(z.string().trim().min(1).max(200)).optional(),
-    optionPoints: z.array(z.coerce.number().int().min(0).max(100)).optional(),
+    optionPoints: z.array(z.coerce.number().finite().min(0).max(100)).optional(),
     required: z.boolean(),
     qaCategoryId: z.string().trim().min(1, "Select a QA category"),
     weight: z.coerce.number().int().min(0).max(100),

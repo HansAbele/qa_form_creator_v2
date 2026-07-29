@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { parseOfficialQuestionLabel } from "@/lib/official-form-templates";
 import {
   Select,
   SelectContent,
@@ -159,7 +160,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
 
   // Persist an in-progress, complete draft so switching panels never loses it.
   const commitDraft = () => {
-    if (draft?.label.trim() && draft.qaCategoryId) {
+    if (draft && parseOfficialQuestionLabel(draft.label).label.trim() && draft.qaCategoryId) {
       setQuestions((prev) => mergeDraft(prev, draft, panelMode));
     }
   };
@@ -225,7 +226,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
     // Fold an open, complete draft into the set so it is never silently lost.
     let effectiveQuestions = questions;
     if (draft) {
-      if (!draft.label.trim() || !draft.qaCategoryId) {
+      if (!parseOfficialQuestionLabel(draft.label).label.trim() || !draft.qaCategoryId) {
         toast.error(t("Finish the open question before saving"));
         return;
       }
@@ -236,7 +237,7 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
       toast.error(t("Add at least one question"));
       return;
     }
-    if (effectiveQuestions.some((q) => !q.label.trim())) {
+    if (effectiveQuestions.some((q) => !parseOfficialQuestionLabel(q.label).label.trim())) {
       toast.error(t("Every question must include text"));
       return;
     }

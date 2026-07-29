@@ -389,18 +389,22 @@ model Agent {
 // ─── Formularios ─────────────────────────────────────
 
 model Form {
-  id           String    @id @default(cuid())
-  title        String
-  description  String?
-  campaignId   String
-  createdById  String
-  parentFormId String?
-  status       String    @default("DRAFT")
-  version      String    @default("1.0.0")
-  publishedAt  DateTime?
-  archivedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  title                 String
+  description           String?
+  campaignId            String
+  createdById           String
+  parentFormId          String?
+  status                String    @default("DRAFT")
+  version               String    @default("1.0.0")
+  templateKey           String?
+  templateVersion       String?
+  passThresholdOverride Int?
+  gradingScale          Json?
+  publishedAt           DateTime?
+  archivedAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   campaign   Campaign       @relation(fields: [campaignId], references: [id])
   createdBy  User           @relation("FormCreator", fields: [createdById], references: [id])
@@ -412,6 +416,7 @@ model Form {
 
   @@index([parentFormId])
   @@index([status])
+  @@index([templateKey])
 }
 
 model Question {

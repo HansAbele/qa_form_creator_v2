@@ -5,22 +5,47 @@ import {
   ClipboardPenLine,
   Clock3,
   FileText,
+  Loader2,
   Pencil,
   Plus,
   Send,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { toast } from "sonner";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import { cn } from "@/lib/utils";
-import { archiveForm, deleteForm, publishForm } from "@/server/actions/forms";
+import {
+  archiveForm,
+  createParkerDavisScorecard,
+  deleteForm,
+  publishForm,
+} from "@/server/actions/forms";
 
 interface FormItem {
   id: string;
@@ -28,6 +53,7 @@ interface FormItem {
   description: string | null;
   campaignName: string;
   status: string;
+  templateKey: string | null;
   questionCount: number;
   canEvaluate: boolean;
   canEdit: boolean;
@@ -50,6 +76,7 @@ interface FormsListClientProps {
   forms: FormItem[];
   evaluationDrafts: EvaluationDraftItem[];
   canCreate: boolean;
+  templateCampaigns: { id: string; name: string }[];
 }
 
 function EvaluationDraftGroup({
@@ -120,9 +147,17 @@ function EvaluationDraftGroup({
   );
 }
 
-export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsListClientProps) {
+export function FormsListClient({
+  forms,
+  evaluationDrafts,
+  canCreate,
+  templateCampaigns,
+}: FormsListClientProps) {
   const { t } = useI18n();
   const router = useRouter();
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateCampaignId, setTemplateCampaignId] = useState(templateCampaigns[0]?.id ?? "");
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
   const ownDrafts = evaluationDrafts.filter((draft) => draft.isOwn);
   const manageableDrafts = evaluationDrafts.filter((draft) => !draft.isOwn);
 
@@ -176,15 +211,106 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
     }
   };
 
+  const handleCreateParkerDavisScorecard = async () => {
+    if (!templateCampaignId) {
+      toast.error(t("Select a campaign"));
+      return;
+    }
+    setCreatingTemplate(true);
+    try {
+      const result = await createParkerDavisScorecard(templateCampaignId);
+      toast.success(
+        result.created
+          ? t("Official Parker Davis scorecard created as a draft")
+          : t("The official Parker Davis scorecard already exists for this campaign"),
+      );
+      setTemplateDialogOpen(false);
+      router.push(`/forms/${result.id}/edit`);
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? t(error.message) : t("Unable to create official scorecard"),
+      );
+    } finally {
+      setCreatingTemplate(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold tracking-tight">{t("Forms")}</h1>
         {canCreate && (
-          <Link href="/forms/new" className={cn(buttonVariants())}>
-            <Plus className="mr-1 h-4 w-4" />
-            {t("New Form")}
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {templateCampaigns.length > 0 && (
+              <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+                <DialogTrigger
+                  className={cn(buttonVariants({ variant: "outline" }), "border-[#2E75B6]/40")}
+                >
+                  <Sparkles className="mr-1 h-4 w-4 text-[#2E75B6]" />
+                  {t("Parker Davis scorecard")}
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{t("Create official Parker Davis scorecard")}</DialogTitle>
+                    <DialogDescription>
+                      {t(
+                        "Creates a reviewable draft with the 38 official criteria and checks, a 100-point scale, a 95% passing threshold, P&W applicability, and automatic failure for every CF item.",
+                      )}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2 py-2">
+                    <Label htmlFor="parker-davis-campaign">{t("Campaign")}</Label>
+                    <Select
+                      value={templateCampaignId}
+                      onValueChange={(value) => value && setTemplateCampaignId(value)}
+                    >
+                      <SelectTrigger id="parker-davis-campaign" className="w-full">
+                        <SelectValue placeholder={t("Select a campaign")}>
+                          {(value: string | null) =>
+                            templateCampaigns.find((campaign) => campaign.id === value)?.name ??
+                            t("Select a campaign")
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {templateCampaigns.map((campaign) => (
+                          <SelectItem key={campaign.id} value={campaign.id}>
+                            {campaign.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        "The scorecard is created as a draft so QA management can verify it before publishing.",
+                      )}
+                    </p>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setTemplateDialogOpen(false)}
+                      disabled={creatingTemplate}
+                    >
+                      {t("Cancel")}
+                    </Button>
+                    <Button
+                      onClick={handleCreateParkerDavisScorecard}
+                      disabled={creatingTemplate || !templateCampaignId}
+                    >
+                      {creatingTemplate && <Loader2 className="mr-1 size-4 animate-spin" />}
+                      {creatingTemplate ? t("Creating...") : t("Create draft")}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+            <Link href="/forms/new" className={cn(buttonVariants())}>
+              <Plus className="mr-1 h-4 w-4" />
+              {t("New Form")}
+            </Link>
+          </div>
         )}
       </div>
 
@@ -239,6 +365,11 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline">{form.campaignName}</Badge>
+                  {form.templateKey && (
+                    <Badge className="bg-[#003366] text-white hover:bg-[#003366]">
+                      {t("Official template")}
+                    </Badge>
+                  )}
                 </div>
                 {form.description && (
                   <p className="text-sm text-muted-foreground line-clamp-2">{form.description}</p>

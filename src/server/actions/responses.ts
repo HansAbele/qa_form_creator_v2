@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { Session } from "next-auth";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { resolveScorecardBand } from "@/lib/official-form-templates";
 import { prisma } from "@/lib/prisma";
 import { resolveResponseScoringPolicy } from "@/lib/response-scoring-policy";
 import type { ResponseStatus } from "@/lib/response-status";
@@ -579,6 +580,10 @@ function buildFormSnapshot(form: {
   version: string;
   status: string;
   campaignId: string;
+  templateKey: string | null;
+  templateVersion: string | null;
+  passThresholdOverride: number | null;
+  gradingScale: Prisma.JsonValue | null;
   campaign?: { name: string } | null;
   questions: ResponseQuestion[];
 }) {
@@ -590,6 +595,10 @@ function buildFormSnapshot(form: {
     status: form.status,
     campaignId: form.campaignId,
     campaignName: form.campaign?.name ?? null,
+    templateKey: form.templateKey,
+    templateVersion: form.templateVersion,
+    passThresholdOverride: form.passThresholdOverride,
+    gradingScale: form.gradingScale,
     questions: form.questions.map((question) => ({
       id: question.id,
       order: question.order,
@@ -619,6 +628,7 @@ function buildScoringSnapshot(args: {
   result: string | null;
   hasFatalFail: boolean;
   passThreshold: number;
+  gradingScale: unknown;
   sanitizedAnswers: SanitizedAnswer[];
   ratingQuestions: { id: string; weight: number }[];
 }) {
@@ -635,6 +645,7 @@ function buildScoringSnapshot(args: {
     result: args.result,
     hasFatalFail: args.hasFatalFail,
     passThreshold: args.passThreshold,
+    gradingBand: resolveScorecardBand(args.gradingScale, args.score, args.hasFatalFail),
     scoringMethod: "weighted_v2",
     naHandling: "exclude_from_rating_denominator",
     applicableRatingQuestionIds,
@@ -897,7 +908,10 @@ async function saveEvaluation(
     failResponseAction("VALIDATION", "The selected call is unavailable for this evaluation");
   }
 
-  const scoringPolicy = resolveResponseScoringPolicy(existing, scoringSettings);
+  const scoringPolicy = resolveResponseScoringPolicy(existing, {
+    ...scoringSettings,
+    passThreshold: form.passThresholdOverride ?? scoringSettings.passThreshold,
+  });
 
   const requireComplete = status === RESPONSE_STATUS.SUBMITTED;
   const sanitizedAnswers = sanitizeAnswers(form.questions, input.answers, {
@@ -949,6 +963,7 @@ async function saveEvaluation(
     result,
     hasFatalFail,
     passThreshold: scoringPolicy.passThreshold,
+    gradingScale: form.gradingScale,
     sanitizedAnswers,
     ratingQuestions,
   });

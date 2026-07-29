@@ -6,6 +6,7 @@ import { GripVertical, Pencil, Trash2 } from "lucide-react";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { parseOfficialQuestionLabel } from "@/lib/official-form-templates";
 import { cn } from "@/lib/utils";
 import { isScoredQuestionType, QUESTION_TYPE_LABELS } from "@/types/form-builder";
 import type { QuestionData } from "./question-panel";
@@ -21,6 +22,7 @@ interface QuestionRowProps {
 /** Compact read-only question row; click (or the pencil) opens it in the panel. */
 export function QuestionRow({ question, index, active, onEdit, onDelete }: QuestionRowProps) {
   const { t } = useI18n();
+  const officialMetadata = parseOfficialQuestionLabel(question.label);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: question.id,
   });
@@ -60,7 +62,7 @@ export function QuestionRow({ question, index, active, onEdit, onDelete }: Quest
         className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
       >
         <span className="line-clamp-1 text-[13.5px] font-semibold text-foreground">
-          {question.label.trim() || (
+          {officialMetadata.label.trim() || (
             <span className="italic text-muted-foreground">{t("No text")}</span>
           )}
         </span>
@@ -68,6 +70,16 @@ export function QuestionRow({ question, index, active, onEdit, onDelete }: Quest
           <Badge variant="secondary" className="text-[10px]">
             {t(QUESTION_TYPE_LABELS[question.type])}
           </Badge>
+          {officialMetadata.checkpoint && (
+            <Badge variant="secondary" className="text-[10px]">
+              {t("Procedure check")}
+            </Badge>
+          )}
+          {officialMetadata.partsWarranty && (
+            <Badge className="bg-[#2E75B6] text-[10px] text-white hover:bg-[#2E75B6]">
+              P&amp;W
+            </Badge>
+          )}
           {isScoredQuestionType(question.type) && (
             <Badge variant="outline" className="text-[10px] tabular-nums">
               {t("Weight {weight}%", { weight: question.weight })}

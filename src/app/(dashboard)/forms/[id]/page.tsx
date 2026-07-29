@@ -74,7 +74,10 @@ export default async function FormEvaluatePage({
     getCampaignScoringSettings(form.campaignId),
     hasCampaignPermissionForUser(session.user, form.campaignId, "canManageDispositions"),
   ]);
-  const viewerScoringPolicy = resolveResponseScoringPolicy(initialResponse, scoringSettings);
+  const viewerScoringPolicy = resolveResponseScoringPolicy(initialResponse, {
+    ...scoringSettings,
+    passThreshold: form.passThresholdOverride ?? scoringSettings.passThreshold,
+  });
   const { t } = await getServerI18n();
 
   return (

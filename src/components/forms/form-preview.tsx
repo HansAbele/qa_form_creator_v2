@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/components/providers/i18n-provider";
+import { parseOfficialQuestionLabel } from "@/lib/official-form-templates";
 import type { QuestionData } from "./question-panel";
 import { QuestionRenderer } from "./question-renderer";
 
@@ -17,6 +18,9 @@ interface FormPreviewProps {
  */
 export function FormPreview({ title, description, questions }: FormPreviewProps) {
   const { t } = useI18n();
+  const isOfficialScorecard = questions.some(
+    (question) => parseOfficialQuestionLabel(question.label).checkpoint,
+  );
   if (!title && questions.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-muted-foreground">
@@ -45,14 +49,17 @@ export function FormPreview({ title, description, questions }: FormPreviewProps)
                 id: q.id,
                 type: q.type,
                 label: q.label || t("Question {number}", { number: i + 1 }),
-                options: q.options,
+                options: q.options.map((value, optionIndex) => ({
+                  value,
+                  points: q.optionPoints[optionIndex] ?? 0,
+                })),
                 required: q.required,
                 weight: q.weight,
                 fatal: q.fatal,
                 fatalOptions: q.fatalOptions,
                 requiresCommentOnFail: q.requiresCommentOnFail,
               }}
-              index={`${i + 1}`}
+              index={isOfficialScorecard ? undefined : `${i + 1}`}
               value=""
               onChange={() => {}}
               ratingMax={q.ratingMax ?? undefined}

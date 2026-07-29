@@ -3,6 +3,7 @@
 import { AlertTriangle, CheckCircle2, Send, XCircle } from "lucide-react";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { Button } from "@/components/ui/button";
+import { resolveScorecardBand } from "@/lib/official-form-templates";
 import type { ScoreResult } from "@/lib/scoring";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,7 @@ interface CategoryInfo {
 
 interface EvaluationSummaryProps {
   scoreResult: ScoreResult;
+  gradingScale?: unknown;
   categories: CategoryInfo[];
   totalQuestions: number;
   answeredQuestions: number;
@@ -29,6 +31,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 export function EvaluationSummary({
   scoreResult,
+  gradingScale,
   categories,
   totalQuestions,
   answeredQuestions,
@@ -46,6 +49,7 @@ export function EvaluationSummary({
   const totalWeight = perCategory.reduce((sum, c) => sum + c.weight, 0);
   const dashOffset = RING_CIRCUMFERENCE * (1 - Math.min(Math.max(score, 0), 100) / 100);
   const scoreLabel = score.toFixed(2);
+  const gradingBand = resolveScorecardBand(gradingScale, score, scoreResult.hasFatalFail);
 
   const rules: { tone: "rose"; title: string; desc: string }[] = [];
   if (fatalCount > 0) {
@@ -127,6 +131,11 @@ export function EvaluationSummary({
         <p className="mt-1.5 text-xs text-muted-foreground">
           {t("PASS threshold: {threshold}%", { threshold: passThreshold })}
         </p>
+        {gradingBand && (
+          <p className="mt-2 rounded-md bg-muted px-2.5 py-1 text-center text-xs font-semibold text-foreground">
+            {t(gradingBand.label)}
+          </p>
+        )}
       </div>
 
       {/* Per-category scores */}

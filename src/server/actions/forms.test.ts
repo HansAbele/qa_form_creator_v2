@@ -23,6 +23,7 @@ vi.mock("next/cache", () => ({
 import {
   archiveForm,
   createForm,
+  createParkerDavisScorecard,
   deleteForm,
   getFormById,
   getFormForDraftCorrection,
@@ -880,5 +881,55 @@ describe("form lifecycle", () => {
         ]),
       }),
     );
+  });
+
+  it("creates the official Parker Davis scorecard only inside its campaign", async () => {
+    prismaMock.qACategory.findMany.mockResolvedValue([
+      { id: "qa_pd_opening_verification", canBeFatal: false, requiresCommentOnFail: false },
+      { id: "qa_pd_communication_control", canBeFatal: false, requiresCommentOnFail: false },
+      { id: "qa_pd_problem_resolution", canBeFatal: false, requiresCommentOnFail: false },
+      { id: "qa_pd_policy_compliance", canBeFatal: true, requiresCommentOnFail: false },
+      { id: "qa_pd_correct_information", canBeFatal: true, requiresCommentOnFail: false },
+      { id: "qa_pd_documentation", canBeFatal: true, requiresCommentOnFail: false },
+    ]);
+    prismaMock.form.create.mockResolvedValue({
+      id: "parker-davis-scorecard",
+      status: "DRAFT",
+    });
+
+    await expect(createParkerDavisScorecard("campaign-1")).resolves.toEqual({
+      id: "parker-davis-scorecard",
+      status: "DRAFT",
+      created: true,
+    });
+
+    expect(prismaMock.form.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        campaignId: "campaign-1",
+        templateKey: "PARKER_DAVIS_QA_SCORECARD",
+        templateVersion: "PD-QA-SCORECARD-2026-07",
+        passThresholdOverride: 95,
+        status: "DRAFT",
+      }),
+      select: { id: true, status: true },
+    });
+    expect(prismaMock.question.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          label: expect.stringContaining("1. Properly opened the call"),
+          weight: 5,
+          options: [
+            { value: "0 / 5 points", points: 0 },
+            { value: "2.5 / 5 points", points: 2.5 },
+            { value: "5 / 5 points", points: 5 },
+          ],
+        }),
+        expect.objectContaining({
+          fatal: true,
+          fatalOptions: ["No"],
+          weight: 0,
+        }),
+      ]),
+    });
   });
 });

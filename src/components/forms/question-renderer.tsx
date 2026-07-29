@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RATING_TIER_CLASSES, ratingTier } from "@/lib/rating-scale";
+import { parseOfficialQuestionLabel } from "@/lib/official-form-templates";
 import { cn } from "@/lib/utils";
 import { isScoredQuestionType, type RatingStyleValue } from "@/types/form-builder";
 import { RatingScale } from "./rating-scale";
@@ -69,6 +70,7 @@ export function QuestionRenderer({
   ratingStyle,
 }: QuestionRendererProps) {
   const { t } = useI18n();
+  const officialMetadata = parseOfficialQuestionLabel(question.label);
   const optionPairs = getOptionPairs(question.options);
   const scoreScaleOptions = getScoreScaleOptions(question.options);
   const fatalOptions = getStringOptions(question.fatalOptions);
@@ -98,12 +100,13 @@ export function QuestionRenderer({
       className={cn(
         "space-y-3 rounded-xl border bg-card p-4 transition-colors",
         showFatalNotice ? "border-destructive/60" : "border-border",
+        officialMetadata.checkpoint && "border-l-4 bg-muted/15 py-3",
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
         <p id={questionLabelId} className="font-semibold">
           {index && <span className="mr-1.5 text-muted-foreground tabular-nums">{index}</span>}
-          {question.label}
+          {officialMetadata.label}
           {question.required && (
             <>
               <span aria-hidden="true" className="ml-1 text-destructive">
@@ -117,6 +120,14 @@ export function QuestionRenderer({
           <Badge variant="outline" className="text-xs">
             {t("Weight {weight}%", { weight: question.weight })}
           </Badge>
+        )}
+        {officialMetadata.checkpoint && (
+          <Badge variant="secondary" className="text-xs">
+            {t("Procedure check")}
+          </Badge>
+        )}
+        {officialMetadata.partsWarranty && (
+          <Badge className="bg-[#2E75B6] text-xs text-white hover:bg-[#2E75B6]">P&amp;W</Badge>
         )}
         {question.fatal && (
           <Badge variant="destructive" className="text-xs">
@@ -187,7 +198,7 @@ export function QuestionRenderer({
           disabled={notApplicable}
           className={cn("flex gap-2", notApplicable && "opacity-50")}
         >
-          <legend className="sr-only">{question.label}</legend>
+          <legend className="sr-only">{officialMetadata.label}</legend>
           {(optionPairs.length > 0
             ? optionPairs
             : [

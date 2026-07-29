@@ -26,6 +26,7 @@ export default async function FormsPage() {
         description: f.description,
         campaignName: f.campaign.name,
         status: f.status,
+        templateKey: f.templateKey,
         questionCount: f._count.questions,
         canEvaluate:
           f.status === "PUBLISHED" &&
@@ -53,6 +54,10 @@ export default async function FormsPage() {
         isOwn: draft.isOwn,
       }))}
       canCreate={!isSupervisor && (isAdmin || creatableCampaigns.length > 0)}
+      templateCampaigns={creatableCampaigns.map((campaign) => ({
+        id: campaign.id,
+        name: campaign.name,
+      }))}
     />
   );
 }

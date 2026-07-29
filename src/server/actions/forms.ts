@@ -4,6 +4,7 @@ import type { Prisma, QuestionType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
+import { PARKER_DAVIS_SCORECARD } from "@/lib/official-form-templates";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/server/audit-log";
 import {
@@ -32,6 +33,10 @@ const FORM_UPDATE_SNAPSHOT_SELECT = {
   parent: { select: { campaignId: true } },
   status: true,
   version: true,
+  templateKey: true,
+  templateVersion: true,
+  passThresholdOverride: true,
+  gradingScale: true,
   updatedAt: true,
   questions: {
     select: {
@@ -349,6 +354,81 @@ export async function createForm(data: FormMutationInput) {
   return form;
 }
 
+export async function createParkerDavisScorecard(campaignId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Unauthorized");
+  const normalizedCampaignId = campaignId.trim();
+  if (!normalizedCampaignId) throw new Error("Select a campaign");
+
+  await assertCampaignPermissionForUser(session.user, normalizedCampaignId, "canCreateForms");
+  const input = await parseFormInput({
+    title: PARKER_DAVIS_SCORECARD.title,
+    description: PARKER_DAVIS_SCORECARD.description,
+    campaignId: normalizedCampaignId,
+    questions: PARKER_DAVIS_SCORECARD.questions,
+  });
+
+  const result = await prisma.$transaction(async (tx) => {
+    await lockFormFamily(tx, `${normalizedCampaignId}:${PARKER_DAVIS_SCORECARD.key}`);
+
+    const existing = await tx.form.findFirst({
+      where: {
+        campaignId: normalizedCampaignId,
+        templateKey: PARKER_DAVIS_SCORECARD.key,
+        status: { not: FORM_STATUS.ARCHIVED },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true },
+    });
+    if (existing) {
+      return { id: existing.id, status: existing.status, created: false };
+    }
+
+    const createdForm = await tx.form.create({
+      data: {
+        title: input.title,
+        description: input.description,
+        campaignId: normalizedCampaignId,
+        createdById: session.user.id,
+        status: FORM_STATUS.DRAFT,
+        templateKey: PARKER_DAVIS_SCORECARD.key,
+        templateVersion: PARKER_DAVIS_SCORECARD.version,
+        passThresholdOverride: PARKER_DAVIS_SCORECARD.passThreshold,
+        gradingScale: PARKER_DAVIS_SCORECARD.gradingScale.map((band) => ({ ...band })),
+      },
+      select: { id: true, status: true },
+    });
+
+    await createFormQuestionStructure(tx, createdForm.id, input.questions);
+
+    await writeAuditLog(
+      {
+        userId: session.user.id,
+        campaignId: normalizedCampaignId,
+        module: "forms",
+        action: "official_template_created",
+        entityType: "form",
+        entityId: createdForm.id,
+        afterValue: {
+          id: createdForm.id,
+          title: input.title,
+          templateKey: PARKER_DAVIS_SCORECARD.key,
+          templateVersion: PARKER_DAVIS_SCORECARD.version,
+          passThreshold: PARKER_DAVIS_SCORECARD.passThreshold,
+          questionCount: input.questions.length,
+        },
+        impact: "Official Parker Davis QA scorecard created as a draft for review and publication.",
+      },
+      tx,
+    );
+
+    return { id: createdForm.id, status: createdForm.status, created: true };
+  });
+
+  revalidatePath("/forms");
+  return result;
+}
+
 export async function updateForm(id: string, data: FormMutationInput) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
@@ -411,6 +491,13 @@ export async function updateForm(id: string, data: FormMutationInput) {
           campaignId: current.campaignId,
           createdById: current.createdById,
           status: FORM_STATUS.PUBLISHED,
+          templateKey: current.templateKey,
+          templateVersion: current.templateVersion,
+          passThresholdOverride: current.passThresholdOverride,
+          gradingScale:
+            current.gradingScale === null
+              ? undefined
+              : (current.gradingScale as Prisma.InputJsonValue),
           publishedAt: replacedAt,
         },
       });
@@ -949,7 +1036,13 @@ function buildOptionsJson(question: FormQuestionInput) {
 function getStringOptions(options: unknown) {
   return Array.isArray(options)
     ? options
-        .filter((option): option is string => typeof option === "string")
+        .map((option) =>
+          typeof option === "string"
+            ? option
+            : option && typeof option === "object" && "value" in option
+              ? String((option as { value: unknown }).value)
+              : "",
+        )
         .map((option) => option.trim())
         .filter(Boolean)
     : [];
