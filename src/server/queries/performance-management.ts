@@ -213,7 +213,7 @@ export async function getPerformanceWorkspace(filters: PerformanceFilters = {}) 
       : []),
   ];
 
-  const [agents, recentEvaluations, coachingRows, activityRows, pipRows, workloadRows] =
+  const [agents, focusAreaForms, coachingRows, activityRows, pipRows, workloadRows] =
     await Promise.all([
       agentCampaignIds.length > 0 && (!isAgent || agentProfile)
         ? prisma.agent.findMany({
@@ -234,23 +234,19 @@ export async function getPerformanceWorkspace(filters: PerformanceFilters = {}) 
           })
         : Promise.resolve([]),
       manageCoachingCampaignIds.length > 0
-        ? prisma.response.findMany({
+        ? prisma.form.findMany({
             where: {
-              status: "SUBMITTED",
-              form: { campaignId: { in: manageCoachingCampaignIds } },
+              status: "PUBLISHED",
+              campaignId: { in: manageCoachingCampaignIds },
             },
             select: {
-              id: true,
-              score: true,
-              result: true,
-              hasFatalFail: true,
-              submittedAt: true,
-              interactionId: true,
-              form: { select: { title: true, campaignId: true } },
-              agent: { select: { id: true, name: true } },
+              campaignId: true,
+              categories: {
+                select: { qaCategory: { select: { name: true } } },
+                orderBy: { sortOrder: "asc" },
+              },
             },
-            orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
-            take: 100,
+            orderBy: { publishedAt: "desc" },
           })
         : Promise.resolve([]),
       coachingWhere
@@ -427,6 +423,14 @@ export async function getPerformanceWorkspace(filters: PerformanceFilters = {}) 
     ]);
 
   const workloadUserIds = unique(workloadRows.map((row) => row.userId));
+  const focusAreasByCampaign = new Map<string, string[]>();
+  for (const form of focusAreaForms) {
+    const current = focusAreasByCampaign.get(form.campaignId) ?? [];
+    focusAreasByCampaign.set(
+      form.campaignId,
+      unique([...current, ...form.categories.map((category) => category.qaCategory.name)]),
+    );
+  }
   const workloadUsers =
     workloadUserIds.length > 0
       ? await prisma.user.findMany({
@@ -577,20 +581,9 @@ export async function getPerformanceWorkspace(filters: PerformanceFilters = {}) 
       canViewQaActivity: row.canViewQaActivity,
       canViewPips: row.canViewPips,
       canManagePips: row.canManagePips,
+      focusAreas: focusAreasByCampaign.get(row.campaign.id) ?? [],
     })),
     agents,
-    recentEvaluations: recentEvaluations.map((response) => ({
-      id: response.id,
-      campaignId: response.form.campaignId,
-      agentId: response.agent.id,
-      agentName: response.agent.name,
-      formTitle: response.form.title,
-      score: Number(response.score),
-      result: response.result,
-      hasFatalFail: response.hasFatalFail,
-      submittedAt: response.submittedAt?.toISOString() ?? null,
-      interactionId: response.interactionId,
-    })),
     coachingSessions,
     activities,
     ownCurrentActivity,

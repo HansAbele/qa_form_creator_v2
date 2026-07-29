@@ -1,10 +1,15 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { CreatableCombobox } from "@/components/forms/creatable-combobox";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { DateTimePicker } from "@/components/filters/date-time-picker";
+import {
+  EvaluationEvidencePicker,
+  type EvaluationEvidenceItem,
+} from "@/components/performance/evaluation-evidence-picker";
 import {
   addOperationalCalendarDays,
   formatOperationalDate,
@@ -31,6 +36,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  availablePipReviewFrequencies,
+  pipPlanDurationDays,
+  type PipTemplateKey,
+} from "@/lib/performance-management";
 import {
   addPipReview,
   approvePipPlan,
@@ -64,6 +74,13 @@ function optionLabel(value: string) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function templateForCampaign(campaignName: string): PipTemplateKey {
+  const normalizedName = campaignName.toLocaleLowerCase();
+  if (normalizedName.includes("hapusa")) return "HAPUSA";
+  if (normalizedName.includes("parker davis")) return "PARKER_DAVIS";
+  return "CUSTOM";
+}
+
 export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSaved: () => void }) {
   const { t } = useI18n();
   const campaigns = data.campaigns.filter((campaign) => campaign.canManageCoaching);
@@ -71,7 +88,8 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
   const [pending, startTransition] = useTransition();
   const [campaignId, setCampaignId] = useState(campaigns[0]?.id ?? "");
   const [agentId, setAgentId] = useState("");
-  const [responseId, setResponseId] = useState("");
+  const [selectedEvidence, setSelectedEvidence] = useState<EvaluationEvidenceItem[]>([]);
+  const [focusArea, setFocusArea] = useState("");
   const [source, setSource] = useState("MANUAL");
   const [scheduledAt, setScheduledAt] = useState("");
   const [acknowledgementDueAt, setAcknowledgementDueAt] = useState("");
@@ -81,14 +99,8 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
     () => data.agents.filter((agent) => agent.campaignId === campaignId),
     [campaignId, data.agents],
   );
-  const filteredEvaluations = useMemo(
-    () =>
-      data.recentEvaluations.filter(
-        (evaluation) =>
-          evaluation.campaignId === campaignId && (!agentId || evaluation.agentId === agentId),
-      ),
-    [agentId, campaignId, data.recentEvaluations],
-  );
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
+  const responseId = selectedEvidence[0]?.id ?? "";
 
   function submit(formData: FormData) {
     startTransition(async () => {
@@ -99,7 +111,7 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           responseId: responseId || null,
           pipPlanId: null,
           title: String(formData.get("title") ?? ""),
-          focusArea: String(formData.get("focusArea") ?? ""),
+          focusArea,
           behavior: String(formData.get("behavior") ?? "") || null,
           objective: String(formData.get("objective") ?? ""),
           evidenceSummary: String(formData.get("evidenceSummary") ?? "") || null,
@@ -145,7 +157,8 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
                 onValueChange={(value) => {
                   setCampaignId(value ?? "");
                   setAgentId("");
-                  setResponseId("");
+                  setSelectedEvidence([]);
+                  setFocusArea("");
                 }}
               >
                 <SelectTrigger className="w-full">
@@ -171,7 +184,7 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
                 value={agentId}
                 onValueChange={(value) => {
                   setAgentId(value ?? "");
-                  setResponseId("");
+                  setSelectedEvidence([]);
                 }}
               >
                 <SelectTrigger className="w-full">
@@ -195,30 +208,17 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
 
           <div className="space-y-1.5">
             <Label>{t("Evaluation evidence")}</Label>
-            <Select
-              value={responseId || "none"}
-              onValueChange={(value) => setResponseId(!value || value === "none" ? "" : value)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(value: string | null) =>
-                    value === "none"
-                      ? t("No linked evaluation")
-                      : (filteredEvaluations.find((evaluation) => evaluation.id === value)
-                          ?.agentName ?? t("No linked evaluation"))
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{t("No linked evaluation")}</SelectItem>
-                {filteredEvaluations.map((evaluation) => (
-                  <SelectItem key={evaluation.id} value={evaluation.id}>
-                    {evaluation.formTitle} · {evaluation.score.toFixed(1)}%
-                    {evaluation.hasFatalFail ? " · CF" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EvaluationEvidencePicker
+              campaignId={campaignId}
+              agentId={agentId}
+              scope="coaching"
+              selectionMode="single"
+              selected={selectedEvidence}
+              onSelectionChange={(items) => {
+                setSelectedEvidence(items);
+                if (items.length > 0) setSource("EVALUATION");
+              }}
+            />
           </div>
 
           {!responseId ? (
@@ -244,7 +244,15 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="coaching-focus">{t("Focus area")}</Label>
-              <Input id="coaching-focus" name="focusArea" required maxLength={120} />
+              <CreatableCombobox
+                id="coaching-focus"
+                value={focusArea}
+                options={selectedCampaign?.focusAreas ?? []}
+                onChange={setFocusArea}
+                placeholder={t("Choose a scorecard category or type a custom focus area.")}
+                searchPlaceholder={t("Search or add focus area")}
+                customLabel={(value) => t("Use custom focus area: {value}", { value })}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="coaching-behavior">{t("Behavior")}</Label>
@@ -322,7 +330,7 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           </div>
 
           <DialogFooter>
-            <Button type="submit" disabled={pending || !campaignId || !agentId}>
+            <Button type="submit" disabled={pending || !campaignId || !agentId || !focusArea}>
               {pending ? t("Saving…") : t("Create coaching session")}
             </Button>
           </DialogFooter>
@@ -459,7 +467,9 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
   const [pending, startTransition] = useTransition();
   const [campaignId, setCampaignId] = useState(campaigns[0]?.id ?? "");
   const [agentId, setAgentId] = useState("");
-  const [templateKey, setTemplateKey] = useState("PARKER_DAVIS");
+  const [templateKey, setTemplateKey] = useState<PipTemplateKey>(() =>
+    templateForCampaign(campaigns[0]?.name ?? ""),
+  );
   const [goalSlots, setGoalSlots] = useState([0]);
   const [criticalGoals, setCriticalGoals] = useState<Set<number>>(() => new Set());
   const today = formatOperationalDate(new Date(), operationalTimeZone);
@@ -468,18 +478,52 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
   const [targetEndDate, setTargetEndDate] = useState(end);
   const [midpointDate, setMidpointDate] = useState("");
   const [finalReviewDate, setFinalReviewDate] = useState("");
-  const [evidenceResponseIds, setEvidenceResponseIds] = useState<Set<string>>(() => new Set());
+  const [selectedEvidence, setSelectedEvidence] = useState<EvaluationEvidenceItem[]>([]);
+  const [reviewFrequency, setReviewFrequency] = useState("Weekly");
   const [coachingSessionIds, setCoachingSessionIds] = useState<Set<string>>(() => new Set());
   const filteredAgents = data.agents.filter((agent) => agent.campaignId === campaignId);
-  const filteredEvaluations = data.recentEvaluations.filter(
-    (evaluation) => evaluation.campaignId === campaignId && evaluation.agentId === agentId,
-  );
   const filteredCoachings = data.coachingSessions.filter(
     (coaching) =>
       coaching.campaignId === campaignId &&
       coaching.agent.id === agentId &&
       coaching.pipPlanId === null,
   );
+  const reviewFrequencyOptions = useMemo(
+    () => availablePipReviewFrequencies(startDate, targetEndDate),
+    [startDate, targetEndDate],
+  );
+  const planDurationDays = pipPlanDurationDays(startDate, targetEndDate);
+
+  useEffect(() => {
+    if (!reviewFrequencyOptions.some((frequency) => frequency === reviewFrequency)) {
+      setReviewFrequency(reviewFrequencyOptions.at(-1) ?? "Daily");
+    }
+  }, [reviewFrequency, reviewFrequencyOptions]);
+
+  const changeCampaign = (nextCampaignId: string) => {
+    setCampaignId(nextCampaignId);
+    setAgentId("");
+    setSelectedEvidence([]);
+    setCoachingSessionIds(new Set());
+    const nextCampaign = campaigns.find((campaign) => campaign.id === nextCampaignId);
+    setTemplateKey(templateForCampaign(nextCampaign?.name ?? ""));
+  };
+
+  const changeTemplate = (nextTemplateKey: PipTemplateKey) => {
+    setTemplateKey(nextTemplateKey);
+    setSelectedEvidence([]);
+    const expectedCampaign =
+      nextTemplateKey === "HAPUSA"
+        ? campaigns.find((campaign) => campaign.name.toLocaleLowerCase().includes("hapusa"))
+        : nextTemplateKey === "PARKER_DAVIS"
+          ? campaigns.find((campaign) => campaign.name.toLocaleLowerCase().includes("parker davis"))
+          : null;
+    if (expectedCampaign && expectedCampaign.id !== campaignId) {
+      setCampaignId(expectedCampaign.id);
+      setAgentId("");
+      setCoachingSessionIds(new Set());
+    }
+  };
 
   function submit(formData: FormData) {
     startTransition(async () => {
@@ -494,12 +538,12 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
           baselineSummary: String(formData.get("baselineSummary") ?? "") || null,
           supportSummary: String(formData.get("supportSummary") ?? "") || null,
           consequences: String(formData.get("consequences") ?? "") || null,
-          reviewFrequency: String(formData.get("reviewFrequency") ?? "") || null,
+          reviewFrequency,
           startDate: calendarIso(startDate),
           targetEndDate: calendarIso(targetEndDate),
           midpointDate: midpointDate ? calendarIso(midpointDate) : null,
           finalReviewDate: finalReviewDate ? calendarIso(finalReviewDate) : null,
-          evidenceResponseIds: [...evidenceResponseIds],
+          evidenceResponseIds: selectedEvidence.map((item) => item.id),
           coachingSessionIds: [...coachingSessionIds],
           goals: goalSlots.map((slot) => ({
             area: String(formData.get(`goalArea-${slot}`) ?? ""),
@@ -534,15 +578,7 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>{t("Campaign")}</Label>
-              <Select
-                value={campaignId}
-                onValueChange={(value) => {
-                  setCampaignId(value ?? "");
-                  setAgentId("");
-                  setEvidenceResponseIds(new Set());
-                  setCoachingSessionIds(new Set());
-                }}
-              >
+              <Select value={campaignId} onValueChange={(value) => changeCampaign(value ?? "")}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t("Select campaign")}>
                     {(value: string | null) =>
@@ -566,7 +602,7 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
                 value={agentId}
                 onValueChange={(value) => {
                   setAgentId(value ?? "");
-                  setEvidenceResponseIds(new Set());
+                  setSelectedEvidence([]);
                   setCoachingSessionIds(new Set());
                 }}
               >
@@ -590,7 +626,9 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
               <Label>{t("Template")}</Label>
               <Select
                 value={templateKey}
-                onValueChange={(value) => setTemplateKey(value ?? "CUSTOM")}
+                onValueChange={(value) =>
+                  changeTemplate((value as PipTemplateKey | null) ?? "CUSTOM")
+                }
               >
                 <SelectTrigger className="w-full">
                   <SelectValue>
@@ -622,46 +660,20 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
                 {t("Select an agent to load their evidence.")}
               </p>
             ) : (
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {t("Evaluations and calls")}
                   </p>
-                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border bg-background p-3">
-                    {filteredEvaluations.map((evaluation) => (
-                      <div key={evaluation.id} className="flex items-start gap-2 text-sm">
-                        <Checkbox
-                          id={`pip-evidence-response-${evaluation.id}`}
-                          checked={evidenceResponseIds.has(evaluation.id)}
-                          onCheckedChange={(checked) =>
-                            setEvidenceResponseIds((current) => {
-                              const next = new Set(current);
-                              if (checked) next.add(evaluation.id);
-                              else next.delete(evaluation.id);
-                              return next;
-                            })
-                          }
-                        />
-                        <label
-                          htmlFor={`pip-evidence-response-${evaluation.id}`}
-                          className="min-w-0"
-                        >
-                          <span className="block truncate font-medium">
-                            {evaluation.formTitle} · {evaluation.score.toFixed(2)}%
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            {evaluation.interactionId ? t("Linked call") : t("No linked call")}
-                            {evaluation.hasFatalFail ? ` · ${t("Critical failure")}` : ""}
-                          </span>
-                        </label>
-                      </div>
-                    ))}
-                    {filteredEvaluations.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        {t("No submitted evaluations available.")}
-                      </p>
-                    ) : null}
-                  </div>
+                  <EvaluationEvidencePicker
+                    campaignId={campaignId}
+                    agentId={agentId}
+                    scope="pip"
+                    templateKey={templateKey}
+                    selectionMode="multiple"
+                    selected={selectedEvidence}
+                    onSelectionChange={setSelectedEvidence}
+                  />
                 </div>
                 <div className="space-y-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -769,7 +781,26 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="pip-frequency">{t("Review frequency")}</Label>
-              <Input id="pip-frequency" name="reviewFrequency" placeholder="Weekly" />
+              <Select
+                value={reviewFrequency}
+                onValueChange={(value) => setReviewFrequency(value ?? "Daily")}
+              >
+                <SelectTrigger id="pip-frequency" className="w-full">
+                  <SelectValue>{reviewFrequency}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {reviewFrequencyOptions.map((frequency) => (
+                    <SelectItem key={frequency} value={frequency}>
+                      {frequency}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t("Available review cadence for a {days}-day plan.", {
+                  days: planDurationDays,
+                })}
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pip-consequences">{t("Consequences")}</Label>
@@ -908,7 +939,7 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
                 pending ||
                 !campaignId ||
                 !agentId ||
-                evidenceResponseIds.size + coachingSessionIds.size === 0
+                selectedEvidence.length + coachingSessionIds.size === 0
               }
             >
               {pending ? t("Saving…") : t("Create PIP draft")}

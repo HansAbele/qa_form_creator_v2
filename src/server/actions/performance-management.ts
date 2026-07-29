@@ -7,11 +7,13 @@ import { auth } from "@/lib/auth";
 import { isAgentRole } from "@/lib/campaign-permissions";
 import {
   ACKNOWLEDGEMENT_METHODS,
+  availablePipReviewFrequencies,
   COACHING_SOURCES,
   canTransitionCoaching,
   canTransitionPip,
   defaultPipTemplateVersion,
   elapsedSeconds,
+  PIP_REVIEW_FREQUENCIES,
   PIP_TEMPLATE_KEYS,
   QA_ACTIVITY_TYPES,
 } from "@/lib/performance-management";
@@ -123,7 +125,7 @@ const createPipSchema = z
     baselineSummary: optionalText,
     supportSummary: optionalText,
     consequences: optionalText,
-    reviewFrequency: z.string().trim().max(120).nullish(),
+    reviewFrequency: z.enum(PIP_REVIEW_FREQUENCIES).nullish(),
     startDate: z.string().datetime(),
     targetEndDate: z.string().datetime(),
     midpointDate: optionalIsoDate,
@@ -140,6 +142,33 @@ const createPipSchema = z
         message: "The PIP end date must be after its start date",
       });
     }
+    const start = new Date(value.startDate);
+    const end = new Date(value.targetEndDate);
+    for (const [field, dateValue] of [
+      ["midpointDate", value.midpointDate],
+      ["finalReviewDate", value.finalReviewDate],
+    ] as const) {
+      if (dateValue && (new Date(dateValue) < start || new Date(dateValue) > end)) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: "Review dates must fall within the PIP period",
+        });
+      }
+    }
+    if (
+      value.reviewFrequency &&
+      !availablePipReviewFrequencies(
+        value.startDate.slice(0, 10),
+        value.targetEndDate.slice(0, 10),
+      ).includes(value.reviewFrequency)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reviewFrequency"],
+        message: "The selected review frequency does not fit the PIP period",
+      });
+    }
     if (value.evidenceResponseIds.length === 0 && value.coachingSessionIds.length === 0) {
       context.addIssue({
         code: "custom",
@@ -148,6 +177,28 @@ const createPipSchema = z
       });
     }
   });
+
+function pipTemplateFormFilter(
+  templateKey: (typeof PIP_TEMPLATE_KEYS)[number],
+): Prisma.FormWhereInput {
+  if (templateKey === "HAPUSA") {
+    return {
+      OR: [
+        { title: { contains: "HAPUSA", mode: "insensitive" } },
+        { templateKey: { contains: "HAPUSA", mode: "insensitive" } },
+      ],
+    };
+  }
+  if (templateKey === "PARKER_DAVIS") {
+    return {
+      OR: [
+        { title: { contains: "Parker Davis", mode: "insensitive" } },
+        { templateKey: { contains: "PARKER_DAVIS", mode: "insensitive" } },
+      ],
+    };
+  }
+  return {};
+}
 
 const pipIdSchema = z.object({ pipPlanId: z.string().trim().min(1).max(100) });
 const closePipSchema = pipIdSchema.extend({
@@ -809,7 +860,10 @@ export async function createPipPlan(data: unknown) {
             id: { in: [...new Set(input.evidenceResponseIds)] },
             agentId: input.agentId,
             status: "SUBMITTED",
-            form: { campaignId: input.campaignId },
+            form: {
+              campaignId: input.campaignId,
+              ...pipTemplateFormFilter(input.templateKey),
+            },
           },
           select: {
             id: true,

@@ -39,6 +39,46 @@ export type AcknowledgementMethodValue = (typeof ACKNOWLEDGEMENT_METHODS)[number
 export const PIP_TEMPLATE_KEYS = ["PARKER_DAVIS", "HAPUSA", "CUSTOM"] as const;
 export type PipTemplateKey = (typeof PIP_TEMPLATE_KEYS)[number];
 
+export const PIP_REVIEW_FREQUENCIES = [
+  "Daily",
+  "Every other day",
+  "Twice weekly",
+  "Weekly",
+  "Every two weeks",
+  "Monthly",
+] as const;
+
+function calendarDayNumber(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const day = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(day) ? null : day;
+}
+
+export function pipPlanDurationDays(startDate: string, targetEndDate: string): number {
+  const start = calendarDayNumber(startDate);
+  const end = calendarDayNumber(targetEndDate);
+  if (start === null || end === null) return 0;
+  return Math.max(0, Math.floor((end - start) / 86_400_000) + 1);
+}
+
+export function availablePipReviewFrequencies(
+  startDate: string,
+  targetEndDate: string,
+): readonly (typeof PIP_REVIEW_FREQUENCIES)[number][] {
+  const days = pipPlanDurationDays(startDate, targetEndDate);
+  if (days <= 1) return ["Daily"];
+
+  return PIP_REVIEW_FREQUENCIES.filter((frequency) => {
+    if (frequency === "Every other day") return days >= 3;
+    if (frequency === "Twice weekly") return days >= 4;
+    if (frequency === "Weekly") return days >= 7;
+    if (frequency === "Every two weeks") return days >= 14;
+    if (frequency === "Monthly") return days >= 28;
+    return true;
+  });
+}
+
 type CoachingStatusValue =
   | "DRAFT"
   | "SCHEDULED"

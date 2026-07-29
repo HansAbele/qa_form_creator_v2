@@ -256,6 +256,24 @@ export const PERFORMANCE_ES_MESSAGES: Record<string, string> = {
   "The same operational period applies to coaching, PIP, activity, and workload results.":
     "El mismo período operativo se aplica a los resultados de coaching, PIP, actividad y carga de trabajo.",
   "Evaluation evidence": "Evidencia de la evaluación",
+  "Unable to search evaluation evidence": "No se pudo buscar la evidencia de evaluaciones",
+  "Select an agent to search their evaluations and calls.":
+    "Selecciona un agente para buscar sus evaluaciones y llamadas.",
+  "Search scorecard or call": "Buscar scorecard o llamada",
+  "Scorecard name, call ID, or phone number": "Nombre del scorecard, ID de llamada o teléfono",
+  "Call or evaluation date": "Fecha de llamada o evaluación",
+  "Only HAPUSA scorecards are shown.": "Solo se muestran scorecards de HAPUSA.",
+  "Only Parker Davis scorecards are shown.": "Solo se muestran scorecards de Parker Davis.",
+  "Remove selected evidence": "Quitar evidencia seleccionada",
+  "Searching evaluations…": "Buscando evaluaciones…",
+  "No evaluations match the selected filters.":
+    "Ninguna evaluación coincide con los filtros seleccionados.",
+  "Date unavailable": "Fecha no disponible",
+  "Recording available": "Grabación disponible",
+  "No recording": "Sin grabación",
+  "Results are loaded from Qore in pages of 25.":
+    "Los resultados se cargan desde Qore en páginas de 25.",
+  "Load more": "Cargar más",
   "Evidence summary": "Resumen de evidencia",
   "Describe the metric, behavior, or evidence reviewed during coaching.":
     "Describe la métrica, conducta o evidencia revisada durante el coaching.",
@@ -280,6 +298,15 @@ export const PERFORMANCE_ES_MESSAGES: Record<string, string> = {
   "Not available": "No disponible",
   "Scorecard item": "Elemento del scorecard",
   Answer: "Respuesta",
+  Questions: "Preguntas",
+  points: "puntos",
+  "QA comment": "Comentario de QA",
+  "Choose a scorecard category or type a custom focus area.":
+    "Elige una categoría del scorecard o escribe un área de enfoque personalizada.",
+  "Search or add focus area": "Buscar o agregar área de enfoque",
+  "Use custom focus area: {value}": "Usar área personalizada: {value}",
+  "Available review cadence for a {days}-day plan.":
+    "Frecuencias disponibles para un plan de {days} días.",
   "No call is linked to this evaluation": "Esta evaluación no tiene una llamada vinculada",
   "A QA Manager should verify the source before conducting this session.":
     "Un QA Manager debe verificar la fuente antes de realizar esta sesión.",

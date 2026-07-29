@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  availablePipReviewFrequencies,
   canTransitionCoaching,
   canTransitionPip,
   defaultPipTemplateVersion,
   elapsedSeconds,
   formatTrackedDuration,
+  pipPlanDurationDays,
 } from "./performance-management";
 
 describe("performance management business rules", () => {
@@ -35,5 +37,18 @@ describe("performance management business rules", () => {
   it("should version campaign PIP templates explicitly", () => {
     expect(defaultPipTemplateVersion("PARKER_DAVIS")).toBe("PD-HR-FRM-PIP-001-v1");
     expect(defaultPipTemplateVersion("HAPUSA")).toBe("HAPUSA-INDUSTRY-v1");
+  });
+
+  it("should offer only review cadences that fit inside the PIP period", () => {
+    expect(pipPlanDurationDays("2026-07-29", "2026-07-29")).toBe(1);
+    expect(availablePipReviewFrequencies("2026-07-29", "2026-07-29")).toEqual(["Daily"]);
+    expect(availablePipReviewFrequencies("2026-07-29", "2026-08-28")).toEqual([
+      "Daily",
+      "Every other day",
+      "Twice weekly",
+      "Weekly",
+      "Every two weeks",
+      "Monthly",
+    ]);
   });
 });

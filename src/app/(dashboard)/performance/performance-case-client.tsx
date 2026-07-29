@@ -18,19 +18,12 @@ import { InteractionMediaPanel } from "@/components/call-finder/interaction-medi
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import type { CoachingCaseDetail, PipCaseDetail } from "@/server/queries/performance-case-detail";
 import { AcknowledgementDialog, PipAcknowledgementDialog } from "./performance-dialogs";
 
 type Evidence = CoachingCaseDetail["evidence"][number];
+type EvidenceAnswer = NonNullable<Evidence["response"]>["answers"][number];
 
 function titleCase(value: string) {
   return value
@@ -68,6 +61,19 @@ function EvidenceCard({ evidence, isAgent }: { evidence: Evidence; isAgent: bool
   const { t } = useI18n();
   const timeZone = useOperationalTimeZone();
   const response = evidence.response;
+  const answerGroups = response
+    ? Array.from(
+        response.answers
+          .reduce((groups, answer) => {
+            const category = answer.category?.name ?? t("Other");
+            const existing = groups.get(category) ?? [];
+            existing.push(answer);
+            groups.set(category, existing);
+            return groups;
+          }, new Map<string, EvidenceAnswer[]>())
+          .entries(),
+      )
+    : [];
 
   return (
     <Card className="overflow-hidden">
@@ -122,48 +128,65 @@ function EvidenceCard({ evidence, isAgent }: { evidence: Evidence; isAgent: bool
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("Scorecard item")}</TableHead>
-                    <TableHead>{t("Answer")}</TableHead>
-                    <TableHead className="text-right">{t("Score")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {response.answers.map((answer) => (
-                    <TableRow key={answer.id}>
-                      <TableCell className="min-w-64 align-top">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-medium">{answer.question.label}</span>
-                          {answer.question.fatal ? (
-                            <Badge variant={answer.isFatalFail ? "destructive" : "outline"}>
-                              CF
-                            </Badge>
-                          ) : null}
+            <div className="space-y-4">
+              {answerGroups.map(([category, answers]) => (
+                <section key={category} className="overflow-hidden rounded-xl border bg-background">
+                  <div className="flex items-center justify-between gap-3 border-b bg-muted/35 px-4 py-3">
+                    <h3 className="font-heading text-sm font-semibold">{category}</h3>
+                    <Badge variant="outline">
+                      {answers.length} {t("Questions")}
+                    </Badge>
+                  </div>
+                  <div className="divide-y">
+                    {answers.map((answer, index) => (
+                      <article key={answer.id} className="space-y-3 p-4 sm:p-5">
+                        <div className="flex items-start gap-3">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                            {index + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <p className="text-sm font-semibold leading-6 sm:text-base">
+                                {answer.question.label}
+                              </p>
+                              <div className="flex shrink-0 items-center gap-2">
+                                {answer.question.fatal ? (
+                                  <Badge variant={answer.isFatalFail ? "destructive" : "outline"}>
+                                    CF
+                                  </Badge>
+                                ) : null}
+                                <Badge variant="secondary" className="tabular-nums">
+                                  {answer.score === null
+                                    ? "—"
+                                    : `${Number(answer.score).toFixed(2)} ${t("points")}`}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="mt-3 rounded-lg border bg-muted/15 p-3">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {t("Answer")}
+                              </p>
+                              <p className="mt-1 break-words whitespace-pre-wrap text-base leading-7">
+                                {answer.notApplicable ? t("Not applicable") : answer.value}
+                              </p>
+                            </div>
+                            {answer.comment ? (
+                              <div className="mt-3 rounded-lg border-l-4 border-l-primary bg-primary/5 p-3">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  {t("QA comment")}
+                                </p>
+                                <p className="mt-1 break-words whitespace-pre-wrap text-base leading-7">
+                                  {answer.comment}
+                                </p>
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
-                        {answer.category?.name ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {answer.category.name}
-                          </p>
-                        ) : null}
-                        {answer.comment ? (
-                          <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
-                            {answer.comment}
-                          </p>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="align-top">
-                        {answer.notApplicable ? t("Not applicable") : answer.value}
-                      </TableCell>
-                      <TableCell className="text-right align-top tabular-nums">
-                        {answer.score === null ? "—" : Number(answer.score).toFixed(2)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))}
             </div>
           </>
         ) : null}

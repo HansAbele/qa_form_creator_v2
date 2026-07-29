@@ -258,6 +258,73 @@ describe("performance management actions", () => {
     );
   });
 
+  it("enforces the selected PIP template when persisting evaluation evidence", async () => {
+    prismaMock.userCampaign.findUnique.mockResolvedValue({
+      userId: "qa-1",
+      campaignId: "campaign-1",
+      canManagePips: true,
+    });
+    prismaMock.agent.findFirst.mockResolvedValue({ id: "agent-1" });
+    prismaMock.response.findMany.mockResolvedValue([
+      {
+        id: "response-hapusa-1",
+        interactionId: "interaction-1",
+        score: 88,
+        hasFatalFail: false,
+        form: { title: "HAPUSA Call Monitoring Score Card" },
+      },
+    ] as never);
+    prismaMock.pipPlan.create.mockResolvedValue({
+      id: "pip-1",
+      campaignId: "campaign-1",
+      status: "DRAFT",
+      templateVersion: "HAPUSA-INDUSTRY-v1",
+    });
+
+    await createPipPlan({
+      campaignId: "campaign-1",
+      agentId: "agent-1",
+      title: "HAPUSA quality improvement plan",
+      templateKey: "HAPUSA",
+      reason:
+        "Documented HAPUSA quality results remained below the expected score during the review period.",
+      objective: "Meet and sustain the HAPUSA scorecard expectations during the plan.",
+      reviewFrequency: "Weekly",
+      startDate: "2026-07-29T12:00:00.000Z",
+      targetEndDate: "2026-08-29T12:00:00.000Z",
+      evidenceResponseIds: ["response-hapusa-1"],
+      coachingSessionIds: [],
+      goals: [
+        {
+          area: "Problem solving",
+          baseline: "Three documented misses",
+          target: "Zero documented misses",
+          dataSource: "HAPUSA scorecard",
+          isCritical: true,
+        },
+      ],
+    });
+
+    expect(prismaMock.response.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          agentId: "agent-1",
+          form: expect.objectContaining({
+            campaignId: "campaign-1",
+            OR: expect.arrayContaining([
+              expect.objectContaining({
+                title: expect.objectContaining({
+                  contains: "HAPUSA",
+                  mode: "insensitive",
+                }),
+              }),
+            ]),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("requires a witness method when a PIP acknowledgement is refused", async () => {
     await expect(
       recordPipAcknowledgement({
