@@ -14,12 +14,15 @@ import {
   TimerReset,
   TrendingUp,
   UserCheck,
+  Eye,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -279,11 +282,13 @@ function CoachingCard({
   item,
   canTrack,
   hasCurrentActivity,
+  isAgent,
   onChanged,
 }: {
   item: CoachingItem;
   canTrack: boolean;
   hasCurrentActivity: boolean;
+  isAgent: boolean;
   onChanged: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -397,9 +402,19 @@ function CoachingCard({
               {t("Start coaching")}
             </Button>
           ) : null}
-          {item.status === "AWAITING_ACKNOWLEDGEMENT" ? (
+          {item.status === "AWAITING_ACKNOWLEDGEMENT" && !isAgent ? (
             <AcknowledgementDialog coachingSessionId={item.id} onSaved={onChanged} />
           ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/performance/coaching/${item.id}`} />}
+          >
+            <Eye data-icon="inline-start" />
+            {t("Open evidence")}
+          </Button>
         </div>
       </CardContent>
     </Card>
@@ -433,6 +448,7 @@ function CoachingPanel({ data, onChanged }: { data: WorkspaceData; onChanged: ()
           item={item}
           canTrack={trackCampaigns.has(item.campaignId)}
           hasCurrentActivity={Boolean(data.ownCurrentActivity)}
+          isAgent={data.currentUser.isAgent}
           onChanged={onChanged}
         />
       ))}
@@ -549,7 +565,7 @@ function ActivityPanel({ data, onChanged }: { data: WorkspaceData; onChanged: ()
       {data.access.canViewQaActivity ? (
         <Card>
           <CardHeader>
-            <CardTitle>{t("QA workload · last 30 days")}</CardTitle>
+            <CardTitle>{t("QA workload")}</CardTitle>
             <CardDescription>
               {t("Documented time by QA, including evaluation and coaching work.")}
             </CardDescription>
@@ -774,6 +790,21 @@ function PipCard({
             <PipLifecycleButtons pip={pip} isAdmin={data.currentUser.isAdmin} onSaved={onChanged} />
           </div>
         ) : null}
+        <div className="flex items-center justify-between gap-3 border-t pt-4">
+          <p className="text-xs text-muted-foreground">
+            {pip.evidence.length + pip.coachingSessions.length} {t("evidence sources")}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/performance/pips/${pip.id}`} />}
+          >
+            <Eye data-icon="inline-start" />
+            {t("Open evidence")}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -806,6 +837,15 @@ export function PerformanceClient({ data }: { data: WorkspaceData }) {
   const router = useRouter();
   const { t } = useI18n();
   const onChanged = () => router.refresh();
+  const applyDateRange = (from: string, to: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (from) params.set("from", from);
+    else params.delete("from");
+    if (to) params.set("to", to);
+    else params.delete("to");
+    const query = params.toString();
+    router.replace(query ? `/performance?${query}` : "/performance");
+  };
 
   return (
     <div className="space-y-6 pb-10">
@@ -818,12 +858,16 @@ export function PerformanceClient({ data }: { data: WorkspaceData }) {
               {t("Quality operations")}
             </div>
             <h1 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
-              {t("Performance Management")}
+              {data.currentUser.isAgent ? t("My Performance") : t("Performance Management")}
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-              {t(
-                "Document coaching, measure QA effort, and manage improvement plans from one auditable workspace.",
-              )}
+              {data.currentUser.isAgent
+                ? t(
+                    "Review your private coaching evidence, listen to linked calls, and follow your improvement plans.",
+                  )
+                : t(
+                    "Document coaching, measure QA effort, and manage improvement plans from one auditable workspace.",
+                  )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -834,6 +878,24 @@ export function PerformanceClient({ data }: { data: WorkspaceData }) {
           </div>
         </div>
       </section>
+
+      <Card size="sm">
+        <CardContent className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-sm font-medium">{t("Filter records by date")}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("The same operational period applies to coaching, QA activity, and PIP records.")}
+            </p>
+          </div>
+          <DateRangeFilter
+            id="performance-date-range"
+            from={data.filters.from}
+            to={data.filters.to}
+            onApply={applyDateRange}
+            triggerClassName="sm:w-72"
+          />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard
@@ -867,7 +929,9 @@ export function PerformanceClient({ data }: { data: WorkspaceData }) {
         />
       </div>
 
-      <CurrentActivityCard activity={data.ownCurrentActivity} onChanged={onChanged} />
+      {!data.currentUser.isAgent ? (
+        <CurrentActivityCard activity={data.ownCurrentActivity} onChanged={onChanged} />
+      ) : null}
 
       <Tabs
         defaultValue={

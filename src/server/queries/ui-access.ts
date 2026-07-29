@@ -1,8 +1,10 @@
 import { auth } from "@/lib/auth";
 import {
+  CAMPAIGN_ACCESS_PRESETS,
   CAMPAIGN_PERMISSION_KEYS,
   type CampaignPermissionKey,
   type CampaignPermissionState,
+  isAgentRole,
   isSupervisorRole,
   normalizeCampaignPermissionsForRole,
 } from "@/lib/campaign-permissions";
@@ -12,6 +14,7 @@ import { getCampaignFilterForPermissions } from "@/server/queries/campaign-filte
 export type UiAccess = CampaignPermissionState & {
   isAdmin: boolean;
   isSupervisor: boolean;
+  isAgent: boolean;
   canOpenSettings: boolean;
 };
 
@@ -28,13 +31,15 @@ const NO_CAMPAIGN_PERMISSIONS = CAMPAIGN_PERMISSION_KEYS.reduce((access, permiss
 function toUiAccess(
   isAdmin: boolean,
   isSupervisor: boolean,
+  isAgent: boolean,
   permissions: CampaignPermissionState,
 ): UiAccess {
   return {
     ...permissions,
     isAdmin,
     isSupervisor,
-    canOpenSettings: isAdmin || permissions.canViewAudit,
+    isAgent,
+    canOpenSettings: !isAgent && (isAdmin || permissions.canViewAudit),
   };
 }
 
@@ -44,15 +49,28 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
 
   const user = await prisma.user.findFirst({
     where: { id: session.user.id, active: true },
-    select: { id: true, role: true },
+    select: {
+      id: true,
+      role: true,
+      agentProfile: { select: { id: true, active: true } },
+    },
   });
 
   if (!user) {
-    return toUiAccess(false, false, NO_CAMPAIGN_PERMISSIONS);
+    return toUiAccess(false, false, false, NO_CAMPAIGN_PERMISSIONS);
   }
 
   if (user.role === "ADMIN") {
-    return toUiAccess(true, false, ALL_CAMPAIGN_PERMISSIONS);
+    return toUiAccess(true, false, false, ALL_CAMPAIGN_PERMISSIONS);
+  }
+
+  if (isAgentRole(user.role)) {
+    return toUiAccess(
+      false,
+      false,
+      true,
+      user.agentProfile?.active ? CAMPAIGN_ACCESS_PRESETS.AGENT : NO_CAMPAIGN_PERMISSIONS,
+    );
   }
 
   const campaignAccess = await prisma.userCampaign.findMany({
@@ -97,7 +115,7 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
   );
 
   const normalizedPermissions = normalizeCampaignPermissionsForRole(user.role, permissions);
-  return toUiAccess(false, isSupervisorRole(user.role), normalizedPermissions);
+  return toUiAccess(false, isSupervisorRole(user.role), false, normalizedPermissions);
 }
 
 export async function hasAnyCampaignPermission(permission: CampaignPermissionKey) {

@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { useI18n } from "@/components/providers/i18n-provider";
+import { DateTimePicker } from "@/components/filters/date-time-picker";
 import {
   addOperationalCalendarDays,
   formatOperationalDate,
@@ -72,6 +73,10 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
   const [agentId, setAgentId] = useState("");
   const [responseId, setResponseId] = useState("");
   const [source, setSource] = useState("MANUAL");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [acknowledgementDueAt, setAcknowledgementDueAt] = useState("");
+  const [followUpAt, setFollowUpAt] = useState("");
+  const [actionDueAt, setActionDueAt] = useState("");
   const filteredAgents = useMemo(
     () => data.agents.filter((agent) => agent.campaignId === campaignId),
     [campaignId, data.agents],
@@ -97,16 +102,17 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           focusArea: String(formData.get("focusArea") ?? ""),
           behavior: String(formData.get("behavior") ?? "") || null,
           objective: String(formData.get("objective") ?? ""),
+          evidenceSummary: String(formData.get("evidenceSummary") ?? "") || null,
           source,
-          scheduledAt: optionalIso(String(formData.get("scheduledAt") ?? "")),
-          acknowledgementDueAt: optionalIso(String(formData.get("acknowledgementDueAt") ?? "")),
-          followUpAt: optionalIso(String(formData.get("followUpAt") ?? "")),
+          scheduledAt: optionalIso(scheduledAt),
+          acknowledgementDueAt: optionalIso(acknowledgementDueAt),
+          followUpAt: optionalIso(followUpAt),
           actionItems: String(formData.get("actionItem") ?? "").trim()
             ? [
                 {
                   description: String(formData.get("actionItem")),
                   ownerType: "AGENT",
-                  dueAt: optionalIso(String(formData.get("actionDueAt") ?? "")),
+                  dueAt: optionalIso(actionDueAt),
                 },
               ]
             : [],
@@ -188,7 +194,7 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           </div>
 
           <div className="space-y-1.5">
-            <Label>{t("Optional evaluation")}</Label>
+            <Label>{t("Evaluation evidence")}</Label>
             <Select
               value={responseId || "none"}
               onValueChange={(value) => setResponseId(!value || value === "none" ? "" : value)}
@@ -214,6 +220,22 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
               </SelectContent>
             </Select>
           </div>
+
+          {!responseId ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="coaching-evidence-summary">{t("Evidence summary")}</Label>
+              <Textarea
+                id="coaching-evidence-summary"
+                name="evidenceSummary"
+                required
+                rows={3}
+                maxLength={5000}
+                placeholder={t(
+                  "Describe the metric, trend, policy, or documented behavior reviewed with the agent.",
+                )}
+              />
+            </div>
+          ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -256,15 +278,30 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="coaching-scheduled">{t("Schedule date")}</Label>
-              <Input id="coaching-scheduled" name="scheduledAt" type="datetime-local" />
+              <DateTimePicker
+                id="coaching-scheduled"
+                value={scheduledAt}
+                onChange={setScheduledAt}
+                placeholder={t("Select date and time")}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="coaching-ack-due">{t("Acknowledgement due")}</Label>
-              <Input id="coaching-ack-due" name="acknowledgementDueAt" type="datetime-local" />
+              <DateTimePicker
+                id="coaching-ack-due"
+                value={acknowledgementDueAt}
+                onChange={setAcknowledgementDueAt}
+                placeholder={t("Select date and time")}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="coaching-follow-up">{t("Follow-up date")}</Label>
-              <Input id="coaching-follow-up" name="followUpAt" type="datetime-local" />
+              <DateTimePicker
+                id="coaching-follow-up"
+                value={followUpAt}
+                onChange={setFollowUpAt}
+                placeholder={t("Select date and time")}
+              />
             </div>
           </div>
 
@@ -275,7 +312,12 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="coaching-action-due">{t("Action due date")}</Label>
-              <Input id="coaching-action-due" name="actionDueAt" type="datetime-local" />
+              <DateTimePicker
+                id="coaching-action-due"
+                value={actionDueAt}
+                onChange={setActionDueAt}
+                placeholder={t("Select date and time")}
+              />
             </div>
           </div>
 
@@ -293,9 +335,11 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
 export function AcknowledgementDialog({
   coachingSessionId,
   onSaved,
+  agentSelfService = false,
 }: {
   coachingSessionId: string;
   onSaved: () => void;
+  agentSelfService?: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -309,7 +353,12 @@ export function AcknowledgementDialog({
         await recordCoachingAcknowledgement({
           coachingSessionId,
           status,
-          method: status === "REFUSED" ? "WITNESSED" : method,
+          method:
+            agentSelfService && status === "ACKNOWLEDGED"
+              ? "COMPANY_SYSTEM"
+              : status === "REFUSED"
+                ? "WITNESSED"
+                : method,
           comment: String(formData.get("comment") ?? "") || null,
         });
         toast.success(t("Acknowledgement recorded"));
@@ -329,7 +378,11 @@ export function AcknowledgementDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("Record acknowledgement")}</DialogTitle>
-          <DialogDescription>{t("Acknowledgement status")}</DialogDescription>
+          <DialogDescription>
+            {agentSelfService
+              ? t("Confirm that you reviewed the coaching evidence and action plan.")
+              : t("Acknowledgement status")}
+          </DialogDescription>
         </DialogHeader>
         <form action={submit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -354,27 +407,29 @@ export function AcknowledgementDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>{t("Method")}</Label>
-              <Select
-                value={status === "REFUSED" ? "WITNESSED" : method}
-                disabled={status === "REFUSED"}
-                onValueChange={(value) => setMethod(value ?? "IN_PERSON")}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value: string | null) => (value ? t(optionLabel(value)) : t("In person"))}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="IN_PERSON">{t("In person")}</SelectItem>
-                  <SelectItem value="SECURE_LINK">{t("Secure link")}</SelectItem>
-                  <SelectItem value="EMAIL">{t("Email")}</SelectItem>
-                  <SelectItem value="COMPANY_SYSTEM">{t("Company system")}</SelectItem>
-                  <SelectItem value="WITNESSED">{t("Witnessed")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {!agentSelfService ? (
+              <div className="space-y-1.5">
+                <Label>{t("Method")}</Label>
+                <Select
+                  value={status === "REFUSED" ? "WITNESSED" : method}
+                  disabled={status === "REFUSED"}
+                  onValueChange={(value) => setMethod(value ?? "IN_PERSON")}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(value: string | null) => (value ? t(optionLabel(value)) : t("In person"))}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="IN_PERSON">{t("In person")}</SelectItem>
+                    <SelectItem value="SECURE_LINK">{t("Secure link")}</SelectItem>
+                    <SelectItem value="EMAIL">{t("Email")}</SelectItem>
+                    <SelectItem value="COMPANY_SYSTEM">{t("Company system")}</SelectItem>
+                    <SelectItem value="WITNESSED">{t("Witnessed")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`ack-comment-${coachingSessionId}`}>{t("Comment")}</Label>
@@ -409,7 +464,22 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
   const [criticalGoals, setCriticalGoals] = useState<Set<number>>(() => new Set());
   const today = formatOperationalDate(new Date(), operationalTimeZone);
   const end = addOperationalCalendarDays(today, 30);
+  const [startDate, setStartDate] = useState(today);
+  const [targetEndDate, setTargetEndDate] = useState(end);
+  const [midpointDate, setMidpointDate] = useState("");
+  const [finalReviewDate, setFinalReviewDate] = useState("");
+  const [evidenceResponseIds, setEvidenceResponseIds] = useState<Set<string>>(() => new Set());
+  const [coachingSessionIds, setCoachingSessionIds] = useState<Set<string>>(() => new Set());
   const filteredAgents = data.agents.filter((agent) => agent.campaignId === campaignId);
+  const filteredEvaluations = data.recentEvaluations.filter(
+    (evaluation) => evaluation.campaignId === campaignId && evaluation.agentId === agentId,
+  );
+  const filteredCoachings = data.coachingSessions.filter(
+    (coaching) =>
+      coaching.campaignId === campaignId &&
+      coaching.agent.id === agentId &&
+      coaching.pipPlanId === null,
+  );
 
   function submit(formData: FormData) {
     startTransition(async () => {
@@ -425,14 +495,12 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
           supportSummary: String(formData.get("supportSummary") ?? "") || null,
           consequences: String(formData.get("consequences") ?? "") || null,
           reviewFrequency: String(formData.get("reviewFrequency") ?? "") || null,
-          startDate: calendarIso(String(formData.get("startDate") ?? "")),
-          targetEndDate: calendarIso(String(formData.get("targetEndDate") ?? "")),
-          midpointDate: formData.get("midpointDate")
-            ? calendarIso(String(formData.get("midpointDate")))
-            : null,
-          finalReviewDate: formData.get("finalReviewDate")
-            ? calendarIso(String(formData.get("finalReviewDate")))
-            : null,
+          startDate: calendarIso(startDate),
+          targetEndDate: calendarIso(targetEndDate),
+          midpointDate: midpointDate ? calendarIso(midpointDate) : null,
+          finalReviewDate: finalReviewDate ? calendarIso(finalReviewDate) : null,
+          evidenceResponseIds: [...evidenceResponseIds],
+          coachingSessionIds: [...coachingSessionIds],
           goals: goalSlots.map((slot) => ({
             area: String(formData.get(`goalArea-${slot}`) ?? ""),
             baseline: String(formData.get(`goalBaseline-${slot}`) ?? ""),
@@ -471,6 +539,8 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
                 onValueChange={(value) => {
                   setCampaignId(value ?? "");
                   setAgentId("");
+                  setEvidenceResponseIds(new Set());
+                  setCoachingSessionIds(new Set());
                 }}
               >
                 <SelectTrigger className="w-full">
@@ -492,7 +562,14 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
             </div>
             <div className="space-y-1.5">
               <Label>{t("Agent")}</Label>
-              <Select value={agentId} onValueChange={(value) => setAgentId(value ?? "")}>
+              <Select
+                value={agentId}
+                onValueChange={(value) => {
+                  setAgentId(value ?? "");
+                  setEvidenceResponseIds(new Set());
+                  setCoachingSessionIds(new Set());
+                }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t("Select agent")}>
                     {(value: string | null) =>
@@ -533,6 +610,97 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
             </div>
           </div>
 
+          <section className="space-y-3 rounded-xl border bg-muted/20 p-4">
+            <div>
+              <h3 className="font-medium">{t("Required supporting evidence")}</h3>
+              <p className="text-sm text-muted-foreground">
+                {t("Select evaluations, calls, or prior coaching records reviewed for this PIP.")}
+              </p>
+            </div>
+            {!agentId ? (
+              <p className="text-sm text-muted-foreground">
+                {t("Select an agent to load their evidence.")}
+              </p>
+            ) : (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t("Evaluations and calls")}
+                  </p>
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border bg-background p-3">
+                    {filteredEvaluations.map((evaluation) => (
+                      <div key={evaluation.id} className="flex items-start gap-2 text-sm">
+                        <Checkbox
+                          id={`pip-evidence-response-${evaluation.id}`}
+                          checked={evidenceResponseIds.has(evaluation.id)}
+                          onCheckedChange={(checked) =>
+                            setEvidenceResponseIds((current) => {
+                              const next = new Set(current);
+                              if (checked) next.add(evaluation.id);
+                              else next.delete(evaluation.id);
+                              return next;
+                            })
+                          }
+                        />
+                        <label
+                          htmlFor={`pip-evidence-response-${evaluation.id}`}
+                          className="min-w-0"
+                        >
+                          <span className="block truncate font-medium">
+                            {evaluation.formTitle} · {evaluation.score.toFixed(2)}%
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {evaluation.interactionId ? t("Linked call") : t("No linked call")}
+                            {evaluation.hasFatalFail ? ` · ${t("Critical failure")}` : ""}
+                          </span>
+                        </label>
+                      </div>
+                    ))}
+                    {filteredEvaluations.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {t("No submitted evaluations available.")}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t("Prior coaching")}
+                  </p>
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border bg-background p-3">
+                    {filteredCoachings.map((coaching) => (
+                      <div key={coaching.id} className="flex items-start gap-2 text-sm">
+                        <Checkbox
+                          id={`pip-evidence-coaching-${coaching.id}`}
+                          checked={coachingSessionIds.has(coaching.id)}
+                          onCheckedChange={(checked) =>
+                            setCoachingSessionIds((current) => {
+                              const next = new Set(current);
+                              if (checked) next.add(coaching.id);
+                              else next.delete(coaching.id);
+                              return next;
+                            })
+                          }
+                        />
+                        <label htmlFor={`pip-evidence-coaching-${coaching.id}`} className="min-w-0">
+                          <span className="block truncate font-medium">{coaching.title}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {coaching.focusArea} · {coaching.evidence.length} {t("evidence items")}
+                          </span>
+                        </label>
+                      </div>
+                    ))}
+                    {filteredCoachings.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {t("No coaching records available.")}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
           <div className="space-y-1.5">
             <Label htmlFor="pip-title">{t("Title")}</Label>
             <Input id="pip-title" name="title" required maxLength={160} />
@@ -560,19 +728,41 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1.5">
               <Label htmlFor="pip-start">{t("Start date")}</Label>
-              <Input id="pip-start" name="startDate" type="date" defaultValue={today} required />
+              <DateTimePicker
+                id="pip-start"
+                mode="date"
+                value={startDate}
+                onChange={setStartDate}
+                required
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pip-end">{t("Target end date")}</Label>
-              <Input id="pip-end" name="targetEndDate" type="date" defaultValue={end} required />
+              <DateTimePicker
+                id="pip-end"
+                mode="date"
+                value={targetEndDate}
+                onChange={setTargetEndDate}
+                required
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pip-midpoint">{t("Midpoint date")}</Label>
-              <Input id="pip-midpoint" name="midpointDate" type="date" />
+              <DateTimePicker
+                id="pip-midpoint"
+                mode="date"
+                value={midpointDate}
+                onChange={setMidpointDate}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pip-final-review">{t("Final review date")}</Label>
-              <Input id="pip-final-review" name="finalReviewDate" type="date" />
+              <DateTimePicker
+                id="pip-final-review"
+                mode="date"
+                value={finalReviewDate}
+                onChange={setFinalReviewDate}
+              />
             </div>
           </div>
 
@@ -712,7 +902,15 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
           </section>
 
           <DialogFooter>
-            <Button type="submit" disabled={pending || !campaignId || !agentId}>
+            <Button
+              type="submit"
+              disabled={
+                pending ||
+                !campaignId ||
+                !agentId ||
+                evidenceResponseIds.size + coachingSessionIds.size === 0
+              }
+            >
               {pending ? t("Saving…") : t("Create PIP draft")}
             </Button>
           </DialogFooter>
@@ -789,12 +987,14 @@ export function PipLifecycleButtons({
   );
 }
 
-function PipAcknowledgementDialog({
+export function PipAcknowledgementDialog({
   pipPlanId,
   onSaved,
+  agentSelfService = false,
 }: {
   pipPlanId: string;
   onSaved: () => void;
+  agentSelfService?: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -808,7 +1008,12 @@ function PipAcknowledgementDialog({
         await recordPipAcknowledgement({
           pipPlanId,
           status,
-          method: status === "REFUSED" ? "WITNESSED" : method,
+          method:
+            agentSelfService && status === "ACKNOWLEDGED"
+              ? "COMPANY_SYSTEM"
+              : status === "REFUSED"
+                ? "WITNESSED"
+                : method,
           comment: String(formData.get("comment") ?? "") || null,
         });
         toast.success(t("PIP acknowledgement recorded"));
@@ -829,9 +1034,11 @@ function PipAcknowledgementDialog({
         <DialogHeader>
           <DialogTitle>{t("PIP acknowledgement")}</DialogTitle>
           <DialogDescription>
-            {t(
-              "Record receipt or a witnessed refusal. Receipt does not necessarily mean agreement.",
-            )}
+            {agentSelfService
+              ? t("Confirm that you reviewed the complete plan and its supporting evidence.")
+              : t(
+                  "Record receipt or a witnessed refusal. Receipt does not necessarily mean agreement.",
+                )}
           </DialogDescription>
         </DialogHeader>
         <form action={submit} className="space-y-4">
@@ -857,27 +1064,29 @@ function PipAcknowledgementDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>{t("Method")}</Label>
-              <Select
-                value={method}
-                disabled={status === "REFUSED"}
-                onValueChange={(value) => setMethod(value ?? "IN_PERSON")}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value: string | null) => (value ? t(optionLabel(value)) : t("In person"))}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="IN_PERSON">{t("In person")}</SelectItem>
-                  <SelectItem value="SECURE_LINK">{t("Secure link")}</SelectItem>
-                  <SelectItem value="EMAIL">{t("Email")}</SelectItem>
-                  <SelectItem value="COMPANY_SYSTEM">{t("Company system")}</SelectItem>
-                  <SelectItem value="WITNESSED">{t("Witnessed")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {!agentSelfService ? (
+              <div className="space-y-1.5">
+                <Label>{t("Method")}</Label>
+                <Select
+                  value={method}
+                  disabled={status === "REFUSED"}
+                  onValueChange={(value) => setMethod(value ?? "IN_PERSON")}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(value: string | null) => (value ? t(optionLabel(value)) : t("In person"))}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="IN_PERSON">{t("In person")}</SelectItem>
+                    <SelectItem value="SECURE_LINK">{t("Secure link")}</SelectItem>
+                    <SelectItem value="EMAIL">{t("Email")}</SelectItem>
+                    <SelectItem value="COMPANY_SYSTEM">{t("Company system")}</SelectItem>
+                    <SelectItem value="WITNESSED">{t("Witnessed")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`pip-ack-comment-${pipPlanId}`}>{t("Comment")}</Label>

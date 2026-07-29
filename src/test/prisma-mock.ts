@@ -104,6 +104,7 @@ export const prismaMock = {
     findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   coachingActionItem: {
     findUnique: vi.fn(),
@@ -153,6 +154,13 @@ export const prismaMock = {
     findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+  },
+  performanceEvidence: {
+    findUnique: vi.fn(),
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+    createMany: vi.fn(),
   },
   campaignCallSource: {
     findUnique: vi.fn(),

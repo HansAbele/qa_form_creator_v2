@@ -49,6 +49,13 @@ describe("campaign access presets", () => {
     expect(getDefaultCampaignAccessForUserRole("SUPERVISOR").roleInCampaign).toBe("SUPERVISOR");
   });
 
+  it("limits agent portal accounts to their private performance records", () => {
+    expect(getDefaultCampaignAccessForUserRole("AGENT")).toEqual({
+      roleInCampaign: "AGENT",
+      ...CAMPAIGN_ACCESS_PRESETS.AGENT,
+    });
+  });
+
   it("uses the least-privileged preset for an unknown role", () => {
     expect(getDefaultCampaignAccessForUserRole(undefined).roleInCampaign).toBe("EVALUATOR");
   });

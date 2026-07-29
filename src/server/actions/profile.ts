@@ -14,7 +14,7 @@ export interface ProfileInfo {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "QA" | "SUPERVISOR";
+  role: "ADMIN" | "QA" | "SUPERVISOR" | "AGENT";
   hasPassword: boolean;
   campaignCount: number;
   campaigns: { id: string; name: string }[];

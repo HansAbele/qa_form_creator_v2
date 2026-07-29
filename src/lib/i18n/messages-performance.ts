@@ -249,4 +249,80 @@ export const PERFORMANCE_ES_MESSAGES: Record<string, string> = {
   "View performance improvement plans": "Ver planes de mejora del desempeño",
   "Create and manage performance improvement plans":
     "Crear y gestionar planes de mejora del desempeño",
+  "My Performance": "Mi desempeño",
+  "Review your private coaching evidence, listen to linked calls, and follow your improvement plans.":
+    "Revisa en privado la evidencia de tus coachings, escucha las llamadas vinculadas y da seguimiento a tus planes de mejora.",
+  "Filter records by date": "Filtrar registros por fecha",
+  "The same operational period applies to coaching, PIP, activity, and workload results.":
+    "El mismo período operativo se aplica a los resultados de coaching, PIP, actividad y carga de trabajo.",
+  "Evaluation evidence": "Evidencia de la evaluación",
+  "Evidence summary": "Resumen de evidencia",
+  "Describe the metric, behavior, or evidence reviewed during coaching.":
+    "Describe la métrica, conducta o evidencia revisada durante el coaching.",
+  "Select date and time": "Seleccionar fecha y hora",
+  "Required supporting evidence": "Evidencia de respaldo obligatoria",
+  "Select evaluations, calls, or prior coaching records reviewed for this PIP.":
+    "Selecciona las evaluaciones, llamadas o coachings previos revisados para este PIP.",
+  "Select an agent to load their evidence.": "Selecciona un agente para cargar su evidencia.",
+  "Evaluations and calls": "Evaluaciones y llamadas",
+  "Linked call": "Llamada vinculada",
+  "No linked call": "Sin llamada vinculada",
+  "No submitted evaluations available.": "No hay evaluaciones enviadas disponibles.",
+  "Prior coaching": "Coachings previos",
+  "No coaching records available.": "No hay registros de coaching disponibles.",
+  "Open evidence": "Abrir evidencia",
+  "evidence items": "elementos de evidencia",
+  "evidence sources": "fuentes de evidencia",
+  "Back to Performance Management": "Volver a Gestión de desempeño",
+  Score: "Puntuación",
+  Scorecard: "Scorecard",
+  Evaluator: "Evaluador",
+  "Not available": "No disponible",
+  "Scorecard item": "Elemento del scorecard",
+  Answer: "Respuesta",
+  "No call is linked to this evaluation": "Esta evaluación no tiene una llamada vinculada",
+  "A QA Manager should verify the source before conducting this session.":
+    "Un QA Manager debe verificar la fuente antes de realizar esta sesión.",
+  "Your acknowledgement is pending": "Tu acuse está pendiente",
+  "Review the evidence and action plan before confirming receipt.":
+    "Revisa la evidencia y el plan de acción antes de confirmar la recepción.",
+  "Session date": "Fecha de la sesión",
+  "Supporting evidence": "Evidencia de respaldo",
+  "Evaluation, scorecard, recording, and transcript reviewed during coaching.":
+    "Evaluación, scorecard, grabación y transcripción revisados durante el coaching.",
+  items: "elementos",
+  "This coaching has no documented evidence and should not be conducted.":
+    "Este coaching no tiene evidencia documentada y no debe realizarse.",
+  "Action plan": "Plan de acción",
+  "Commitments agreed during the coaching session.":
+    "Compromisos acordados durante la sesión de coaching.",
+  "No action items documented.": "No hay acciones documentadas.",
+  "Your PIP acknowledgement is pending": "Tu acuse del PIP está pendiente",
+  "Review the goals, dates, support, and evidence before confirming receipt.":
+    "Revisa los objetivos, fechas, apoyo y evidencia antes de confirmar la recepción.",
+  "Plan period": "Período del plan",
+  Goals: "Objetivos",
+  "Reason and objective": "Motivo y objetivo",
+  "Support and consequences": "Apoyo y consecuencias",
+  "Not documented": "No documentado",
+  "PIP evidence file": "Expediente de evidencia del PIP",
+  "Evaluations, calls, transcripts, and prior coaching supporting this plan.":
+    "Evaluaciones, llamadas, transcripciones y coachings previos que respaldan este plan.",
+  "Linked coaching history": "Historial de coaching vinculado",
+  "This PIP has no supporting evidence and cannot be considered complete.":
+    "Este PIP no tiene evidencia de respaldo y no puede considerarse completo.",
+  "Review history": "Historial de revisiones",
+  "Confirm that you reviewed the coaching evidence and action plan.":
+    "Confirma que revisaste la evidencia del coaching y el plan de acción.",
+  "Confirm that you reviewed the complete plan and its supporting evidence.":
+    "Confirma que revisaste el plan completo y su evidencia de respaldo.",
+  Hour: "Hora",
+  Minute: "Minuto",
+  "Select date": "Seleccionar fecha",
+  "Clear date": "Limpiar fecha",
+  "QA workload": "Carga de trabajo QA",
+  "The same operational period applies to coaching, QA activity, and PIP records.":
+    "El mismo período operativo se aplica a los registros de coaching, actividad QA y PIP.",
+  "Coaching objective": "Objetivo del coaching",
+  "Saving…": "Guardando…",
 };

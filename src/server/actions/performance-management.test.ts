@@ -25,6 +25,7 @@ import {
   pauseQaActivity,
   recordPipAcknowledgement,
   startQaActivity,
+  submitPipForApproval,
 } from "./performance-management";
 
 const qaSession = {
@@ -69,6 +70,7 @@ describe("performance management actions", () => {
       focusArea: "Documentation",
       behavior: null,
       objective: "Improve documentation accuracy in every evaluated interaction.",
+      evidenceSummary: "Documented trend across the agent's recent quality results.",
       source: "MANUAL",
       scheduledAt: null,
       acknowledgementDueAt: null,
@@ -109,6 +111,7 @@ describe("performance management actions", () => {
         title: "Out of scope coaching",
         focusArea: "Quality",
         objective: "This request must be rejected before campaign data is queried.",
+        evidenceSummary: "Out-of-scope evidence that must not be queried.",
         source: "MANUAL",
         actionItems: [],
       }),
@@ -189,6 +192,8 @@ describe("performance management actions", () => {
       canManagePips: true,
     });
     prismaMock.agent.findFirst.mockResolvedValue({ id: "agent-1" });
+    prismaMock.coachingSession.findMany.mockResolvedValue([{ id: "coaching-1" }]);
+    prismaMock.coachingSession.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.pipPlan.create.mockResolvedValue({
       id: "pip-1",
       campaignId: "campaign-1",
@@ -212,6 +217,8 @@ describe("performance management actions", () => {
       targetEndDate: "2026-08-29T12:00:00.000Z",
       midpointDate: "2026-08-13T12:00:00.000Z",
       finalReviewDate: "2026-08-29T12:00:00.000Z",
+      evidenceResponseIds: [],
+      coachingSessionIds: ["coaching-1"],
       goals: [
         {
           area: "Quality score",
@@ -262,5 +269,70 @@ describe("performance management actions", () => {
     ).rejects.toThrow("A refusal must be recorded with a witness");
 
     expect(prismaMock.pipPlan.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("lets the linked agent acknowledge their own active PIP in the portal", async () => {
+    authMock.mockResolvedValue({
+      user: {
+        id: "agent-user-1",
+        name: "Agent One",
+        email: "agent@example.com",
+        role: "AGENT",
+        campaignIds: ["campaign-1"],
+      },
+    });
+    prismaMock.pipPlan.findUnique.mockResolvedValue({
+      id: "pip-1",
+      campaignId: "campaign-1",
+      status: "ACTIVE",
+      agent: { userId: "agent-user-1", active: true },
+    } as never);
+    prismaMock.pipPlan.update.mockResolvedValue({
+      id: "pip-1",
+      acknowledgementStatus: "ACKNOWLEDGED",
+      acknowledgedAt: new Date(),
+      refusedAt: null,
+    } as never);
+
+    await recordPipAcknowledgement({
+      pipPlanId: "pip-1",
+      status: "ACKNOWLEDGED",
+      method: "EMAIL",
+      comment: "Reviewed the plan and evidence.",
+    });
+
+    expect(prismaMock.userCampaign.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.pipPlan.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "pip-1" },
+        data: expect.objectContaining({
+          acknowledgementStatus: "ACKNOWLEDGED",
+          acknowledgementMethod: "COMPANY_SYSTEM",
+          acknowledgementWitnessId: null,
+        }),
+      }),
+    );
+  });
+
+  it("does not let an agent submit a PIP into the manager approval workflow", async () => {
+    authMock.mockResolvedValue({
+      user: {
+        id: "agent-user-1",
+        name: "Agent One",
+        email: "agent@example.com",
+        role: "AGENT",
+        campaignIds: ["campaign-1"],
+      },
+    });
+    prismaMock.pipPlan.findUnique.mockResolvedValue({
+      id: "pip-1",
+      campaignId: "campaign-1",
+      status: "DRAFT",
+    } as never);
+
+    await expect(submitPipForApproval({ pipPlanId: "pip-1" })).rejects.toThrow(
+      "Agent portal access is limited to personal records",
+    );
+    expect(prismaMock.pipPlan.update).not.toHaveBeenCalled();
   });
 });

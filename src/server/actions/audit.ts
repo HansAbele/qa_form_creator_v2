@@ -97,9 +97,10 @@ export async function readOperationalAudit(
 
 async function getAllowedAuditCampaignIds(user: {
   id: string;
-  role: "ADMIN" | "QA" | "SUPERVISOR";
+  role: "ADMIN" | "QA" | "SUPERVISOR" | "AGENT";
 }): Promise<string[] | null> {
   if (user.role === "ADMIN") return null;
+  if (user.role === "AGENT") throw new Error("Unauthorized");
 
   const access = await prisma.userCampaign.findMany({
     where: {

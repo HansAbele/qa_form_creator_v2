@@ -24,15 +24,16 @@ export const CAMPAIGN_PERMISSION_KEYS = [
 
 export type CampaignPermissionKey = (typeof CAMPAIGN_PERMISSION_KEYS)[number];
 
-export type CampaignAccessLevel = "CAMPAIGN_ADMIN" | "EVALUATOR" | "SUPERVISOR";
+export type CampaignAccessLevel = "CAMPAIGN_ADMIN" | "EVALUATOR" | "SUPERVISOR" | "AGENT";
 
 export type CampaignPermissionState = Record<CampaignPermissionKey, boolean>;
-export type AppRole = "ADMIN" | "QA" | "SUPERVISOR";
+export type AppRole = "ADMIN" | "QA" | "SUPERVISOR" | "AGENT";
 
 export const CAMPAIGN_ACCESS_LABELS: Record<CampaignAccessLevel, string> = {
   CAMPAIGN_ADMIN: "Campaign Admin",
   EVALUATOR: "Evaluator",
   SUPERVISOR: "Supervisor",
+  AGENT: "Agent portal",
 };
 
 export const CAMPAIGN_PERMISSION_LABELS: Record<CampaignPermissionKey, string> = {
@@ -165,6 +166,29 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermis
     canViewPips: true,
     canManagePips: false,
   },
+  AGENT: {
+    canViewDashboard: false,
+    canViewKPIs: false,
+    canViewForms: false,
+    canViewEvaluations: false,
+    canCreateForms: false,
+    canEditForms: false,
+    canPublishForms: false,
+    canEvaluate: false,
+    canEditEvaluations: false,
+    canViewReports: false,
+    canExport: false,
+    canManageAgents: false,
+    canManageDispositions: false,
+    canManageCampaignScoring: false,
+    canViewAudit: false,
+    canViewCoaching: true,
+    canManageCoaching: false,
+    canTrackQaActivity: false,
+    canViewQaActivity: false,
+    canViewPips: true,
+    canManagePips: false,
+  },
 };
 
 export const SUPERVISOR_READ_ONLY_PERMISSION_KEYS = [
@@ -192,6 +216,10 @@ export function isSupervisorRole(role: string | null | undefined): role is "SUPE
   return role === "SUPERVISOR";
 }
 
+export function isAgentRole(role: string | null | undefined): role is "AGENT" {
+  return role === "AGENT";
+}
+
 export function isSupervisorBlockedPermission(permission: CampaignPermissionKey) {
   return !SUPERVISOR_READ_ONLY_PERMISSION_SET.has(permission);
 }
@@ -203,19 +231,23 @@ export function normalizeCampaignPermissionsForRole(
   return Object.fromEntries(
     CAMPAIGN_PERMISSION_KEYS.map((key) => [
       key,
-      isSupervisorRole(role)
-        ? !isSupervisorBlockedPermission(key) && Boolean(permissions[key])
-        : Boolean(permissions[key]),
+      isAgentRole(role)
+        ? CAMPAIGN_ACCESS_PRESETS.AGENT[key]
+        : isSupervisorRole(role)
+          ? !isSupervisorBlockedPermission(key) && Boolean(permissions[key])
+          : Boolean(permissions[key]),
     ]),
   ) as CampaignPermissionState;
 }
 
 export function getDefaultCampaignAccessForUserRole(role: string | null | undefined) {
-  const roleInCampaign: CampaignAccessLevel = isSupervisorRole(role)
-    ? "SUPERVISOR"
-    : role === "ADMIN"
-      ? "CAMPAIGN_ADMIN"
-      : "EVALUATOR";
+  const roleInCampaign: CampaignAccessLevel = isAgentRole(role)
+    ? "AGENT"
+    : isSupervisorRole(role)
+      ? "SUPERVISOR"
+      : role === "ADMIN"
+        ? "CAMPAIGN_ADMIN"
+        : "EVALUATOR";
 
   return {
     roleInCampaign,

@@ -17,22 +17,40 @@ import { assertStrongPassword } from "@/lib/password-policy";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/server/audit-log";
 
-const roleSchema = z.enum(["ADMIN", "QA", "SUPERVISOR"]);
+const roleSchema = z.enum(["ADMIN", "QA", "SUPERVISOR", "AGENT"]);
 const campaignIdsSchema = z
   .array(z.string().trim().min(1).max(100))
   .max(500)
   .transform((campaignIds) => [...new Set(campaignIds)]);
-const createUserSchema = z.object({
+const userInputSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   name: z.string().trim().min(2).max(100),
   password: z.string(),
   role: roleSchema,
   campaignIds: campaignIdsSchema,
+  agentId: z.string().trim().min(1).max(100).nullish(),
 });
-const updateUserSchema = createUserSchema.extend({
-  password: z.string().optional(),
-  active: z.boolean(),
-});
+
+function requireAgentLink(
+  value: { role: z.infer<typeof roleSchema>; agentId?: string | null },
+  context: z.RefinementCtx,
+) {
+  if (value.role === "AGENT" && !value.agentId) {
+    context.addIssue({
+      code: "custom",
+      path: ["agentId"],
+      message: "An agent portal account must be linked to an agent",
+    });
+  }
+}
+
+const createUserSchema = userInputSchema.superRefine(requireAgentLink);
+const updateUserSchema = userInputSchema
+  .extend({
+    password: z.string().optional(),
+    active: z.boolean(),
+  })
+  .superRefine(requireAgentLink);
 const ACTIVE_ADMIN_LOCK_KEY = "qa-form-creator:active-admin-guard";
 
 const SAFE_USER_SELECT = {
@@ -106,6 +124,9 @@ export async function getUsers() {
       role: true,
       active: true,
       createdAt: true,
+      agentProfile: {
+        select: { id: true, name: true, campaignId: true, agentCode: true, active: true },
+      },
       campaigns: {
         include: { campaign: { select: { id: true, name: true } } },
       },
@@ -126,6 +147,9 @@ export async function getUserById(id: string) {
       name: true,
       role: true,
       active: true,
+      agentProfile: {
+        select: { id: true, name: true, campaignId: true, agentCode: true, active: true },
+      },
       campaigns: {
         include: { campaign: { select: { id: true, name: true } } },
       },
@@ -142,6 +166,7 @@ export async function createUser(data: {
   password: string;
   role: Role;
   campaignIds: string[];
+  agentId?: string | null;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") throw new Error("Unauthorized");
@@ -157,6 +182,18 @@ export async function createUser(data: {
     const existing = await tx.user.findUnique({ where: { email: input.email } });
     if (existing) throw new Error("A user with this email already exists");
 
+    const linkedAgent =
+      input.role === "AGENT"
+        ? await tx.agent.findFirst({
+            where: { id: input.agentId as string, active: true, userId: null },
+            select: { id: true, campaignId: true, name: true },
+          })
+        : null;
+    if (input.role === "AGENT" && !linkedAgent) {
+      throw new Error("The selected agent is unavailable or already has a portal account");
+    }
+    const effectiveCampaignIds = linkedAgent ? [linkedAgent.campaignId] : input.campaignIds;
+
     const newUser = await tx.user.create({
       data: {
         email: input.email,
@@ -167,10 +204,20 @@ export async function createUser(data: {
       select: SAFE_USER_SELECT,
     });
 
-    if (input.campaignIds.length > 0) {
+    if (linkedAgent) {
+      const linked = await tx.agent.updateMany({
+        where: { id: linkedAgent.id, userId: null },
+        data: { userId: newUser.id },
+      });
+      if (linked.count !== 1) {
+        throw new Error("The selected agent already has a portal account");
+      }
+    }
+
+    if (effectiveCampaignIds.length > 0) {
       const defaultCampaignAccess = getDefaultCampaignAccessForUserRole(input.role);
       await tx.userCampaign.createMany({
-        data: input.campaignIds.map((campaignId) => ({
+        data: effectiveCampaignIds.map((campaignId) => ({
           userId: newUser.id,
           campaignId,
           ...defaultCampaignAccess,
@@ -190,7 +237,8 @@ export async function createUser(data: {
           email: newUser.email,
           name: newUser.name,
           role: newUser.role,
-          campaignIds: input.campaignIds,
+          campaignIds: effectiveCampaignIds,
+          agentId: linkedAgent?.id ?? null,
         },
         impact: "User created and assigned to initial campaigns.",
       },
@@ -214,6 +262,7 @@ export async function updateUser(
     role: Role;
     active: boolean;
     campaignIds: string[];
+    agentId?: string | null;
   },
 ) {
   const session = await auth();
@@ -245,6 +294,7 @@ export async function updateUser(
         role: true,
         active: true,
         campaigns: { select: { campaignId: true } },
+        agentProfile: { select: { id: true, campaignId: true } },
       },
     });
     if (!beforeUser) throw new Error("User not found");
@@ -262,11 +312,29 @@ export async function updateUser(
       throw new Error("A user with this email already exists");
     }
 
+    const linkedAgent =
+      input.role === "AGENT"
+        ? await tx.agent.findFirst({
+            where: {
+              id: input.agentId as string,
+              active: true,
+              OR: [{ userId: null }, { userId: id }],
+            },
+            select: { id: true, campaignId: true, name: true },
+          })
+        : null;
+    if (input.role === "AGENT" && !linkedAgent) {
+      throw new Error("The selected agent is unavailable or already has a portal account");
+    }
+
+    const effectiveCampaignIds = linkedAgent ? [linkedAgent.campaignId] : input.campaignIds;
+    const agentLinkChanged = (beforeUser.agentProfile?.id ?? null) !== (linkedAgent?.id ?? null);
     const transactionUpdateData = { ...updateData };
     const shouldRevokeSessions =
       Boolean(input.password) ||
       beforeUser.role !== input.role ||
-      beforeUser.active !== input.active;
+      beforeUser.active !== input.active ||
+      agentLinkChanged;
     if (shouldRevokeSessions) {
       transactionUpdateData.sessionVersion = { increment: 1 };
     }
@@ -277,7 +345,23 @@ export async function updateUser(
       select: SAFE_USER_SELECT,
     });
 
-    const nextCampaignIds = input.campaignIds;
+    if (beforeUser.agentProfile && beforeUser.agentProfile.id !== linkedAgent?.id) {
+      await tx.agent.update({
+        where: { id: beforeUser.agentProfile.id },
+        data: { userId: null },
+      });
+    }
+    if (linkedAgent && beforeUser.agentProfile?.id !== linkedAgent.id) {
+      const linked = await tx.agent.updateMany({
+        where: { id: linkedAgent.id, OR: [{ userId: null }, { userId: id }] },
+        data: { userId: id },
+      });
+      if (linked.count !== 1) {
+        throw new Error("The selected agent already has a portal account");
+      }
+    }
+
+    const nextCampaignIds = effectiveCampaignIds;
 
     if (nextCampaignIds.length === 0) {
       await tx.userCampaign.deleteMany({ where: { userId: id } });
@@ -308,7 +392,7 @@ export async function updateUser(
     }
 
     if (
-      (beforeUser.role !== input.role || input.role === "SUPERVISOR") &&
+      (beforeUser.role !== input.role || input.role === "SUPERVISOR" || input.role === "AGENT") &&
       nextCampaignIds.length > 0
     ) {
       await tx.userCampaign.updateMany({
@@ -331,7 +415,8 @@ export async function updateUser(
           name: updated.name,
           role: updated.role,
           active: updated.active,
-          campaignIds: input.campaignIds,
+          campaignIds: effectiveCampaignIds,
+          agentId: linkedAgent?.id ?? null,
           passwordChanged: Boolean(input.password),
         },
         impact: "User and campaign assignments updated.",
@@ -393,10 +478,17 @@ export async function updateCampaignAccess(data: {
       CAMPAIGN_PERMISSION_KEYS.map((key) => [key, Boolean(data.permissions[key])]),
     ) as Record<CampaignPermissionKey, boolean>;
     const permissionPatch =
-      user.role === "SUPERVISOR"
-        ? getCampaignAccessPreset("SUPERVISOR")
-        : normalizeCampaignPermissionsForRole(user.role, rawPermissionPatch);
-    const roleInCampaign = user.role === "SUPERVISOR" ? "SUPERVISOR" : data.roleInCampaign;
+      user.role === "AGENT"
+        ? getCampaignAccessPreset("AGENT")
+        : user.role === "SUPERVISOR"
+          ? getCampaignAccessPreset("SUPERVISOR")
+          : normalizeCampaignPermissionsForRole(user.role, rawPermissionPatch);
+    const roleInCampaign =
+      user.role === "AGENT"
+        ? "AGENT"
+        : user.role === "SUPERVISOR"
+          ? "SUPERVISOR"
+          : data.roleInCampaign;
 
     const access = await tx.userCampaign.update({
       where: {

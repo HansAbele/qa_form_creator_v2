@@ -36,6 +36,7 @@ import { changeMyPassword, type ProfileInfo, updateMyName } from "@/server/actio
 function roleLabel(role: ProfileInfo["role"]) {
   if (role === "ADMIN") return "QA Manager";
   if (role === "SUPERVISOR") return "Supervisor";
+  if (role === "AGENT") return "Agent";
   return "Quality Analyst";
 }
 

@@ -108,7 +108,7 @@ interface AccessUser {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "QA" | "SUPERVISOR";
+  role: "ADMIN" | "QA" | "SUPERVISOR" | "AGENT";
   active: boolean;
   campaigns: AccessCampaign[];
 }
@@ -327,7 +327,9 @@ function AccessTab({
   const router = useRouter();
   const { t } = useI18n();
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | "ADMIN" | "QA" | "SUPERVISOR">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | "ADMIN" | "QA" | "SUPERVISOR" | "AGENT">(
+    "all",
+  );
   const [campaignFilter, setCampaignFilter] = useState("all");
   const configurableUsers = users.filter(
     (user) => (user.role === "QA" || user.role === "SUPERVISOR") && user.campaigns.length > 0,
@@ -498,7 +500,7 @@ function AccessTab({
               value={roleFilter}
               onValueChange={(value) => {
                 if (!value) return;
-                setRoleFilter(value as "all" | "ADMIN" | "QA" | "SUPERVISOR");
+                setRoleFilter(value as "all" | "ADMIN" | "QA" | "SUPERVISOR" | "AGENT");
               }}
             >
               <SelectTrigger>
@@ -509,7 +511,9 @@ function AccessTab({
                       ? "QA Manager"
                       : roleFilter === "QA"
                         ? t("Campaign QA")
-                        : t("Supervisor")}
+                        : roleFilter === "SUPERVISOR"
+                          ? t("Supervisor")
+                          : t("Agent")}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -517,6 +521,7 @@ function AccessTab({
                 <SelectItem value="ADMIN">QA Manager</SelectItem>
                 <SelectItem value="QA">{t("Campaign QA")}</SelectItem>
                 <SelectItem value="SUPERVISOR">{t("Supervisor")}</SelectItem>
+                <SelectItem value="AGENT">{t("Agent")}</SelectItem>
               </SelectContent>
             </Select>
             <Select
@@ -702,11 +707,13 @@ function AccessTab({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(CAMPAIGN_ACCESS_LABELS).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {t(label)}
-                        </SelectItem>
-                      ))}
+                      {Object.entries(CAMPAIGN_ACCESS_LABELS)
+                        .filter(([value]) => value !== "AGENT")
+                        .map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {t(label)}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -900,6 +907,7 @@ function PermissionSummary({
 function getAccessLevelLabelV2(user: AccessUser): string {
   if (user.role === "ADMIN") return "Global";
   if (user.role === "SUPERVISOR") return "Supervisor";
+  if (user.role === "AGENT") return "Agent portal";
   if (user.campaigns.length === 0) return "No campaign";
 
   const labels = [
@@ -912,6 +920,7 @@ function getAccessLevelLabelV2(user: AccessUser): string {
 function getBaseRoleLabel(role: AccessUser["role"]): string {
   if (role === "ADMIN") return "QA Manager";
   if (role === "SUPERVISOR") return "Supervisor";
+  if (role === "AGENT") return "Agent";
   return "Campaign QA";
 }
 
@@ -923,6 +932,9 @@ function getEffectivePermissionsV2(user: AccessUser): string[] {
   if (user.campaigns.length === 0) return ["No assigned campaign"];
   if (user.role === "SUPERVISOR") {
     return ["Dashboard/KPIs", "Read-only forms", "Evaluations", "Reports", "Read only"];
+  }
+  if (user.role === "AGENT") {
+    return ["Personal coaching", "Personal PIP", "Read only"];
   }
 
   const hasAny = (permission: CampaignPermissionKey) =>

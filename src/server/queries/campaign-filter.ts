@@ -2,6 +2,7 @@ import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import {
   type CampaignPermissionKey,
+  isAgentRole,
   isSupervisorBlockedPermission,
   isSupervisorRole,
 } from "@/lib/campaign-permissions";
@@ -19,6 +20,9 @@ export class CampaignAuthorizationError extends Error {
 
 export function assertCampaignAccessForUser(user: SessionUser, campaignId: string) {
   if (user.role === "ADMIN") return;
+  if (isAgentRole(user.role)) {
+    throw new CampaignAuthorizationError("Agent portal access is limited to personal records");
+  }
 
   if (!user.campaignIds.includes(campaignId)) {
     throw new CampaignAuthorizationError("Unauthorized for this campaign");
@@ -31,6 +35,7 @@ export async function hasCampaignPermissionForUser(
   permission: CampaignPermissionKey,
 ): Promise<boolean> {
   if (user.role === "ADMIN") return true;
+  if (isAgentRole(user.role)) return false;
   if (isSupervisorRole(user.role) && isSupervisorBlockedPermission(permission)) return false;
   if (!user.campaignIds.includes(campaignId)) return false;
 
@@ -109,6 +114,12 @@ export async function getCampaignFilter(campaignId?: string): Promise<CampaignFi
   if (session.user.role === "ADMIN") {
     return campaignId ? { campaignId } : {};
   }
+  if (isAgentRole(session.user.role)) {
+    if (campaignId) {
+      throw new CampaignAuthorizationError("Agent portal access is limited to personal records");
+    }
+    return { campaignId: { in: [] } };
+  }
 
   if (campaignId) {
     assertCampaignAccessForUser(session.user, campaignId);
@@ -134,6 +145,12 @@ export async function getCampaignFilterForPermissions(
 
   if (session.user.role === "ADMIN") {
     return campaignId ? { campaignId } : {};
+  }
+  if (isAgentRole(session.user.role)) {
+    if (campaignId) {
+      throw new CampaignAuthorizationError("Agent portal access is limited to personal records");
+    }
+    return { campaignId: { in: [] } };
   }
   if (
     isSupervisorRole(session.user.role) &&

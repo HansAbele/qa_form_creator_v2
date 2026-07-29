@@ -67,6 +67,52 @@ describe("admin user security controls", () => {
     expect(result).not.toHaveProperty("sessionVersion");
   });
 
+  it("creates a least-privileged portal account linked to one agent", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.agent.findFirst.mockResolvedValue({
+      id: "agent-1",
+      campaignId: "campaign-1",
+      name: "Agent One",
+    } as never);
+    prismaMock.user.create.mockResolvedValue({
+      ...safeUser,
+      id: "agent-user-1",
+      email: "agent@example.com",
+      name: "Agent One",
+      role: "AGENT",
+    });
+    prismaMock.agent.updateMany.mockResolvedValue({ count: 1 });
+
+    await createUser({
+      email: "agent@example.com",
+      name: "Agent One",
+      password: "S3cure-Agent-Pass!",
+      role: "AGENT",
+      campaignIds: [],
+      agentId: "agent-1",
+    });
+
+    expect(prismaMock.agent.updateMany).toHaveBeenCalledWith({
+      where: { id: "agent-1", userId: null },
+      data: { userId: "agent-user-1" },
+    });
+    expect(prismaMock.userCampaign.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          userId: "agent-user-1",
+          campaignId: "campaign-1",
+          roleInCampaign: "AGENT",
+          canViewCoaching: true,
+          canViewPips: true,
+          canManageCoaching: false,
+          canManagePips: false,
+          canViewEvaluations: false,
+          canEvaluate: false,
+        }),
+      ],
+    });
+  });
+
   it("rejects weak passwords on the server", async () => {
     await expect(
       createUser({

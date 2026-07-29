@@ -25,15 +25,31 @@ interface UserItem {
   name: string;
   role: Role;
   active: boolean;
+  agentProfile: {
+    id: string;
+    name: string;
+    campaignId: string;
+    agentCode: string | null;
+    active: boolean;
+  } | null;
   campaigns: { campaign: { id: string; name: string } }[];
 }
 
 interface UsersClientProps {
   users: UserItem[];
   campaigns: { id: string; name: string }[];
+  agents: {
+    id: string;
+    name: string;
+    agentCode: string | null;
+    campaignId: string;
+    campaignName: string;
+    active: boolean;
+    userId: string | null;
+  }[];
 }
 
-export function UsersClient({ users, campaigns }: UsersClientProps) {
+export function UsersClient({ users, campaigns, agents }: UsersClientProps) {
   const router = useRouter();
   const { t } = useI18n();
   const [formOpen, setFormOpen] = useState(false);
@@ -143,6 +159,7 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
       <UserForm
         user={editItem ?? undefined}
         campaigns={campaigns}
+        agents={agents}
         open={formOpen}
         onOpenChange={(open) => {
           setFormOpen(open);
@@ -156,5 +173,6 @@ export function UsersClient({ users, campaigns }: UsersClientProps) {
 function getRoleLabel(role: Role) {
   if (role === "ADMIN") return "QA Manager";
   if (role === "SUPERVISOR") return "Supervisor";
+  if (role === "AGENT") return "Agent";
   return "QA";
 }

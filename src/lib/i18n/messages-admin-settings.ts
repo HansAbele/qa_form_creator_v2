@@ -552,4 +552,12 @@ export const ADMIN_SETTINGS_ES_MESSAGES = {
   "Primary language": "Idioma principal",
   "Use the dark color palette.": "Usar la paleta de colores oscura.",
   "Use the light color palette.": "Usar la paleta de colores clara.",
+  "Agent portal": "Portal del agente",
+  "Linked agent": "Agente vinculado",
+  "Select the agent linked to this portal account":
+    "Selecciona el agente vinculado a esta cuenta del portal",
+  "This account will only see coaching and PIP records for the selected agent.":
+    "Esta cuenta solo verá los registros de coaching y PIP del agente seleccionado.",
+  "Personal coaching": "Coaching personal",
+  "Personal PIP": "PIP personal",
 } as const;

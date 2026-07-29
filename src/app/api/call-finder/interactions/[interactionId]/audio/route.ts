@@ -3,6 +3,7 @@ import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { auth } from "@/lib/auth";
+import { isAgentRole } from "@/lib/campaign-permissions";
 import { resolveByteRange } from "@/lib/http-byte-range";
 import { prisma } from "@/lib/prisma";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/server/call-finder/storage";
 import { writeAuditLog } from "@/server/audit-log";
 import { getCallFinderCampaignFilter } from "@/server/queries/call-finder";
+import { canAgentAccessInteractionEvidence } from "@/server/queries/performance-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +36,22 @@ export async function GET(
 
   const { interactionId } = await context.params;
   const downloadRequested = new URL(request.url).searchParams.get("download") === "1";
-  const campaignFilter = await getCallFinderCampaignFilter("review");
+  const agentPortalAccess = isAgentRole(session.user.role);
+  if (agentPortalAccess && downloadRequested) {
+    return Response.json(
+      { error: "Recording downloads are disabled in the agent portal" },
+      {
+        status: 403,
+      },
+    );
+  }
+  if (
+    agentPortalAccess &&
+    !(await canAgentAccessInteractionEvidence(session.user.id, interactionId))
+  ) {
+    return unavailable();
+  }
+  const campaignFilter = agentPortalAccess ? {} : await getCallFinderCampaignFilter("review");
   const interaction = await prisma.interaction.findFirst({
     where: { id: interactionId, ...campaignFilter },
     select: {

@@ -1,10 +1,18 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getPerformanceWorkspace } from "@/server/queries/performance-management";
+import {
+  getPerformanceWorkspace,
+  parsePerformanceFilters,
+  type PerformanceSearchParams,
+} from "@/server/queries/performance-management";
 import { getCurrentUserUiAccess } from "@/server/queries/ui-access";
 import { PerformanceClient } from "./performance-client";
 
-export default async function PerformancePage() {
+export default async function PerformancePage({
+  searchParams,
+}: {
+  searchParams: Promise<PerformanceSearchParams>;
+}) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
@@ -19,6 +27,7 @@ export default async function PerformancePage() {
 
   if (!canOpenPerformance) redirect("/");
 
-  const data = await getPerformanceWorkspace();
+  const filters = parsePerformanceFilters(await searchParams);
+  const data = await getPerformanceWorkspace(filters);
   return <PerformanceClient data={data} />;
 }

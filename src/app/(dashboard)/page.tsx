@@ -10,6 +10,7 @@ export default async function DashboardPage() {
   if (!session?.user) redirect("/login");
   const access = await getCurrentUserUiAccess();
   const { t } = await getServerI18n();
+  if (access.isAgent) redirect("/performance");
   if (!access.canViewDashboard) redirect("/settings");
 
   // A mixed evaluator/manager account receives program analytics only for

@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { isAgentRole } from "@/lib/campaign-permissions";
 import {
   ACKNOWLEDGEMENT_METHODS,
   COACHING_SOURCES,
@@ -21,31 +22,52 @@ import { assertCampaignPermissionForUser } from "@/server/queries/campaign-filte
 const optionalIsoDate = z.string().datetime().nullish();
 const optionalText = z.string().trim().max(5_000).nullish();
 
-const createCoachingSchema = z.object({
-  campaignId: z.string().trim().min(1).max(100),
-  agentId: z.string().trim().min(1).max(100),
-  responseId: z.string().trim().min(1).max(100).nullish(),
-  pipPlanId: z.string().trim().min(1).max(100).nullish(),
-  title: z.string().trim().min(3).max(160),
-  focusArea: z.string().trim().min(2).max(120),
-  behavior: z.string().trim().max(160).nullish(),
-  objective: z.string().trim().min(10).max(5_000),
-  source: z.enum(COACHING_SOURCES),
-  scheduledAt: optionalIsoDate,
-  acknowledgementDueAt: optionalIsoDate,
-  followUpAt: optionalIsoDate,
-  actionItems: z
-    .array(
-      z.object({
-        description: z.string().trim().min(3).max(2_000),
-        ownerType: z.enum(["AGENT", "QA", "SUPERVISOR", "OTHER"]).default("AGENT"),
-        ownerName: z.string().trim().max(120).nullish(),
-        dueAt: optionalIsoDate,
-      }),
-    )
-    .max(20)
-    .default([]),
-});
+const createCoachingSchema = z
+  .object({
+    campaignId: z.string().trim().min(1).max(100),
+    agentId: z.string().trim().min(1).max(100),
+    responseId: z.string().trim().min(1).max(100).nullish(),
+    pipPlanId: z.string().trim().min(1).max(100).nullish(),
+    title: z.string().trim().min(3).max(160),
+    focusArea: z.string().trim().min(2).max(120),
+    behavior: z.string().trim().max(160).nullish(),
+    objective: z.string().trim().min(10).max(5_000),
+    evidenceSummary: z.string().trim().max(5_000).nullish(),
+    source: z.enum(COACHING_SOURCES),
+    scheduledAt: optionalIsoDate,
+    acknowledgementDueAt: optionalIsoDate,
+    followUpAt: optionalIsoDate,
+    actionItems: z
+      .array(
+        z.object({
+          description: z.string().trim().min(3).max(2_000),
+          ownerType: z.enum(["AGENT", "QA", "SUPERVISOR", "OTHER"]).default("AGENT"),
+          ownerName: z.string().trim().max(120).nullish(),
+          dueAt: optionalIsoDate,
+        }),
+      )
+      .max(20)
+      .default([]),
+  })
+  .superRefine((value, context) => {
+    if (
+      (value.source === "EVALUATION" || value.source === "CRITICAL_FAILURE") &&
+      !value.responseId
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["responseId"],
+        message: "Evaluation and critical-failure coaching require linked evidence",
+      });
+    }
+    if (!value.responseId && (!value.evidenceSummary || value.evidenceSummary.length < 10)) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidenceSummary"],
+        message: "Describe the evidence used for coaching",
+      });
+    }
+  });
 
 const startActivitySchema = z.object({
   campaignId: z.string().trim().min(1).max(100),
@@ -106,6 +128,8 @@ const createPipSchema = z
     targetEndDate: z.string().datetime(),
     midpointDate: optionalIsoDate,
     finalReviewDate: optionalIsoDate,
+    evidenceResponseIds: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
+    coachingSessionIds: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
     goals: z.array(pipGoalSchema).min(1).max(5),
   })
   .superRefine((value, context) => {
@@ -114,6 +138,13 @@ const createPipSchema = z
         code: "custom",
         path: ["targetEndDate"],
         message: "The PIP end date must be after its start date",
+      });
+    }
+    if (value.evidenceResponseIds.length === 0 && value.coachingSessionIds.length === 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidenceResponseIds"],
+        message: "A PIP requires at least one evaluation or coaching record as evidence",
       });
     }
   });
@@ -175,27 +206,6 @@ function revalidatePerformanceWorkspace() {
   revalidatePath("/");
 }
 
-async function getCoachingForMutation(
-  user: NonNullable<Awaited<ReturnType<typeof auth>>>["user"],
-  coachingSessionId: string,
-) {
-  const coaching = await prisma.coachingSession.findUnique({
-    where: { id: coachingSessionId },
-    select: {
-      id: true,
-      campaignId: true,
-      agentId: true,
-      status: true,
-      startedAt: true,
-      endedAt: true,
-      agent: { select: { name: true } },
-    },
-  });
-  if (!coaching) throw new Error("Coaching session unavailable");
-  await assertCampaignPermissionForUser(user, coaching.campaignId, "canManageCoaching");
-  return coaching;
-}
-
 async function getPipForMutation(
   user: NonNullable<Awaited<ReturnType<typeof auth>>>["user"],
   pipPlanId: string,
@@ -206,6 +216,55 @@ async function getPipForMutation(
   });
   if (!pip) throw new Error("Performance improvement plan unavailable");
   await assertCampaignPermissionForUser(user, pip.campaignId, "canManagePips");
+  return pip;
+}
+
+async function getCoachingForAcknowledgement(
+  user: NonNullable<Awaited<ReturnType<typeof auth>>>["user"],
+  coachingSessionId: string,
+) {
+  const coaching = await prisma.coachingSession.findUnique({
+    where: { id: coachingSessionId },
+    select: {
+      id: true,
+      campaignId: true,
+      agentId: true,
+      status: true,
+      agent: { select: { name: true, userId: true, active: true } },
+    },
+  });
+  if (!coaching) throw new Error("Coaching session unavailable");
+  if (isAgentRole(user.role)) {
+    if (!coaching.agent.active || coaching.agent.userId !== user.id) {
+      throw new Error("Coaching session unavailable");
+    }
+  } else {
+    await assertCampaignPermissionForUser(user, coaching.campaignId, "canManageCoaching");
+  }
+  return coaching;
+}
+
+async function getPipForAcknowledgement(
+  user: NonNullable<Awaited<ReturnType<typeof auth>>>["user"],
+  pipPlanId: string,
+) {
+  const pip = await prisma.pipPlan.findUnique({
+    where: { id: pipPlanId },
+    select: {
+      id: true,
+      campaignId: true,
+      status: true,
+      agent: { select: { userId: true, active: true } },
+    },
+  });
+  if (!pip) throw new Error("Performance improvement plan unavailable");
+  if (isAgentRole(user.role)) {
+    if (!pip.agent.active || pip.agent.userId !== user.id) {
+      throw new Error("Performance improvement plan unavailable");
+    }
+  } else {
+    await assertCampaignPermissionForUser(user, pip.campaignId, "canManagePips");
+  }
   return pip;
 }
 
@@ -250,7 +309,13 @@ export async function createCoachingSession(data: unknown) {
             form: { campaignId: input.campaignId },
             status: "SUBMITTED",
           },
-          select: { id: true, interactionId: true },
+          select: {
+            id: true,
+            interactionId: true,
+            score: true,
+            hasFatalFail: true,
+            form: { select: { title: true } },
+          },
         })
       : null,
     input.pipPlanId
@@ -301,6 +366,25 @@ export async function createCoachingSession(data: unknown) {
                 })),
               }
             : undefined,
+        evidence: {
+          create: response
+            ? {
+                campaignId: input.campaignId,
+                responseId: response.id,
+                interactionId: response.interactionId,
+                createdById: session.user.id,
+                type: "EVALUATION",
+                title: response.form.title,
+                description: `${Number(response.score).toFixed(2)}%${response.hasFatalFail ? " · Critical failure" : ""}`,
+              }
+            : {
+                campaignId: input.campaignId,
+                createdById: session.user.id,
+                type: "NOTE",
+                title: "Documented coaching evidence",
+                description: input.evidenceSummary || null,
+              },
+        },
       },
       select: { id: true, status: true, campaignId: true },
     });
@@ -319,6 +403,7 @@ export async function createCoachingSession(data: unknown) {
           pipPlanId: pipPlan?.id ?? null,
           source: input.source,
           status: created.status,
+          evidenceType: response ? "EVALUATION" : "NOTE",
           actionItemCount: input.actionItems.length,
         },
         impact: "A campaign-scoped coaching record and acknowledgement trail were created.",
@@ -643,32 +728,35 @@ export async function recordCoachingAcknowledgement(data: unknown) {
   if (!session?.user) throw new Error("Unauthorized");
 
   const input = parseInput(coachingAcknowledgementSchema, data);
-  const coaching = await getCoachingForMutation(session.user, input.coachingSessionId);
+  const coaching = await getCoachingForAcknowledgement(session.user, input.coachingSessionId);
   if (coaching.status !== "AWAITING_ACKNOWLEDGEMENT") {
     throw new Error("This coaching session is not awaiting acknowledgement");
   }
 
   const now = new Date();
+  const acknowledgementMethod = isAgentRole(session.user.role) ? "COMPANY_SYSTEM" : input.method;
+  const witnessUserId =
+    !isAgentRole(session.user.role) && input.status === "REFUSED" ? session.user.id : null;
   const result = await prisma.$transaction(async (tx) => {
     const acknowledgement = await tx.coachingAcknowledgement.upsert({
       where: { coachingSessionId: coaching.id },
       create: {
         coachingSessionId: coaching.id,
         status: input.status,
-        method: input.method,
+        method: acknowledgementMethod,
         agentNameSnapshot: coaching.agent.name,
         comment: input.comment || null,
         acknowledgedAt: input.status === "ACKNOWLEDGED" ? now : null,
         refusedAt: input.status === "REFUSED" ? now : null,
-        witnessUserId: input.status === "REFUSED" ? session.user.id : null,
+        witnessUserId,
       },
       update: {
         status: input.status,
-        method: input.method,
+        method: acknowledgementMethod,
         comment: input.comment || null,
         acknowledgedAt: input.status === "ACKNOWLEDGED" ? now : null,
         refusedAt: input.status === "REFUSED" ? now : null,
-        witnessUserId: input.status === "REFUSED" ? session.user.id : null,
+        witnessUserId,
       },
       select: { id: true, status: true, acknowledgedAt: true, refusedAt: true },
     });
@@ -689,8 +777,8 @@ export async function recordCoachingAcknowledgement(data: unknown) {
         entityId: coaching.id,
         afterValue: {
           status: input.status,
-          method: input.method,
-          witnessUserId: input.status === "REFUSED" ? session.user.id : null,
+          method: acknowledgementMethod,
+          witnessUserId,
         },
         impact: "The coaching notification outcome was recorded and the session was closed.",
       },
@@ -710,11 +798,47 @@ export async function createPipPlan(data: unknown) {
   const input = parseInput(createPipSchema, data);
   await assertCampaignPermissionForUser(session.user, input.campaignId, "canManagePips");
 
-  const agent = await prisma.agent.findFirst({
-    where: { id: input.agentId, campaignId: input.campaignId, active: true },
-    select: { id: true },
-  });
+  const [agent, evidenceResponses, linkedCoachings] = await Promise.all([
+    prisma.agent.findFirst({
+      where: { id: input.agentId, campaignId: input.campaignId, active: true },
+      select: { id: true },
+    }),
+    input.evidenceResponseIds.length > 0
+      ? prisma.response.findMany({
+          where: {
+            id: { in: [...new Set(input.evidenceResponseIds)] },
+            agentId: input.agentId,
+            status: "SUBMITTED",
+            form: { campaignId: input.campaignId },
+          },
+          select: {
+            id: true,
+            interactionId: true,
+            score: true,
+            hasFatalFail: true,
+            form: { select: { title: true } },
+          },
+        })
+      : Promise.resolve([]),
+    input.coachingSessionIds.length > 0
+      ? prisma.coachingSession.findMany({
+          where: {
+            id: { in: [...new Set(input.coachingSessionIds)] },
+            campaignId: input.campaignId,
+            agentId: input.agentId,
+            pipPlanId: null,
+          },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+  ]);
   if (!agent) throw new Error("Agent unavailable for this campaign");
+  if (evidenceResponses.length !== new Set(input.evidenceResponseIds).size) {
+    throw new Error("One or more PIP evaluations are unavailable for this agent");
+  }
+  if (linkedCoachings.length !== new Set(input.coachingSessionIds).size) {
+    throw new Error("One or more coaching records are unavailable for this agent");
+  }
 
   const pip = await prisma.$transaction(async (tx) => {
     const created = await tx.pipPlan.create({
@@ -748,9 +872,30 @@ export async function createPipPlan(data: unknown) {
             isCritical: goal.isCritical,
           })),
         },
+        evidence:
+          evidenceResponses.length > 0
+            ? {
+                create: evidenceResponses.map((response) => ({
+                  campaignId: input.campaignId,
+                  responseId: response.id,
+                  interactionId: response.interactionId,
+                  createdById: session.user.id,
+                  type: "EVALUATION" as const,
+                  title: response.form.title,
+                  description: `${Number(response.score).toFixed(2)}%${response.hasFatalFail ? " · Critical failure" : ""}`,
+                })),
+              }
+            : undefined,
       },
       select: { id: true, campaignId: true, status: true, templateVersion: true },
     });
+
+    if (linkedCoachings.length > 0) {
+      await tx.coachingSession.updateMany({
+        where: { id: { in: linkedCoachings.map((coaching) => coaching.id) } },
+        data: { pipPlanId: created.id },
+      });
+    }
 
     await writeAuditLog(
       {
@@ -767,6 +912,8 @@ export async function createPipPlan(data: unknown) {
           status: created.status,
           goalCount: input.goals.length,
           criticalGoalCount: input.goals.filter((goal) => goal.isCritical).length,
+          evidenceCount: evidenceResponses.length,
+          coachingCount: linkedCoachings.length,
         },
         impact: "A versioned PIP draft and its first measurable goal were created.",
       },
@@ -940,22 +1087,25 @@ export async function recordPipAcknowledgement(data: unknown) {
   if (!session?.user) throw new Error("Unauthorized");
 
   const input = parseInput(pipAcknowledgementSchema, data);
-  const pip = await getPipForMutation(session.user, input.pipPlanId);
+  const pip = await getPipForAcknowledgement(session.user, input.pipPlanId);
   if (!["ACTIVE", "ON_HOLD", "EXTENDED"].includes(pip.status)) {
     throw new Error("Only an active PIP can be acknowledged");
   }
 
   const now = new Date();
+  const acknowledgementMethod = isAgentRole(session.user.role) ? "COMPANY_SYSTEM" : input.method;
+  const witnessUserId =
+    !isAgentRole(session.user.role) && input.status === "REFUSED" ? session.user.id : null;
   const result = await prisma.$transaction(async (tx) => {
     const updated = await tx.pipPlan.update({
       where: { id: pip.id },
       data: {
         acknowledgementStatus: input.status,
-        acknowledgementMethod: input.method,
+        acknowledgementMethod,
         acknowledgementComment: input.comment || null,
         acknowledgedAt: input.status === "ACKNOWLEDGED" ? now : null,
         refusedAt: input.status === "REFUSED" ? now : null,
-        acknowledgementWitnessId: input.status === "REFUSED" ? session.user.id : null,
+        acknowledgementWitnessId: witnessUserId,
       },
       select: {
         id: true,
@@ -975,8 +1125,8 @@ export async function recordPipAcknowledgement(data: unknown) {
         entityId: pip.id,
         afterValue: {
           acknowledgementStatus: input.status,
-          method: input.method,
-          witnessUserId: input.status === "REFUSED" ? session.user.id : null,
+          method: acknowledgementMethod,
+          witnessUserId,
         },
         impact: "The PIP notification outcome and receipt evidence were recorded.",
       },

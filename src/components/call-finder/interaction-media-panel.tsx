@@ -102,10 +102,12 @@ function speakerLabel(
 export function InteractionMediaPanel({
   interaction,
   compact = false,
+  readOnly = false,
   className,
 }: {
   interaction: InteractionMediaContext;
   compact?: boolean;
+  readOnly?: boolean;
   className?: string;
 }) {
   const { t } = useI18n();
@@ -152,8 +154,10 @@ export function InteractionMediaPanel({
       }
     }
     setSpeakerAssignments(assignments);
-    setSpeakerEditorOpen(transcript?.status === "SPEAKERS_UNVERIFIED" && transcript.isDiarized);
-  }, [transcript?.isDiarized, transcript?.segments, transcript?.status]);
+    setSpeakerEditorOpen(
+      !readOnly && transcript?.status === "SPEAKERS_UNVERIFIED" && transcript.isDiarized,
+    );
+  }, [readOnly, transcript?.isDiarized, transcript?.segments, transcript?.status]);
 
   const togglePlayback = () => {
     const audio = audioRef.current;
@@ -207,7 +211,7 @@ export function InteractionMediaPanel({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {!interaction.audioUrl && interaction.recordingExpected ? (
+              {!readOnly && !interaction.audioUrl && interaction.recordingExpected ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -239,7 +243,7 @@ export function InteractionMediaPanel({
                   </span>
                 </Button>
               ) : null}
-              {interaction.audioUrl ? (
+              {interaction.audioUrl && !readOnly ? (
                 <a
                   href={`${interaction.audioUrl}?download=1`}
                   aria-label={t("Download recording")}
@@ -249,7 +253,7 @@ export function InteractionMediaPanel({
                   <span className="hidden sm:inline">{t("Download")}</span>
                 </a>
               ) : null}
-              {interaction.audioUrl && !transcript ? (
+              {interaction.audioUrl && !transcript && !readOnly ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -408,7 +412,7 @@ export function InteractionMediaPanel({
                     : t("This transcript has no speaker separation yet.")}
                 </span>
               </div>
-              {!transcript.isDiarized ? (
+              {!transcript.isDiarized && !readOnly ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -445,7 +449,10 @@ export function InteractionMediaPanel({
               ) : null}
             </div>
           ) : null}
-          {transcript?.isDiarized && transcript.status === "COMPLETED" && !speakerEditorOpen ? (
+          {transcript?.isDiarized &&
+          transcript.status === "COMPLETED" &&
+          !speakerEditorOpen &&
+          !readOnly ? (
             <div className="mx-4 flex justify-end">
               <Button
                 type="button"
@@ -459,7 +466,10 @@ export function InteractionMediaPanel({
               </Button>
             </div>
           ) : null}
-          {transcript?.isDiarized && speakerEditorOpen && detectedSpeakers.length > 0 ? (
+          {transcript?.isDiarized &&
+          speakerEditorOpen &&
+          detectedSpeakers.length > 0 &&
+          !readOnly ? (
             <div className="mx-4 space-y-3 rounded-lg border bg-muted/30 p-3">
               <div>
                 <p className="text-sm font-medium">{t("Confirm speaker labels")}</p>

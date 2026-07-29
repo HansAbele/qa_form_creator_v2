@@ -1,6 +1,11 @@
+import type { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { isAgentRole, isSupervisorRole } from "@/lib/campaign-permissions";
+import { getOperationalDateBounds } from "@/lib/operational-time";
 import { elapsedSeconds } from "@/lib/performance-management";
 import { prisma } from "@/lib/prisma";
+import { getAgentProfileForUser } from "@/server/queries/performance-access";
 
 const ACTIVE_PIP_STATUSES = ["ACTIVE", "ON_HOLD", "EXTENDED"] as const;
 const OPEN_COACHING_STATUSES = [
@@ -26,9 +31,38 @@ function activitySeconds(
   return activity.totalSeconds + (openStartedAt ? elapsedSeconds(openStartedAt, now) : 0);
 }
 
-export async function getPerformanceWorkspace() {
+export type PerformanceSearchParams = Record<string, string | string[] | undefined>;
+
+const performanceFilterSchema = z.object({
+  from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+});
+
+function firstValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export function parsePerformanceFilters(searchParams: PerformanceSearchParams) {
+  const parsed = performanceFilterSchema.safeParse({
+    from: firstValue(searchParams.from) || undefined,
+    to: firstValue(searchParams.to) || undefined,
+  });
+  return parsed.success ? parsed.data : {};
+}
+
+export type PerformanceFilters = ReturnType<typeof parsePerformanceFilters>;
+
+export async function getPerformanceWorkspace(filters: PerformanceFilters = {}) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
+  const isAgent = isAgentRole(session.user.role);
+  const agentProfile = isAgent ? await getAgentProfileForUser(session.user.id) : null;
 
   const accessRows =
     session.user.role === "ADMIN"
@@ -46,6 +80,7 @@ export async function getPerformanceWorkspace() {
           canViewQaActivity: true,
           canViewPips: true,
           canManagePips: true,
+          roleInCampaign: "CAMPAIGN_ADMIN" as const,
         }))
       : await prisma.userCampaign.findMany({
           where: {
@@ -61,6 +96,7 @@ export async function getPerformanceWorkspace() {
             canViewQaActivity: true,
             canViewPips: true,
             canManagePips: true,
+            roleInCampaign: true,
           },
           orderBy: { campaign: { name: "asc" } },
         });
@@ -90,8 +126,83 @@ export async function getPerformanceWorkspace() {
     ...managePipCampaignIds,
   ]);
   const now = new Date();
+  const dateBounds = getOperationalDateBounds(filters.from, filters.to);
+  const hasDateBounds = Object.keys(dateBounds).length > 0;
   const activityFrom = new Date(now);
   activityFrom.setUTCDate(activityFrom.getUTCDate() - 30);
+  const workloadDateBounds = hasDateBounds ? dateBounds : { gte: activityFrom };
+
+  const fullCoachingCampaignIds = isAgent
+    ? []
+    : accessRows
+        .filter(
+          (row) =>
+            row.canViewCoaching &&
+            (session.user.role === "ADMIN" ||
+              isSupervisorRole(session.user.role) ||
+              row.roleInCampaign === "CAMPAIGN_ADMIN"),
+        )
+        .map((row) => row.campaign.id);
+  const ownCoachingCampaignIds = coachingCampaignIds.filter(
+    (campaignId) => !fullCoachingCampaignIds.includes(campaignId),
+  );
+  const coachingWhere: Prisma.CoachingSessionWhereInput | null = isAgent
+    ? agentProfile
+      ? { agentId: agentProfile.id, ...(hasDateBounds ? { createdAt: dateBounds } : {}) }
+      : null
+    : coachingCampaignIds.length > 0
+      ? {
+          ...(hasDateBounds ? { createdAt: dateBounds } : {}),
+          OR: [
+            ...(fullCoachingCampaignIds.length > 0
+              ? [{ campaignId: { in: fullCoachingCampaignIds } }]
+              : []),
+            ...(ownCoachingCampaignIds.length > 0
+              ? [
+                  {
+                    campaignId: { in: ownCoachingCampaignIds },
+                    OR: [{ coachId: session.user.id }, { createdById: session.user.id }],
+                  },
+                ]
+              : []),
+          ],
+        }
+      : null;
+
+  const fullPipCampaignIds = isAgent
+    ? []
+    : accessRows
+        .filter(
+          (row) =>
+            row.canViewPips &&
+            (session.user.role === "ADMIN" ||
+              isSupervisorRole(session.user.role) ||
+              row.roleInCampaign === "CAMPAIGN_ADMIN"),
+        )
+        .map((row) => row.campaign.id);
+  const ownPipCampaignIds = pipCampaignIds.filter(
+    (campaignId) => !fullPipCampaignIds.includes(campaignId),
+  );
+  const pipWhere: Prisma.PipPlanWhereInput | null = isAgent
+    ? agentProfile
+      ? { agentId: agentProfile.id, ...(hasDateBounds ? { createdAt: dateBounds } : {}) }
+      : null
+    : pipCampaignIds.length > 0
+      ? {
+          ...(hasDateBounds ? { createdAt: dateBounds } : {}),
+          OR: [
+            ...(fullPipCampaignIds.length > 0 ? [{ campaignId: { in: fullPipCampaignIds } }] : []),
+            ...(ownPipCampaignIds.length > 0
+              ? [
+                  {
+                    campaignId: { in: ownPipCampaignIds },
+                    OR: [{ ownerId: session.user.id }, { createdById: session.user.id }],
+                  },
+                ]
+              : []),
+          ],
+        }
+      : null;
 
   const activityScope = [
     ...(trackActivityCampaignIds.length > 0
@@ -104,9 +215,13 @@ export async function getPerformanceWorkspace() {
 
   const [agents, recentEvaluations, coachingRows, activityRows, pipRows, workloadRows] =
     await Promise.all([
-      agentCampaignIds.length > 0
+      agentCampaignIds.length > 0 && (!isAgent || agentProfile)
         ? prisma.agent.findMany({
-            where: { active: true, campaignId: { in: agentCampaignIds } },
+            where: {
+              active: true,
+              campaignId: { in: agentCampaignIds },
+              ...(agentProfile ? { id: agentProfile.id } : {}),
+            },
             select: {
               id: true,
               name: true,
@@ -138,12 +253,13 @@ export async function getPerformanceWorkspace() {
             take: 100,
           })
         : Promise.resolve([]),
-      coachingCampaignIds.length > 0
+      coachingWhere
         ? prisma.coachingSession.findMany({
-            where: { campaignId: { in: coachingCampaignIds } },
+            where: coachingWhere,
             select: {
               id: true,
               campaignId: true,
+              pipPlanId: true,
               title: true,
               focusArea: true,
               behavior: true,
@@ -160,6 +276,16 @@ export async function getPerformanceWorkspace() {
               coach: { select: { id: true, name: true } },
               campaign: { select: { name: true } },
               response: { select: { id: true, score: true, hasFatalFail: true } },
+              evidence: {
+                select: {
+                  id: true,
+                  type: true,
+                  title: true,
+                  responseId: true,
+                  interactionId: true,
+                },
+                orderBy: { createdAt: "asc" },
+              },
               actionItems: {
                 select: { id: true, description: true, status: true, dueAt: true },
                 orderBy: [{ status: "asc" }, { dueAt: "asc" }],
@@ -192,7 +318,10 @@ export async function getPerformanceWorkspace() {
         : Promise.resolve([]),
       activityScope.length > 0
         ? prisma.qaActivitySession.findMany({
-            where: { OR: activityScope },
+            where: {
+              OR: activityScope,
+              ...(hasDateBounds ? { startedAt: dateBounds } : {}),
+            },
             select: {
               id: true,
               campaignId: true,
@@ -218,9 +347,9 @@ export async function getPerformanceWorkspace() {
             take: 100,
           })
         : Promise.resolve([]),
-      pipCampaignIds.length > 0
+      pipWhere
         ? prisma.pipPlan.findMany({
-            where: { campaignId: { in: pipCampaignIds } },
+            where: pipWhere,
             select: {
               id: true,
               campaignId: true,
@@ -237,10 +366,22 @@ export async function getPerformanceWorkspace() {
               acknowledgementStatus: true,
               approvedAt: true,
               closedAt: true,
+              createdAt: true,
               agent: { select: { id: true, name: true, agentCode: true } },
               campaign: { select: { name: true } },
               owner: { select: { id: true, name: true } },
               approvedBy: { select: { id: true, name: true } },
+              evidence: {
+                select: {
+                  id: true,
+                  type: true,
+                  title: true,
+                  responseId: true,
+                  interactionId: true,
+                },
+                orderBy: { createdAt: "asc" },
+              },
+              coachingSessions: { select: { id: true, title: true, status: true } },
               goals: {
                 select: {
                   id: true,
@@ -276,7 +417,7 @@ export async function getPerformanceWorkspace() {
             by: ["userId", "activityType"],
             where: {
               campaignId: { in: viewActivityCampaignIds },
-              startedAt: { gte: activityFrom },
+              startedAt: workloadDateBounds,
               status: { in: ["ACTIVE", "PAUSED", "COMPLETED"] },
             },
             _sum: { totalSeconds: true },
@@ -384,6 +525,7 @@ export async function getPerformanceWorkspace() {
 
   const pipPlans = pipRows.map((pip) => ({
     ...pip,
+    createdAt: pip.createdAt.toISOString(),
     startDate: pip.startDate.toISOString(),
     targetEndDate: pip.targetEndDate.toISOString(),
     midpointDate: pip.midpointDate?.toISOString() ?? null,
@@ -412,6 +554,11 @@ export async function getPerformanceWorkspace() {
       id: session.user.id,
       name: session.user.name ?? session.user.email ?? "User",
       isAdmin: session.user.role === "ADMIN",
+      isAgent,
+    },
+    filters: {
+      from: filters.from ?? "",
+      to: filters.to ?? "",
     },
     access: {
       canViewCoaching: coachingCampaignIds.length > 0,
