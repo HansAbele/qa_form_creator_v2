@@ -142,6 +142,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Procedure check": "Control de procedimiento",
   "Apply P&W checks": "Aplicar controles P&W",
   "This call is not P&W": "Esta llamada no es P&W",
+  Pass: "Aprobado",
   "Pass (Excellent)": "Aprobado (Excelente)",
   Acceptable: "Aceptable",
   "Needs Improvement": "Necesita mejorar",
@@ -150,6 +151,8 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Fail — Critical Failure": "FAIL — Falla crítica",
   "Any critical failure forces FAIL regardless of the total score. Award full points when the entire procedure is correct; otherwise award half points.":
     "Cualquier falla crítica fuerza un FAIL sin importar la puntuación total. Otorga todos los puntos cuando el procedimiento completo sea correcto; de lo contrario, otorga la mitad.",
+  "Use the exact partial-point choices for every criterion. A final score of 95% or higher passes the official HAPUSA quality standard.":
+    "Usa las opciones exactas de puntuación parcial para cada criterio. Una puntuación final de 95% o más aprueba el estándar oficial de calidad de HAPUSA.",
   "Creates a reviewable draft with the 38 official criteria and checks, a 100-point scale, a 95% passing threshold, P&W applicability, and automatic failure for every CF item.":
     "Crea un borrador revisable con los 38 criterios y controles oficiales, escala de 100 puntos, umbral de aprobación de 95%, aplicabilidad P&W y fallo automático para cada elemento CF.",
   "The scorecard is created as a draft so QA management can verify it before publishing.":

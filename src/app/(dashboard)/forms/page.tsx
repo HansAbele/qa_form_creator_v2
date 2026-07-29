@@ -54,10 +54,6 @@ export default async function FormsPage() {
         isOwn: draft.isOwn,
       }))}
       canCreate={!isSupervisor && (isAdmin || creatableCampaigns.length > 0)}
-      templateCampaigns={creatableCampaigns.map((campaign) => ({
-        id: campaign.id,
-        name: campaign.name,
-      }))}
     />
   );
 }

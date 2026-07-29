@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { useI18n } from "@/components/providers/i18n-provider";
@@ -115,6 +115,7 @@ export function CallFinderClient({
   const operationalTimeZone = useOperationalTimeZone();
   const [filters, setFilters] = useState<FilterState>(() => toFilterState(data));
   const [syncPending, startSyncTransition] = useTransition();
+  const autoSyncedCampaignRef = useRef<string | null>(null);
   const filteredAgents = useMemo(
     () =>
       filters.campaignId
@@ -122,7 +123,58 @@ export function CallFinderClient({
         : data.agents,
     [data.agents, filters.campaignId],
   );
+  const visibleSources = useMemo(
+    () =>
+      filters.campaignId
+        ? data.callSources.filter((source) => source.campaignId === filters.campaignId)
+        : data.callSources,
+    [data.callSources, filters.campaignId],
+  );
+  const lastSyncedAt = visibleSources
+    .flatMap((source) => (source.lastSyncedAt ? [source.lastSyncedAt] : []))
+    .sort()
+    .at(0);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
+  const synchronizeCalls = useCallback(
+    (campaignId: string | undefined, automatic = false) => {
+      startSyncTransition(async () => {
+        try {
+          const result = await syncNiceCxoneCalls({ campaignId });
+          if (!automatic) {
+            toast.success(
+              t("NICE CXone synchronized: {created} new, {updated} updated.", {
+                created: result.created,
+                updated: result.updated,
+              }),
+            );
+          }
+          router.refresh();
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : t("Unable to synchronize calls"));
+        }
+      });
+    },
+    [router, t],
+  );
+
+  useEffect(() => {
+    if (!canSyncCalls || !filters.campaignId || visibleSources.length === 0 || syncPending) return;
+    const oldestSyncTime = lastSyncedAt ? new Date(lastSyncedAt).getTime() : 0;
+    const isStale =
+      !Number.isFinite(oldestSyncTime) || Date.now() - oldestSyncTime > 10 * 60 * 1_000;
+    if (!isStale || autoSyncedCampaignRef.current === filters.campaignId) return;
+
+    autoSyncedCampaignRef.current = filters.campaignId;
+    synchronizeCalls(filters.campaignId, true);
+  }, [
+    canSyncCalls,
+    filters.campaignId,
+    lastSyncedAt,
+    syncPending,
+    synchronizeCalls,
+    visibleSources.length,
+  ]);
 
   const updateFilter = (key: keyof FilterState, value: string) => {
     setFilters((current) => ({
@@ -147,30 +199,36 @@ export function CallFinderClient({
             variant="outline"
             className="gap-2"
             disabled={syncPending}
-            onClick={() =>
-              startSyncTransition(async () => {
-                try {
-                  const result = await syncNiceCxoneCalls();
-                  toast.success(
-                    t("NICE CXone synchronized: {created} new, {updated} updated.", {
-                      created: result.created,
-                      updated: result.updated,
-                    }),
-                  );
-                  router.refresh();
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error ? error.message : t("Unable to synchronize calls"),
-                  );
-                }
-              })
-            }
+            onClick={() => synchronizeCalls(filters.campaignId || undefined)}
           >
             <RefreshCw className={cn("size-4", syncPending && "animate-spin")} />
-            {syncPending ? t("Synchronizing calls") : t("Synchronize NICE")}
+            {syncPending
+              ? t("Synchronizing calls")
+              : filters.campaignId
+                ? t("Refresh selected campaign")
+                : t("Refresh all call sources")}
           </Button>
         ) : null}
       </div>
+
+      {visibleSources.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border bg-muted/25 px-4 py-2.5 text-xs text-muted-foreground">
+          <RefreshCw className="size-3.5" />
+          <span>{t("Call data freshness")}:</span>
+          <span className="font-medium text-foreground" suppressHydrationWarning>
+            {lastSyncedAt
+              ? formatOperationalTimestamp(
+                  lastSyncedAt,
+                  operationalTimeZone,
+                  { dateStyle: "medium", timeStyle: "short" },
+                  locale === "es" ? "es-ES" : "en-US",
+                )
+              : t("Never synchronized")}
+          </span>
+          <span>·</span>
+          <span>{t("Use refresh before searching for today's calls.")}</span>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader className="pb-3">
@@ -190,7 +248,14 @@ export function CallFinderClient({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value: string | null) =>
+                      !value || value === "all"
+                        ? t("All campaigns")
+                        : (data.campaigns.find((campaign) => campaign.id === value)?.name ??
+                          t("All campaigns"))
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("All campaigns")}</SelectItem>
@@ -211,7 +276,14 @@ export function CallFinderClient({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value: string | null) => {
+                      if (!value || value === "all") return t("All agents");
+                      const agent = filteredAgents.find((candidate) => candidate.id === value);
+                      if (!agent) return t("All agents");
+                      return agent.agentCode ? `${agent.name} (${agent.agentCode})` : agent.name;
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("All agents")}</SelectItem>
@@ -233,7 +305,13 @@ export function CallFinderClient({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value: string | null) => {
+                      if (!value || value === "all") return t("All providers");
+                      if (value === "NICE_CXONE") return "NICE CXone";
+                      return value === "VICIDIAL" ? "VICIdial" : t("All providers");
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("All providers")}</SelectItem>
@@ -251,7 +329,14 @@ export function CallFinderClient({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value: string | null) => {
+                      if (!value || value === "all") return t("All directions");
+                      if (value === "INBOUND") return t("Inbound");
+                      if (value === "OUTBOUND") return t("Outbound");
+                      return value === "UNKNOWN" ? t("Unknown") : t("All directions");
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("All directions")}</SelectItem>
@@ -528,11 +613,7 @@ function AvailabilityBadge({
     >
       {available ? <CheckCircle2 className="size-3" /> : null}
       <span className="sr-only">{label}: </span>
-      {available
-        ? t("Available")
-        : pending
-          ? (pendingLabel ?? t("Pending"))
-          : t("Not available")}
+      {available ? t("Available") : pending ? (pendingLabel ?? t("Pending")) : t("Not available")}
     </Badge>
   );
 }

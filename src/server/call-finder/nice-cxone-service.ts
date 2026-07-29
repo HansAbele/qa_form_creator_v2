@@ -26,6 +26,10 @@ type ServiceDependencies = {
   persistRecording?: typeof persistRecordingResponse;
 };
 
+type NiceCxoneSyncScope = {
+  campaignId?: string;
+};
+
 export class CallRecordingProviderError extends Error {
   constructor(
     message: string,
@@ -42,12 +46,19 @@ function settingsFromJson(value: Prisma.JsonValue | null) {
   return parsed.data;
 }
 
-export async function syncEnabledNiceCxoneSources(dependencies: ServiceDependencies = {}) {
+export async function syncEnabledNiceCxoneSources(
+  scope: NiceCxoneSyncScope = {},
+  dependencies: ServiceDependencies = {},
+) {
   const database = dependencies.database ?? prisma;
   const now = dependencies.now?.() ?? new Date();
   const adapterFactory = dependencies.adapterFactory ?? createNiceCxoneCallSourceAdapter;
   const sources = await database.campaignCallSource.findMany({
-    where: { provider: InteractionProvider.NICE_CXONE, enabled: true },
+    where: {
+      provider: InteractionProvider.NICE_CXONE,
+      enabled: true,
+      ...(scope.campaignId ? { campaignId: scope.campaignId } : {}),
+    },
     select: {
       id: true,
       campaignId: true,

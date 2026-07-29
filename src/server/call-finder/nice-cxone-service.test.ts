@@ -1,7 +1,11 @@
 import { InteractionProvider } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prismaMock, resetPrismaMock } from "@/test/prisma-mock";
-import { attachNiceCxoneRecording, type CallRecordingProviderError } from "./nice-cxone-service";
+import {
+  attachNiceCxoneRecording,
+  type CallRecordingProviderError,
+  syncEnabledNiceCxoneSources,
+} from "./nice-cxone-service";
 import type { CallSourceAdapter } from "./providers/contracts";
 
 vi.mock("server-only", () => ({}));
@@ -92,6 +96,25 @@ describe("attachNiceCxoneRecording", () => {
     expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ action: "recording_attached" }),
+      }),
+    );
+  });
+});
+
+describe("syncEnabledNiceCxoneSources", () => {
+  it("should scope source discovery to the selected campaign", async () => {
+    prismaMock.campaignCallSource.findMany.mockResolvedValue([]);
+
+    await expect(
+      syncEnabledNiceCxoneSources(
+        { campaignId: "campaign-hapusa" },
+        { database: prismaMock as never },
+      ),
+    ).resolves.toEqual([]);
+
+    expect(prismaMock.campaignCallSource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ campaignId: "campaign-hapusa" }),
       }),
     );
   });

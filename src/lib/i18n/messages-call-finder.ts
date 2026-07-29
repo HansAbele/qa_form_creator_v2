@@ -34,10 +34,16 @@ export const CALL_FINDER_ES_MESSAGES = {
   "NICE CXone ACD recording retrieval is temporarily unavailable.":
     "La recuperaci\u00f3n de grabaciones ACD de NICE CXone no est\u00e1 disponible temporalmente.",
   "Synchronize NICE": "Sincronizar NICE",
+  "Refresh selected campaign": "Actualizar campaña seleccionada",
+  "Refresh all call sources": "Actualizar todas las fuentes de llamadas",
   "Synchronizing calls": "Sincronizando llamadas",
   "Unable to synchronize calls": "No se pudieron sincronizar las llamadas",
   "NICE CXone synchronized: {created} new, {updated} updated.":
     "NICE CXone sincronizado: {created} nuevas, {updated} actualizadas.",
+  "Call data freshness": "Actualización de los datos de llamadas",
+  "Never synchronized": "Nunca sincronizados",
+  "Use refresh before searching for today's calls.":
+    "Usa actualizar antes de buscar las llamadas de hoy.",
   Transcript: "Transcripción",
   "Generate transcript": "Generar transcripción",
   "Queuing transcript": "Encolando transcripción",

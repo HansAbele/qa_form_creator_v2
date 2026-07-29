@@ -907,7 +907,7 @@ describe("form lifecycle", () => {
       data: expect.objectContaining({
         campaignId: "campaign-1",
         templateKey: "PARKER_DAVIS_QA_SCORECARD",
-        templateVersion: "PD-QA-SCORECARD-2026-07",
+        templateVersion: "PD-QA-SCORECARD-2026-07-R2",
         passThresholdOverride: 95,
         status: "DRAFT",
       }),

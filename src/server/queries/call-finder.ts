@@ -175,76 +175,90 @@ export async function getCallFinderPageData(filters: CallFinderFilters) {
   const campaignFilter = await getCallFinderCampaignFilter("evaluate", filters.campaignId);
   const where = buildInteractionWhere(filters, campaignFilter);
 
-  const [totalCount, interactions, campaigns, agents, externalAgents] = await Promise.all([
-    prisma.interaction.count({ where }),
-    prisma.interaction.findMany({
-      where,
-      orderBy: [{ startedAt: "desc" }, { id: "desc" }],
-      skip: (filters.page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      select: {
-        id: true,
-        provider: true,
-        providerInteractionId: true,
-        providerAgentId: true,
-        providerAgentName: true,
-        direction: true,
-        phoneNumber: true,
-        queueName: true,
-        status: true,
-        startedAt: true,
-        durationSeconds: true,
-        hasRecording: true,
-        campaign: { select: { id: true, name: true } },
-        agent: { select: { id: true, name: true, agentCode: true } },
-        disposition: { select: { id: true, name: true, code: true } },
-        response: { select: { id: true, formId: true, status: true } },
-        mediaAssets: {
-          orderBy: { createdAt: "desc" },
-          select: { id: true, durationMs: true },
-          take: 1,
-        },
-        transcripts: {
-          where: {
-            status: {
-              in: [TranscriptionStatus.COMPLETED, TranscriptionStatus.SPEAKERS_UNVERIFIED],
-            },
+  const [totalCount, interactions, campaigns, agents, externalAgents, callSources] =
+    await Promise.all([
+      prisma.interaction.count({ where }),
+      prisma.interaction.findMany({
+        where,
+        orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+        skip: (filters.page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+        select: {
+          id: true,
+          provider: true,
+          providerInteractionId: true,
+          providerAgentId: true,
+          providerAgentName: true,
+          direction: true,
+          phoneNumber: true,
+          queueName: true,
+          status: true,
+          startedAt: true,
+          durationSeconds: true,
+          hasRecording: true,
+          campaign: { select: { id: true, name: true } },
+          agent: { select: { id: true, name: true, agentCode: true } },
+          disposition: { select: { id: true, name: true, code: true } },
+          response: { select: { id: true, formId: true, status: true } },
+          mediaAssets: {
+            orderBy: { createdAt: "desc" },
+            select: { id: true, durationMs: true },
+            take: 1,
           },
-          orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
-          select: { id: true, status: true, isDiarized: true },
-          take: 1,
+          transcripts: {
+            where: {
+              status: {
+                in: [TranscriptionStatus.COMPLETED, TranscriptionStatus.SPEAKERS_UNVERIFIED],
+              },
+            },
+            orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+            select: { id: true, status: true, isDiarized: true },
+            take: 1,
+          },
         },
-      },
-    }),
-    prisma.campaign.findMany({
-      where: toCampaignWhere(campaignFilter),
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.agent.findMany({
-      where: {
-        ...campaignFilter,
-        active: true,
-      },
-      select: { id: true, name: true, agentCode: true, campaignId: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.interaction.findMany({
-      where: {
-        ...campaignFilter,
-        agentId: null,
-        providerAgentId: { not: null },
-        providerAgentName: { not: null },
-      },
-      distinct: ["campaignId", "providerAgentId"],
-      select: {
-        campaignId: true,
-        providerAgentId: true,
-        providerAgentName: true,
-      },
-      orderBy: { providerAgentName: "asc" },
-    }),
-  ]);
+      }),
+      prisma.campaign.findMany({
+        where: toCampaignWhere(campaignFilter),
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.agent.findMany({
+        where: {
+          ...campaignFilter,
+          active: true,
+        },
+        select: { id: true, name: true, agentCode: true, campaignId: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.interaction.findMany({
+        where: {
+          ...campaignFilter,
+          agentId: null,
+          providerAgentId: { not: null },
+          providerAgentName: { not: null },
+        },
+        distinct: ["campaignId", "providerAgentId"],
+        select: {
+          campaignId: true,
+          providerAgentId: true,
+          providerAgentName: true,
+        },
+        orderBy: { providerAgentName: "asc" },
+      }),
+      prisma.campaignCallSource.findMany({
+        where: {
+          ...campaignFilter,
+          enabled: true,
+        },
+        select: {
+          id: true,
+          campaignId: true,
+          provider: true,
+          lastSyncedAt: true,
+        },
+        orderBy: [{ campaignId: "asc" }, { provider: "asc" }],
+      }),
+    ]);
 
   return {
     filters,
@@ -255,6 +269,10 @@ export async function getCallFinderPageData(filters: CallFinderFilters) {
       totalPages: Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
     },
     campaigns,
+    callSources: callSources.map((source) => ({
+      ...source,
+      lastSyncedAt: source.lastSyncedAt?.toISOString() ?? null,
+    })),
     agents: [
       ...agents,
       ...externalAgents.flatMap((agent) =>

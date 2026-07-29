@@ -23,7 +23,9 @@ import {
 } from "@/components/ui/select";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import {
+  HAPUSA_SCORECARD_KEY,
   PARKER_DAVIS_SCORECARD_KEY,
+  isOfficialScorecardKey,
   parseOfficialQuestionLabel,
 } from "@/lib/official-form-templates";
 import {
@@ -229,6 +231,8 @@ export function FormViewer({
 
   const scoringQuestions = useMemo(() => form.questions.map(toScoringQuestion), [form.questions]);
   const isParkerDavisScorecard = form.templateKey === PARKER_DAVIS_SCORECARD_KEY;
+  const isHapusaScorecard = form.templateKey === HAPUSA_SCORECARD_KEY;
+  const isOfficialScorecard = isOfficialScorecardKey(form.templateKey);
   const partsWarrantyQuestionIds = useMemo(
     () =>
       form.questions
@@ -732,9 +736,19 @@ export function FormViewer({
         aria-busy={submitting}
         className="m-0 min-w-0 flex-1 space-y-4 border-0 p-0"
       >
-        {isParkerDavisScorecard && (
-          <section className="overflow-hidden rounded-2xl border border-[#003366]/25 bg-card shadow-sm">
-            <div className="bg-[#003366] px-5 py-5 text-white sm:px-6">
+        {isOfficialScorecard && (
+          <section
+            className={cn(
+              "overflow-hidden rounded-2xl border bg-card shadow-sm",
+              isHapusaScorecard ? "border-teal-800/25" : "border-[#003366]/25",
+            )}
+          >
+            <div
+              className={cn(
+                "px-5 py-5 text-white sm:px-6",
+                isHapusaScorecard ? "bg-teal-800" : "bg-[#003366]",
+              )}
+            >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -764,22 +778,40 @@ export function FormViewer({
             <div className="grid gap-4 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:px-6">
               <div className="space-y-2 text-sm">
                 <p className="flex items-start gap-2 text-muted-foreground">
-                  <ShieldCheck className="mt-0.5 size-4 shrink-0 text-destructive" />
-                  <span>
-                    {t(
-                      "Any critical failure forces FAIL regardless of the total score. Award full points when the entire procedure is correct; otherwise award half points.",
+                  <ShieldCheck
+                    className={cn(
+                      "mt-0.5 size-4 shrink-0",
+                      isHapusaScorecard ? "text-teal-700" : "text-destructive",
                     )}
+                  />
+                  <span>
+                    {isHapusaScorecard
+                      ? t(
+                          "Use the exact partial-point choices for every criterion. A final score of 95% or higher passes the official HAPUSA quality standard.",
+                        )
+                      : t(
+                          "Any critical failure forces FAIL regardless of the total score. Award full points when the entire procedure is correct; otherwise award half points.",
+                        )}
                   </span>
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="outline">95–100 · {t("Pass (Excellent)")}</Badge>
-                  <Badge variant="outline">90–94.9 · {t("Acceptable")}</Badge>
-                  <Badge variant="outline">80–89.9 · {t("Needs Improvement")}</Badge>
-                  <Badge variant="outline">70–79.9 · {t("Below Standard")}</Badge>
-                  <Badge variant="outline">&lt;70 · {t("Unsatisfactory")}</Badge>
+                  {isHapusaScorecard ? (
+                    <>
+                      <Badge variant="outline">95–100 · {t("Pass")}</Badge>
+                      <Badge variant="outline">&lt;95 · {t("Needs Improvement")}</Badge>
+                    </>
+                  ) : (
+                    <>
+                      <Badge variant="outline">95–100 · {t("Pass (Excellent)")}</Badge>
+                      <Badge variant="outline">90–94.9 · {t("Acceptable")}</Badge>
+                      <Badge variant="outline">80–89.9 · {t("Needs Improvement")}</Badge>
+                      <Badge variant="outline">70–79.9 · {t("Below Standard")}</Badge>
+                      <Badge variant="outline">&lt;70 · {t("Unsatisfactory")}</Badge>
+                    </>
+                  )}
                 </div>
               </div>
-              {partsWarrantyQuestionIds.length > 0 && (
+              {isParkerDavisScorecard && partsWarrantyQuestionIds.length > 0 && (
                 <Button
                   type="button"
                   variant={partsWarrantyDisabled ? "default" : "outline"}

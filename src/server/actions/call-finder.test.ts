@@ -99,6 +99,23 @@ describe("Call Finder actions", () => {
       errors: 0,
     });
     expect(revalidatePathMock).toHaveBeenCalledWith("/call-finder");
+    expect(syncSourcesMock).toHaveBeenCalledWith({});
+  });
+
+  it("should synchronize only the selected active campaign", async () => {
+    authMock.mockResolvedValue({ user: { id: "admin-1", role: "ADMIN" } });
+    prismaMock.campaign.findFirst.mockResolvedValue({ id: "campaign-1" });
+    syncSourcesMock.mockResolvedValue([]);
+
+    await expect(syncNiceCxoneCalls({ campaignId: "campaign-1" })).resolves.toMatchObject({
+      sources: 0,
+    });
+
+    expect(prismaMock.campaign.findFirst).toHaveBeenCalledWith({
+      where: { id: "campaign-1", active: true },
+      select: { id: true },
+    });
+    expect(syncSourcesMock).toHaveBeenCalledWith({ campaignId: "campaign-1" });
   });
 
   it("should never attach a recording outside the caller campaign scope", async () => {

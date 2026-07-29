@@ -15,6 +15,9 @@ import { hasDiarizationProviderConfigured } from "@/server/call-finder/transcrip
 import { getCallFinderCampaignFilter } from "@/server/queries/call-finder";
 
 const interactionIdSchema = z.string().trim().min(1).max(100);
+const syncScopeSchema = z
+  .object({ campaignId: z.string().trim().min(1).max(100).optional() })
+  .default({});
 const transcriptionOptionsSchema = z
   .object({ requireDiarization: z.boolean().default(false) })
   .default({ requireDiarization: false });
@@ -41,9 +44,10 @@ const speakerAssignmentsSchema = z
     }
   });
 
-export async function syncNiceCxoneCalls() {
+export async function syncNiceCxoneCalls(input?: unknown) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
+  const scope = syncScopeSchema.parse(input);
   if (session.user.role !== "ADMIN") {
     await writeAuditLog({
       userId: session.user.id,
@@ -55,7 +59,15 @@ export async function syncNiceCxoneCalls() {
     throw new Error("Only administrators can synchronize call sources");
   }
 
-  const results = await syncEnabledNiceCxoneSources();
+  if (scope.campaignId) {
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: scope.campaignId, active: true },
+      select: { id: true },
+    });
+    if (!campaign) throw new Error("Campaign not found");
+  }
+
+  const results = await syncEnabledNiceCxoneSources(scope);
   for (const result of results) {
     await writeAuditLog({
       userId: session.user.id,

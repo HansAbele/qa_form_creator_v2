@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { formMutationSchema } from "@/types/form-builder";
 import {
+  HAPUSA_SCORECARD,
+  HAPUSA_SCORECARD_KEY,
   PARKER_DAVIS_SCORECARD,
+  PARKER_DAVIS_SCORECARD_KEY,
+  isOfficialScorecardKey,
   parseOfficialQuestionLabel,
   resolveScorecardBand,
 } from "./official-form-templates";
@@ -16,7 +20,7 @@ describe("Parker Davis official QA scorecard", () => {
 
     expect(scoredQuestions).toHaveLength(13);
     expect(scoredQuestions.reduce((total, question) => total + question.weight, 0)).toBe(100);
-    expect(PARKER_DAVIS_SCORECARD.questions).toHaveLength(38);
+    expect(PARKER_DAVIS_SCORECARD.questions).toHaveLength(37);
     expect(fatalQuestions).toHaveLength(9);
     expect(fatalQuestions.every((question) => question.fatalOptions?.includes("No"))).toBe(true);
   });
@@ -106,5 +110,39 @@ describe("Parker Davis official QA scorecard", () => {
     expect(result.score).toBe(100);
     expect(result.hasFatalFail).toBe(true);
     expect(result.result).toBe("FAIL");
+  });
+});
+
+describe("HAPUSA official QA scorecard", () => {
+  it("preserves the official 27-question, 100-point structure", () => {
+    expect(HAPUSA_SCORECARD.questions).toHaveLength(27);
+    expect(HAPUSA_SCORECARD.questions.reduce((total, question) => total + question.weight, 0)).toBe(
+      100,
+    );
+    expect(
+      HAPUSA_SCORECARD.questions.filter(
+        (question) => question.qaCategoryName === "Account Verification",
+      ),
+    ).toHaveLength(5);
+    expect(
+      HAPUSA_SCORECARD.questions.filter(
+        (question) =>
+          question.qaCategoryName === "Problem Solving an account and Working the Account",
+      ),
+    ).toHaveLength(8);
+  });
+
+  it("keeps every allowed integer partial score and the 95% threshold", () => {
+    const tenPointQuestion = HAPUSA_SCORECARD.questions.find((question) => question.weight === 10);
+
+    expect(tenPointQuestion?.optionPoints).toEqual([10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+    expect(resolveScorecardBand(HAPUSA_SCORECARD.gradingScale, 95, false)?.result).toBe("PASS");
+    expect(resolveScorecardBand(HAPUSA_SCORECARD.gradingScale, 94.99, false)?.result).toBe("FAIL");
+  });
+
+  it("recognizes both governed scorecard families", () => {
+    expect(isOfficialScorecardKey(PARKER_DAVIS_SCORECARD_KEY)).toBe(true);
+    expect(isOfficialScorecardKey(HAPUSA_SCORECARD_KEY)).toBe(true);
+    expect(isOfficialScorecardKey("CUSTOM")).toBe(false);
   });
 });
