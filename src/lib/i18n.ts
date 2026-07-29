@@ -1,5 +1,6 @@
 import { ANALYTICS_ES_MESSAGES } from "@/lib/i18n/messages-analytics";
 import { ADMIN_SETTINGS_ES_MESSAGES } from "@/lib/i18n/messages-admin-settings";
+import { CALL_FINDER_ES_MESSAGES } from "@/lib/i18n/messages-call-finder";
 import { FORMS_EVALUATIONS_ES_MESSAGES } from "@/lib/i18n/messages-forms-evaluations";
 
 export const SUPPORTED_LOCALES = ["en", "es"] as const;
@@ -96,6 +97,7 @@ const spanishMessages: Record<string, string> = {
   ...ANALYTICS_ES_MESSAGES,
   ...FORMS_EVALUATIONS_ES_MESSAGES,
   ...ADMIN_SETTINGS_ES_MESSAGES,
+  ...CALL_FINDER_ES_MESSAGES,
   ...CORE_ES_MESSAGES,
 };
 

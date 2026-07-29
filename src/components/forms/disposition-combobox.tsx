@@ -41,6 +41,7 @@ interface Props {
   canManageDispositions: boolean;
   initialDisposition?: DispositionItem | null;
   error?: string;
+  disabled?: boolean;
 }
 
 function getActionErrorMessage(error: unknown, fallback: string) {
@@ -55,6 +56,7 @@ export function DispositionCombobox({
   canManageDispositions,
   initialDisposition = null,
   error,
+  disabled = false,
 }: Props) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -224,7 +226,7 @@ export function DispositionCombobox({
         </span>
         <span className="sr-only"> {t("(required)")}</span>
       </Label>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={disabled ? false : open} onOpenChange={disabled ? undefined : setOpen}>
         <PopoverTrigger
           render={
             <Button
@@ -240,6 +242,7 @@ export function DispositionCombobox({
               }
               aria-invalid={Boolean(error || currentActionError)}
               aria-required="true"
+              disabled={disabled}
               className={cn(
                 "w-full justify-between font-normal",
                 !value && "text-muted-foreground",

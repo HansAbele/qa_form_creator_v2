@@ -96,6 +96,7 @@ const responseMutationSchema = z
     formId: z.string().trim().min(1),
     agentId: z.string().trim().min(1),
     dispositionId: z.string().trim().min(1).nullable(),
+    interactionId: z.string().trim().min(1).nullable().optional(),
     answers: z.array(responseAnswerSchema).max(MAX_ANSWERS_PER_SUBMISSION),
   })
   .strict()
@@ -167,6 +168,7 @@ type ExistingResponseForMutation = {
   agentId: string;
   evaluatorId: string;
   dispositionId: string | null;
+  interactionId: string | null;
   score: Prisma.Decimal;
   result: string | null;
   hasFatalFail: boolean;
@@ -180,6 +182,11 @@ type ExistingResponseForMutation = {
   submittedAt: Date | null;
   cancellationReason: string | null;
   form: { campaignId: string };
+  interaction: {
+    campaignId: string;
+    agentId: string | null;
+    dispositionId: string | null;
+  } | null;
   answers: {
     questionId: string;
     value: string;
@@ -268,7 +275,14 @@ async function assertResponsePermissionOrUnavailable(
 }
 
 function hasMutationResponseIntegrity(response: ExistingResponseForMutation) {
-  return response.answers.every((answer) => answer.question.formId === response.formId);
+  return (
+    response.answers.every((answer) => answer.question.formId === response.formId) &&
+    (!response.interaction ||
+      (response.interaction.campaignId === response.form.campaignId &&
+        (!response.interaction.agentId || response.interaction.agentId === response.agentId) &&
+        (!response.interaction.dispositionId ||
+          response.interaction.dispositionId === response.dispositionId)))
+  );
 }
 
 function isPrismaErrorCode(error: unknown, code: string) {
@@ -354,6 +368,9 @@ export async function getResponseById(id: string) {
       agent: { select: { id: true, name: true, agentCode: true, campaignId: true } },
       evaluator: { select: { id: true, name: true } },
       disposition: { select: { id: true, name: true, code: true, campaignId: true } },
+      interaction: {
+        select: { campaignId: true, agentId: true, dispositionId: true },
+      },
       answers: {
         include: {
           question: {
@@ -388,6 +405,11 @@ export async function getResponseById(id: string) {
   if (
     response.agent.campaignId !== response.form.campaignId ||
     (response.disposition && response.disposition.campaignId !== response.form.campaignId) ||
+    (response.interaction &&
+      (response.interaction.campaignId !== response.form.campaignId ||
+        (response.interaction.agentId && response.interaction.agentId !== response.agentId) ||
+        (response.interaction.dispositionId &&
+          response.interaction.dispositionId !== response.dispositionId))) ||
     response.answers.some((answer) => answer.question.formId !== response.form.id)
   ) {
     failResponseUnavailable();
@@ -638,6 +660,7 @@ function existingResponseAuditValue(response: ExistingResponseForMutation) {
     formId: response.formId,
     agentId: response.agentId,
     dispositionId: response.dispositionId,
+    interactionId: response.interactionId,
     evaluatorId: response.evaluatorId,
     score: Number(response.score),
     result: response.result,
@@ -674,6 +697,9 @@ async function loadExistingResponse(
     },
     include: {
       form: { select: { campaignId: true } },
+      interaction: {
+        select: { campaignId: true, agentId: true, dispositionId: true },
+      },
       answers: {
         select: {
           questionId: true,
@@ -747,6 +773,7 @@ function isSameCreateContext(
   const sameStableIdentity =
     response.evaluatorId === evaluatorId &&
     response.formId === input.formId &&
+    (response.interactionId ?? null) === (input.interactionId ?? null) &&
     response.status === status;
 
   if (!sameStableIdentity || status === RESPONSE_STATUS.DRAFT) {
@@ -777,6 +804,9 @@ async function saveEvaluation(
     // Never use the caller-supplied Form ID to hydrate data during an edit. The
     // scoped Response is the authority for the relation and must match first.
     if (existing.formId !== input.formId) failFormUnavailable();
+    if ((existing.interactionId ?? null) !== (input.interactionId ?? null)) {
+      failResponseUnavailable();
+    }
   }
 
   const form = await loadMutationForm(
@@ -790,10 +820,7 @@ async function saveEvaluation(
     failResponseAction("INVALID_STATE", "A cancelled evaluation cannot be modified");
   }
   if (existing && status === RESPONSE_STATUS.DRAFT && existing.status !== RESPONSE_STATUS.DRAFT) {
-    failResponseAction(
-      "INVALID_STATE",
-      "Draft changes can only be saved for draft evaluations",
-    );
+    failResponseAction("INVALID_STATE", "Draft changes can only be saved for draft evaluations");
   }
 
   if (
@@ -817,7 +844,7 @@ async function saveEvaluation(
     failResponseAction("VALIDATION", "The evaluation contains invalid answers");
   }
 
-  const [agent, disposition, scoringSettings] = await Promise.all([
+  const [agent, disposition, interaction, scoringSettings] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: input.agentId },
       select: { campaignId: true, active: true, name: true, agentCode: true },
@@ -826,6 +853,17 @@ async function saveEvaluation(
       ? prisma.disposition.findUnique({
           where: { id: input.dispositionId },
           select: { campaignId: true, active: true },
+        })
+      : Promise.resolve(null),
+    input.interactionId
+      ? prisma.interaction.findUnique({
+          where: { id: input.interactionId },
+          select: {
+            campaignId: true,
+            agentId: true,
+            dispositionId: true,
+            response: { select: { id: true } },
+          },
         })
       : Promise.resolve(null),
     getCampaignScoringSettings(form.campaignId),
@@ -846,6 +884,17 @@ async function saveEvaluation(
         (!disposition.active && !keepsHistoricalDisposition)))
   ) {
     failResponseAction("VALIDATION", "Invalid disposition for this campaign");
+  }
+
+  if (
+    input.interactionId &&
+    (!interaction ||
+      interaction.campaignId !== form.campaignId ||
+      (interaction.agentId !== null && interaction.agentId !== input.agentId) ||
+      (interaction.dispositionId !== null && interaction.dispositionId !== input.dispositionId) ||
+      (interaction.response !== null && interaction.response.id !== existing?.id))
+  ) {
+    failResponseAction("VALIDATION", "The selected call is unavailable for this evaluation");
   }
 
   const scoringPolicy = resolveResponseScoringPolicy(existing, scoringSettings);
@@ -933,6 +982,7 @@ async function saveEvaluation(
           agentId: input.agentId,
           evaluatorId: existing?.evaluatorId ?? session.user.id,
           dispositionId: input.dispositionId,
+          interactionId: input.interactionId ?? null,
           score,
           formVersion:
             isHistoricalCorrection && existing?.formVersion ? existing.formVersion : form.version,
@@ -998,6 +1048,7 @@ async function saveEvaluation(
               formId: input.formId,
               agentId: input.agentId,
               dispositionId: input.dispositionId,
+              interactionId: input.interactionId ?? null,
               score,
               result,
               hasFatalFail,
@@ -1035,7 +1086,12 @@ async function saveEvaluation(
           session.user,
           "CREATE_REPLAY",
         );
-        if (!replayedResponse) failResponseUnavailable();
+        if (!replayedResponse) {
+          if (input.interactionId) {
+            failResponseAction("INVALID_STATE", "The selected call already has an evaluation.");
+          }
+          failResponseUnavailable();
+        }
         await assertResponsePermissionOrUnavailable(
           session.user,
           replayedResponse,

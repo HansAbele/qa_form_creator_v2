@@ -53,6 +53,51 @@ enum DispositionOutcome {
   OTHER
 }
 
+enum InteractionProvider {
+  NICE_CXONE
+  VICIDIAL
+}
+
+enum InteractionDirection {
+  INBOUND
+  OUTBOUND
+  UNKNOWN
+}
+
+enum MediaAssetKind {
+  ORIGINAL
+  PLAYBACK
+}
+
+enum TranscriptProvider {
+  NICE_CXONE
+  NVIDIA_NIM
+  GROQ
+  DEEPGRAM
+  OPENAI
+}
+
+enum TranscriptionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  SPEAKERS_UNVERIFIED
+}
+
+enum TranscriptionJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum SpeakerRole {
+  AGENT
+  CUSTOMER
+  UNKNOWN
+}
+
 // ─── Auth.js required models ─────────────────────────
 
 model Account {
@@ -107,13 +152,13 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  accounts                Account[]
-  sessions                Session[]
-  campaigns               UserCampaign[]
-  forms                   Form[]                   @relation("FormCreator")
-  responses               Response[]               @relation("Evaluator")
-  dispositionsCreated     Disposition[]            @relation("DispositionCreator")
-  auditLogs               AuditLog[]               @relation("AuditActor")
+  accounts            Account[]
+  sessions            Session[]
+  campaigns           UserCampaign[]
+  forms               Form[]         @relation("FormCreator")
+  responses           Response[]     @relation("Evaluator")
+  dispositionsCreated Disposition[]  @relation("DispositionCreator")
+  auditLogs           AuditLog[]     @relation("AuditActor")
 }
 
 model Campaign {
@@ -132,6 +177,8 @@ model Campaign {
   dispositions          Disposition[]
   auditLogs             AuditLog[]
   scoringSettings       CampaignScoringSettings?
+  callSources           CampaignCallSource[]
+  interactions          Interaction[]
 }
 
 model UserCampaign {
@@ -202,10 +249,11 @@ model Disposition {
   createdById String?
   createdAt   DateTime            @default(now())
 
-  category  DispositionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  campaign  Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  createdBy User?                @relation("DispositionCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  responses Response[]
+  category     DispositionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  campaign     Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdBy    User?                @relation("DispositionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  responses    Response[]
+  interactions Interaction[]
 
   @@unique([name, campaignId])
   @@index([campaignId, active])
@@ -222,9 +270,10 @@ model Agent {
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
 
-  campaign  Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  team      Team?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  responses Response[]
+  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  team         Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  responses    Response[]
+  interactions Interaction[]
 
   @@unique([agentCode, campaignId])
 }
@@ -344,11 +393,13 @@ model Response {
   cancelledAt        DateTime?
   cancelledById      String?
   cancellationReason String?
+  interactionId      String?   @unique
 
   form        Form         @relation(fields: [formId], references: [id])
   agent       Agent        @relation(fields: [agentId], references: [id])
   evaluator   User         @relation("Evaluator", fields: [evaluatorId], references: [id])
   disposition Disposition? @relation(fields: [dispositionId], references: [id])
+  interaction Interaction? @relation(fields: [interactionId], references: [id], onDelete: SetNull)
   answers     Answer[]
 
   @@index([formId, createdAt])
@@ -363,6 +414,185 @@ model Response {
   @@index([formId, status, submittedAt, id])
   @@index([dispositionId, status, submittedAt, id])
   @@index([cancelledById])
+}
+
+// ─── Call Finder ─────────────────────────────────────────────────────────────
+
+model CampaignCallSource {
+  id                  String              @id @default(cuid())
+  campaignId          String
+  provider            InteractionProvider
+  instanceKey         String              @default("default")
+  externalCampaignIds String[]            @default([])
+  enabled             Boolean             @default(true)
+  settings            Json?
+  lastSyncedAt        DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, provider, instanceKey])
+  @@index([provider, instanceKey, enabled])
+}
+
+model Interaction {
+  id                    String               @id @default(cuid())
+  campaignId            String
+  agentId               String?
+  dispositionId         String?
+  provider              InteractionProvider
+  providerInstance      String               @default("default")
+  providerInteractionId String
+  providerAgentId       String?
+  providerAgentName     String?
+  providerCampaignId    String?
+  direction             InteractionDirection @default(UNKNOWN)
+  phoneNumber           String?
+  queueName             String?
+  status                String?
+  startedAt             DateTime
+  endedAt               DateTime?
+  durationSeconds       Int                  @default(0)
+  hasRecording          Boolean              @default(false)
+  metadata              Json?
+  lastSyncedAt          DateTime             @default(now())
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  campaign              Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  agent                 Agent?                 @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  disposition           Disposition?           @relation(fields: [dispositionId], references: [id], onDelete: SetNull)
+  response              Response?
+  mediaAssets           MediaAsset[]
+  transcripts           Transcript[]
+  transcriptionAttempts TranscriptionAttempt[]
+  transcriptionJobs     TranscriptionJob[]
+
+  @@unique([provider, providerInstance, providerInteractionId])
+  @@index([campaignId, startedAt])
+  @@index([agentId, startedAt])
+  @@index([providerAgentName])
+  @@index([dispositionId, startedAt])
+  @@index([phoneNumber])
+}
+
+model MediaAsset {
+  id               String         @id @default(cuid())
+  interactionId    String
+  kind             MediaAssetKind @default(ORIGINAL)
+  storageKey       String         @unique
+  originalFileName String?
+  mimeType         String
+  byteSize         BigInt
+  sha256           String         @db.VarChar(64)
+  durationMs       Int?
+  channelCount     Int?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  interaction           Interaction            @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  transcripts           Transcript[]
+  transcriptionAttempts TranscriptionAttempt[]
+  transcriptionJobs     TranscriptionJob[]
+
+  @@index([interactionId, kind])
+  @@index([sha256])
+}
+
+model Transcript {
+  id             String              @id @default(cuid())
+  interactionId  String
+  mediaAssetId   String?
+  provider       TranscriptProvider
+  model          String
+  language       String?
+  status         TranscriptionStatus @default(PENDING)
+  jobFingerprint String              @db.VarChar(64)
+  fullText       String?             @db.Text
+  isDiarized     Boolean             @default(false)
+  speakerCount   Int?
+  errorCode      String?
+  errorMessage   String?             @db.Text
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  interaction Interaction            @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  mediaAsset  MediaAsset?            @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  segments    TranscriptSegment[]
+  attempts    TranscriptionAttempt[]
+  jobs        TranscriptionJob[]
+
+  @@unique([mediaAssetId, provider, model, jobFingerprint])
+  @@index([interactionId, status, completedAt])
+}
+
+model TranscriptSegment {
+  id           String      @id @default(cuid())
+  transcriptId String
+  ordinal      Int
+  startMs      Int
+  endMs        Int
+  speakerKey   String?
+  speakerRole  SpeakerRole @default(UNKNOWN)
+  text         String      @db.Text
+  confidence   Float?
+
+  transcript Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  @@unique([transcriptId, ordinal])
+  @@index([transcriptId, startMs])
+}
+
+model TranscriptionAttempt {
+  id            String              @id @default(cuid())
+  interactionId String
+  mediaAssetId  String?
+  transcriptId  String?
+  provider      TranscriptProvider
+  model         String
+  status        TranscriptionStatus
+  attemptNumber Int                 @default(1)
+  errorCode     String?
+  errorMessage  String?             @db.Text
+  startedAt     DateTime            @default(now())
+  completedAt   DateTime?
+
+  interaction Interaction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  mediaAsset  MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  transcript  Transcript? @relation(fields: [transcriptId], references: [id], onDelete: SetNull)
+
+  @@index([interactionId, startedAt])
+  @@index([provider, status, startedAt])
+}
+
+model TranscriptionJob {
+  id                 String                 @id @default(cuid())
+  interactionId      String
+  mediaAssetId       String
+  transcriptId       String?
+  requestedById      String?
+  requireDiarization Boolean                @default(false)
+  status             TranscriptionJobStatus @default(PENDING)
+  attemptCount       Int                    @default(0)
+  maxAttempts        Int                    @default(3)
+  runAfter           DateTime               @default(now())
+  lockedAt           DateTime?
+  completedAt        DateTime?
+  lastErrorCode      String?
+  lastErrorMessage   String?                @db.Text
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  interaction Interaction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  mediaAsset  MediaAsset  @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  transcript  Transcript? @relation(fields: [transcriptId], references: [id], onDelete: SetNull)
+
+  @@index([status, runAfter, createdAt])
+  @@index([interactionId, createdAt])
+  @@index([mediaAssetId, createdAt])
 }
 
 model Answer {

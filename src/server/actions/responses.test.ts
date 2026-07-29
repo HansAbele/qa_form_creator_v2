@@ -321,6 +321,63 @@ describe("submitResponse validation and RBAC", () => {
     expect(prismaMock.userCampaign.findUnique).not.toHaveBeenCalled();
   });
 
+  it("links an available call to a new evaluation", async () => {
+    prismaMock.interaction.findUnique.mockResolvedValue({
+      campaignId: "campaign-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      response: null,
+    });
+
+    await submitResponse({
+      clientResponseId: CLIENT_RESPONSE_ID,
+      formId: "form-1",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      interactionId: "interaction-1",
+      answers: [
+        { questionId: "q-rating", value: "4" },
+        { questionId: "q-select", value: "Good" },
+      ],
+    });
+
+    expect(prismaMock.response.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ interactionId: "interaction-1" }),
+      }),
+    );
+  });
+
+  it("rejects a call that crosses the evaluation campaign boundary", async () => {
+    prismaMock.interaction.findUnique.mockResolvedValue({
+      campaignId: "campaign-2",
+      agentId: "agent-1",
+      dispositionId: "disp-1",
+      response: null,
+    });
+
+    await expect(
+      submitResponseAction({
+        clientResponseId: CLIENT_RESPONSE_ID,
+        formId: "form-1",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        interactionId: "interaction-2",
+        answers: [
+          { questionId: "q-rating", value: "4" },
+          { questionId: "q-select", value: "Good" },
+        ],
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: "VALIDATION",
+        message: "The selected call is unavailable for this evaluation",
+      },
+    });
+    expect(prismaMock.response.create).not.toHaveBeenCalled();
+  });
+
   it("returns the same form contract when a new evaluation form is missing or outside scope", async () => {
     prismaMock.form.findUnique.mockResolvedValue(null);
 
@@ -1465,8 +1522,7 @@ describe("submitResponse validation and RBAC", () => {
       ok: false,
       error: {
         code: "CONFLICT",
-        message:
-          "The evaluation was modified in another session. Reload the page and try again",
+        message: "The evaluation was modified in another session. Reload the page and try again",
       },
     });
 
@@ -1610,8 +1666,7 @@ describe("submitResponse validation and RBAC", () => {
       ok: false,
       error: {
         code: "CONFLICT",
-        message:
-          "The evaluation was modified in another session. Reload the page and try again",
+        message: "The evaluation was modified in another session. Reload the page and try again",
       },
     });
 

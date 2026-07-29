@@ -1,7 +1,13 @@
 import type { Instrumentation } from "next";
 
-export function register() {
-  // Reserved for runtime-specific providers. Structured logging is initialized on import.
+export async function register() {
+  if (
+    process.env.NEXT_RUNTIME === "nodejs" &&
+    process.env.NEXT_PHASE !== "phase-production-build"
+  ) {
+    const { startTranscriptionWorker } = await import("@/server/call-finder/transcription-queue");
+    startTranscriptionWorker();
+  }
 }
 
 export const onRequestError: Instrumentation.onRequestError = async (error, request, context) => {

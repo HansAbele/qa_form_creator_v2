@@ -19,6 +19,10 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  InteractionMediaPanel,
+  type InteractionMediaContext,
+} from "@/components/call-finder/interaction-media-panel";
+import {
   DataLoadError,
   type DataLoadStatus,
   RestrictedResourceState,
@@ -81,6 +85,7 @@ interface ResponseDetailData {
   };
   evaluator: { id: string; name: string };
   disposition: { id: string; name: string; code: string | null } | null;
+  interaction: InteractionMediaContext | null;
   answers: Answer[];
 }
 
@@ -284,6 +289,8 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
           </div>
         </CardContent>
       </Card>
+
+      {data.interaction ? <InteractionMediaPanel interaction={data.interaction} /> : null}
 
       <div className="grid gap-4 md:grid-cols-3">
         <InfoCard

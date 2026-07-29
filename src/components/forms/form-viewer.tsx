@@ -5,10 +5,13 @@ import { AlertTriangle, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  type InteractionMediaContext,
+  InteractionMediaPanel,
+} from "@/components/call-finder/interaction-media-panel";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -96,6 +99,17 @@ interface FormViewerProps {
       notApplicable: boolean;
     }[];
   } | null;
+  linkedInteraction?:
+    | (InteractionMediaContext & {
+        agent: AgentOption | null;
+        disposition: {
+          id: string;
+          name: string;
+          code: string | null;
+          category: null;
+        } | null;
+      })
+    | null;
 }
 
 interface AgentOption {
@@ -151,6 +165,7 @@ export function FormViewer({
   fatalZeroesScore,
   canManageDispositions,
   initialResponse = null,
+  linkedInteraction = null,
 }: FormViewerProps) {
   const { locale, t } = useI18n();
   const router = useRouter();
@@ -164,11 +179,15 @@ export function FormViewer({
   const initialNotApplicable = Object.fromEntries(
     (initialResponse?.answers ?? []).map((answer) => [answer.questionId, answer.notApplicable]),
   );
-  const [agents, setAgents] = useState<AgentOption[]>(
-    initialResponse?.agent ? [initialResponse.agent] : [],
+  const initialAgent = initialResponse?.agent ?? linkedInteraction?.agent ?? null;
+  const initialDisposition = initialResponse?.disposition ?? linkedInteraction?.disposition ?? null;
+  const [agents, setAgents] = useState<AgentOption[]>(initialAgent ? [initialAgent] : []);
+  const [agentId, setAgentId] = useState(
+    initialResponse?.agentId ?? linkedInteraction?.agent?.id ?? "",
   );
-  const [agentId, setAgentId] = useState(initialResponse?.agentId ?? "");
-  const [dispositionId, setDispositionId] = useState(initialResponse?.dispositionId ?? "");
+  const [dispositionId, setDispositionId] = useState(
+    initialResponse?.dispositionId ?? linkedInteraction?.disposition?.id ?? "",
+  );
   const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [comments, setComments] = useState<Record<string, string>>(initialComments);
   const [notApplicable, setNotApplicableState] =
@@ -309,6 +328,7 @@ export function FormViewer({
       formId: form.id,
       agentId,
       dispositionId: dispositionId || null,
+      interactionId: linkedInteraction?.id ?? null,
       answers: form.questions.map((question) => ({
         questionId: question.id,
         value: notApplicable[question.id] ? "" : (answers[question.id] ?? ""),
@@ -316,7 +336,16 @@ export function FormViewer({
         notApplicable: Boolean(notApplicable[question.id]),
       })),
     }),
-    [agentId, answers, comments, dispositionId, form.id, form.questions, notApplicable],
+    [
+      agentId,
+      answers,
+      comments,
+      dispositionId,
+      form.id,
+      form.questions,
+      linkedInteraction?.id,
+      notApplicable,
+    ],
   );
 
   const hasLocalAnswerContent = form.questions.some(
@@ -623,7 +652,13 @@ export function FormViewer({
       responseVersionRef.current = response.updatedAt;
       setLastSavedPayload(JSON.stringify(buildPayload(response.id)));
       toast.success(isEditingSubmitted ? t("Evaluation updated") : t("Evaluation submitted"));
-      router.push(isEditingSubmitted ? `/evaluations/${initialResponse?.id}` : "/forms");
+      router.push(
+        isEditingSubmitted
+          ? `/evaluations/${initialResponse?.id}`
+          : linkedInteraction
+            ? `/evaluations/${response.id}`
+            : "/forms",
+      );
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? t(error.message) : t("Unable to submit evaluation"));
@@ -640,7 +675,7 @@ export function FormViewer({
     if (hasUnsavedChanges && !window.confirm(t("You have unsaved changes. Leave anyway?"))) {
       return;
     }
-    router.push("/forms");
+    router.push(linkedInteraction ? `/call-finder/${linkedInteraction.id}` : "/forms");
   };
 
   return (
@@ -651,6 +686,9 @@ export function FormViewer({
         aria-busy={submitting}
         className="m-0 min-w-0 flex-1 space-y-4 border-0 p-0"
       >
+        {linkedInteraction ? (
+          <InteractionMediaPanel interaction={linkedInteraction} compact />
+        ) : null}
         {/* Context bar */}
         <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
           <div className="space-y-1">
@@ -659,6 +697,7 @@ export function FormViewer({
             </Label>
             <Select
               value={agentId}
+              disabled={Boolean(linkedInteraction?.agent)}
               onValueChange={(value) => {
                 if (!value) return;
                 setAgentId(value);
@@ -707,8 +746,9 @@ export function FormViewer({
                 setContextErrors((current) => ({ ...current, disposition: undefined }));
               }}
               canManageDispositions={canManageDispositions}
-              initialDisposition={initialResponse?.disposition ?? null}
+              initialDisposition={initialDisposition}
               error={contextErrors.disposition}
+              disabled={Boolean(linkedInteraction?.disposition)}
             />
           </div>
           <div className="space-y-1">
@@ -721,7 +761,7 @@ export function FormViewer({
             <p className="text-xs text-muted-foreground">{t("Date")}</p>
             <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm capitalize">
               {formatOperationalTimestamp(
-                new Date(),
+                linkedInteraction ? new Date(linkedInteraction.startedAt) : new Date(),
                 operationalTimeZone,
                 { day: "numeric", month: "short", year: "numeric" },
                 locale === "es" ? "es-ES" : "en-US",
@@ -754,9 +794,9 @@ export function FormViewer({
           const earnedPct = cat ? (cat.earned / totalWeight) * 100 : 0;
           const weightPct = cat ? (cat.weight / totalWeight) * 100 : 0;
           return (
-            <Card key={group.id}>
+            <section key={group.id} className="space-y-3">
               <div
-                className="flex flex-wrap items-center gap-2 rounded-t-xl border-b border-border px-4 py-3"
+                className="flex flex-wrap items-center gap-2 rounded-xl px-4 py-3 shadow-sm ring-1 ring-border/60 ring-inset"
                 style={{ backgroundColor: tintFor(group.color) }}
               >
                 <span
@@ -775,7 +815,7 @@ export function FormViewer({
                   </span>
                 )}
               </div>
-              <CardContent className="space-y-3 p-4">
+              <div className="space-y-3">
                 {group.questions.map((question, i) => (
                   <QuestionRenderer
                     key={question.id}
@@ -794,8 +834,8 @@ export function FormViewer({
                     ratingStyle={question.ratingStyle as RatingStyleValue | null}
                   />
                 ))}
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           );
         })}
 

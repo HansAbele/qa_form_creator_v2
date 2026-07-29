@@ -14,6 +14,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   Action: "Acción",
   "Add at least one question": "Agrega al menos una pregunta",
   "Add context for this rule...": "Agrega contexto para esta regla...",
+  "Add QA comment": "Agregar comentario QA",
   "Add question": "Agregar pregunta",
   "Add question to {category}": "Agregar pregunta a {category}",
   "Add scored questions to balance their weights.":
@@ -36,8 +37,10 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   Archived: "Archivado",
   "Assign {remaining}% more to reach 100%": "Asigna {remaining}% más para llegar al 100%",
   "Average Score": "Puntuación promedio",
+  "{score} of {max} points": "{score} de {max} puntos",
   Back: "Volver",
   Campaign: "Campaña",
+  Optional: "Opcional",
   Cancel: "Cancelar",
   "Cancel evaluation": "Anular evaluación",
   "Cancellation reason": "Motivo de anulación",

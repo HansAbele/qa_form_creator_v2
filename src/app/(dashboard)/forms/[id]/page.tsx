@@ -11,6 +11,10 @@ import {
   getFormForEvaluationDraft,
 } from "@/server/actions/forms";
 import { getResponseById } from "@/server/actions/responses";
+import {
+  getInteractionForEvaluation,
+  getInteractionForResponse,
+} from "@/server/queries/call-finder";
 import { hasCampaignPermissionForUser } from "@/server/queries/campaign-filter";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 
@@ -19,7 +23,7 @@ export default async function FormEvaluatePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ responseId?: string }>;
+  searchParams: Promise<{ responseId?: string; interactionId?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -49,6 +53,23 @@ export default async function FormEvaluatePage({
         : initialResponse
           ? await getFormForEvaluationDraft(id)
           : await getFormForEvaluation(id);
+  const linkedInteraction = initialResponse?.interactionId
+    ? await getInteractionForResponse(initialResponse.interactionId, id, initialResponse.id)
+    : sp.interactionId
+      ? await getInteractionForEvaluation(sp.interactionId, id)
+      : null;
+
+  if ((initialResponse?.interactionId || sp.interactionId) && !linkedInteraction) {
+    redirect("/call-finder");
+  }
+  if (!initialResponse && linkedInteraction?.response) {
+    redirect(
+      linkedInteraction.response.status === "DRAFT"
+        ? `/forms/${linkedInteraction.response.formId}?responseId=${linkedInteraction.response.id}`
+        : `/evaluations/${linkedInteraction.response.id}`,
+    );
+  }
+
   const [scoringSettings, canManageDispositions] = await Promise.all([
     getCampaignScoringSettings(form.campaignId),
     hasCampaignPermissionForUser(session.user, form.campaignId, "canManageDispositions"),
@@ -62,11 +83,44 @@ export default async function FormEvaluatePage({
         {initialResponse?.status === "SUBMITTED" ? t("Edit Evaluation") : t("New Evaluation")}
       </h1>
       <FormViewer
-        key={initialResponse?.id ?? `new:${form.id}`}
+        key={initialResponse?.id ?? `new:${form.id}:${linkedInteraction?.id ?? "manual"}`}
         form={form}
         passThreshold={viewerScoringPolicy.passThreshold}
         fatalZeroesScore={viewerScoringPolicy.fatalZeroesScore}
         canManageDispositions={canManageDispositions}
+        linkedInteraction={
+          linkedInteraction
+            ? {
+                id: linkedInteraction.id,
+                provider: linkedInteraction.provider,
+                providerInteractionId: linkedInteraction.providerInteractionId,
+                direction: linkedInteraction.direction,
+                phoneNumber: linkedInteraction.phoneNumber,
+                queueName: linkedInteraction.queueName,
+                startedAt: linkedInteraction.startedAt,
+                durationSeconds: linkedInteraction.durationSeconds,
+                audioUrl: linkedInteraction.audioUrl,
+                recordingExpected: linkedInteraction.hasRecording,
+                transcript: linkedInteraction.transcript,
+                transcriptionJob: linkedInteraction.transcriptionJob,
+                agent: linkedInteraction.agent
+                  ? {
+                      id: linkedInteraction.agent.id,
+                      name: linkedInteraction.agent.name,
+                      agentCode: linkedInteraction.agent.agentCode,
+                    }
+                  : null,
+                disposition: linkedInteraction.disposition
+                  ? {
+                      id: linkedInteraction.disposition.id,
+                      name: linkedInteraction.disposition.name,
+                      code: linkedInteraction.disposition.code,
+                      category: null,
+                    }
+                  : null,
+              }
+            : null
+        }
         initialResponse={
           initialResponse
             ? {

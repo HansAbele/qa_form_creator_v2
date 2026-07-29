@@ -1,6 +1,6 @@
 "use server";
 
-import type { Prisma } from "@prisma/client";
+import { type Prisma, TranscriptionStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import type { CampaignPermissionKey } from "@/lib/campaign-permissions";
 import {
@@ -2596,6 +2596,9 @@ export async function getResponseDetail(responseId: string) {
           ],
         },
         { answers: { every: { question: { formId: scopedResponse.formId } } } },
+        {
+          OR: [{ interactionId: null }, { interaction: { campaignId } }],
+        },
       ],
     },
     include: {
@@ -2619,6 +2622,63 @@ export async function getResponseDetail(responseId: string) {
       },
       evaluator: { select: { id: true, name: true } },
       disposition: { select: { id: true, name: true, code: true, campaignId: true } },
+      interaction: {
+        select: {
+          id: true,
+          campaignId: true,
+          provider: true,
+          providerInteractionId: true,
+          direction: true,
+          phoneNumber: true,
+          queueName: true,
+          startedAt: true,
+          durationSeconds: true,
+          mediaAssets: {
+            orderBy: { createdAt: "desc" },
+            select: { id: true, durationMs: true },
+            take: 1,
+          },
+          transcripts: {
+            where: {
+              status: {
+                in: [TranscriptionStatus.COMPLETED, TranscriptionStatus.SPEAKERS_UNVERIFIED],
+              },
+            },
+            orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+            take: 1,
+            select: {
+              id: true,
+              provider: true,
+              status: true,
+              isDiarized: true,
+              segments: {
+                orderBy: { ordinal: "asc" },
+                select: {
+                  id: true,
+                  ordinal: true,
+                  startMs: true,
+                  endMs: true,
+                  speakerKey: true,
+                  speakerRole: true,
+                  text: true,
+                  confidence: true,
+                },
+              },
+            },
+          },
+          transcriptionJobs: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              attemptCount: true,
+              maxAttempts: true,
+              lastErrorCode: true,
+            },
+          },
+        },
+      },
       answers: {
         include: {
           question: {
@@ -2697,6 +2757,27 @@ export async function getResponseDetail(responseId: string) {
           id: response.disposition.id,
           name: response.disposition.name,
           code: response.disposition.code,
+        }
+      : null,
+    interaction: response.interaction
+      ? {
+          id: response.interaction.id,
+          provider: response.interaction.provider,
+          providerInteractionId: response.interaction.providerInteractionId,
+          direction: response.interaction.direction,
+          phoneNumber: response.interaction.phoneNumber,
+          queueName: response.interaction.queueName,
+          startedAt: response.interaction.startedAt.toISOString(),
+          durationSeconds:
+            response.interaction.mediaAssets[0]?.durationMs != null
+              ? Math.round(response.interaction.mediaAssets[0].durationMs / 1_000)
+              : response.interaction.durationSeconds,
+          audioUrl:
+            response.interaction.mediaAssets.length > 0
+              ? `/api/call-finder/interactions/${response.interaction.id}/audio`
+              : null,
+          transcript: response.interaction.transcripts[0] ?? null,
+          transcriptionJob: response.interaction.transcriptionJobs[0] ?? null,
         }
       : null,
     answers: response.answers.map((a) => ({

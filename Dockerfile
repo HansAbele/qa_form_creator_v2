@@ -31,9 +31,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Security: non-root user
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+# Audio normalization for NVIDIA NIM and Groq uploads; runtime remains non-root.
+RUN apk add --no-cache ffmpeg && \
+    addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs && \
+    mkdir -p /var/lib/qore/recordings && \
+    chown -R nextjs:nodejs /var/lib/qore
 
 # Copy only what's needed for standalone
 COPY --from=builder /app/public ./public

@@ -9,6 +9,7 @@ import {
   FileText,
   LayoutDashboard,
   Menu,
+  PhoneCall,
   Settings,
   Tags,
   Target,
@@ -50,6 +51,12 @@ const primaryItems: NavigationItem[] = [
     label: "Forms",
     icon: FileText,
     isVisible: (access: UiAccess) => access.canViewForms,
+  },
+  {
+    href: "/call-finder",
+    label: "Call Finder",
+    icon: PhoneCall,
+    isVisible: (access: UiAccess) => access.canEvaluate,
   },
   {
     href: "/evaluations",

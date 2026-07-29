@@ -1,9 +1,11 @@
 "use client";
 
 import type { QuestionType } from "@prisma/client";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, MessageSquarePlus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { RATING_TIER_CLASSES, ratingTier } from "@/lib/rating-scale";
 import { cn } from "@/lib/utils";
 import { isScoredQuestionType, type RatingStyleValue } from "@/types/form-builder";
 import { RatingScale } from "./rating-scale";
@@ -67,9 +70,14 @@ export function QuestionRenderer({
 }: QuestionRendererProps) {
   const { t } = useI18n();
   const optionPairs = getOptionPairs(question.options);
+  const scoreScaleOptions = getScoreScaleOptions(question.options);
   const fatalOptions = getStringOptions(question.fatalOptions);
-  const showComment = question.fatal || question.requiresCommentOnFail;
   const showFatalNotice = !notApplicable && failed && question.fatal;
+  const commentRequired = !notApplicable && failed && question.requiresCommentOnFail;
+  const canComment = Boolean(onCommentChange);
+  const [commentExpanded, setCommentExpanded] = useState(
+    Boolean(comment) || Boolean(commentError) || commentRequired,
+  );
   const questionLabelId = `${question.id}-label`;
   const answerControlId = `${question.id}-answer`;
   const answerErrorId = `${question.id}-error`;
@@ -80,6 +88,10 @@ export function QuestionRenderer({
     [error ? answerErrorId : null, showFatalNotice ? fatalNoticeId : null]
       .filter(Boolean)
       .join(" ") || undefined;
+
+  useEffect(() => {
+    if (comment || commentError || commentRequired) setCommentExpanded(true);
+  }, [comment, commentError, commentRequired]);
 
   return (
     <div
@@ -218,30 +230,46 @@ export function QuestionRenderer({
         </fieldset>
       )}
 
-      {(question.type === "SELECT" || question.type === "RADIO") && (
-        <Select value={value} onValueChange={(v) => v && onChange(v)} disabled={notApplicable}>
-          <SelectTrigger
+      {(question.type === "SELECT" || question.type === "RADIO") &&
+        scoreScaleOptions.length > 0 && (
+          <ScoreScale
             id={answerControlId}
-            aria-labelledby={questionLabelId}
-            aria-describedby={answerDescription}
-            aria-invalid={Boolean(error)}
-            aria-required={question.required && !notApplicable}
-            className={cn("w-full", failed && "border-destructive text-destructive")}
-          >
-            <SelectValue placeholder={t("Select...")} />
-          </SelectTrigger>
-          <SelectContent>
-            {optionPairs.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-                {fatalOptions.includes(opt.value) && (
-                  <span className="ml-1.5 text-xs text-destructive">· {t("critical")}</span>
-                )}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+            options={scoreScaleOptions}
+            value={value}
+            disabled={notApplicable}
+            required={question.required && !notApplicable}
+            ariaLabelledBy={questionLabelId}
+            ariaDescribedBy={answerDescription}
+            invalid={Boolean(error)}
+            onChange={onChange}
+          />
+        )}
+
+      {(question.type === "SELECT" || question.type === "RADIO") &&
+        scoreScaleOptions.length === 0 && (
+          <Select value={value} onValueChange={(v) => v && onChange(v)} disabled={notApplicable}>
+            <SelectTrigger
+              id={answerControlId}
+              aria-labelledby={questionLabelId}
+              aria-describedby={answerDescription}
+              aria-invalid={Boolean(error)}
+              aria-required={question.required && !notApplicable}
+              className={cn("w-full", failed && "border-destructive text-destructive")}
+            >
+              <SelectValue placeholder={t("Select...")} />
+            </SelectTrigger>
+            <SelectContent>
+              {optionPairs.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                  {fatalOptions.includes(opt.value) && (
+                    <span className="ml-1.5 text-xs text-destructive">· {t("critical")}</span>
+                  )}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
       {showFatalNotice && (
         <p
@@ -262,19 +290,34 @@ export function QuestionRenderer({
         </p>
       )}
 
-      {showComment && (
+      {canComment && !commentExpanded && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-ml-2 h-8 gap-1.5 text-muted-foreground"
+          onClick={() => setCommentExpanded(true)}
+        >
+          <MessageSquarePlus aria-hidden="true" className="size-4" />
+          {t("Add QA comment")}
+        </Button>
+      )}
+
+      {canComment && commentExpanded && (
         <div className="space-y-2">
           <Label htmlFor={commentControlId} className="text-xs text-muted-foreground">
             {t("QA Comment")}
-            {failed && question.requiresCommentOnFail && (
+            {commentRequired ? (
               <span className="ml-1 text-destructive">*</span>
+            ) : (
+              <span className="ml-1 font-normal"> · {t("Optional")}</span>
             )}
           </Label>
           <Textarea
             id={commentControlId}
             aria-describedby={commentError ? commentErrorId : undefined}
             aria-invalid={Boolean(commentError)}
-            aria-required={failed && question.requiresCommentOnFail}
+            aria-required={commentRequired}
             placeholder={t("Add context for this rule...")}
             value={comment}
             onChange={(event) => onCommentChange?.(event.target.value)}
@@ -288,6 +331,105 @@ export function QuestionRenderer({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+type ScoreScaleOption = {
+  value: string;
+  points: number;
+};
+
+function ScoreScale({
+  id,
+  options,
+  value,
+  disabled,
+  required,
+  invalid,
+  ariaLabelledBy,
+  ariaDescribedBy,
+  onChange,
+}: {
+  id: string;
+  options: ScoreScaleOption[];
+  value: string;
+  disabled: boolean;
+  required: boolean;
+  invalid: boolean;
+  ariaLabelledBy: string;
+  ariaDescribedBy?: string;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  const orderedOptions = [...options].sort((left, right) => left.points - right.points);
+  const maxPoints = Math.max(...orderedOptions.map((option) => option.points), 0);
+  const selectedOption = orderedOptions.find((option) => option.value === value);
+  const selectedPercent =
+    selectedOption && maxPoints > 0 ? Math.round((selectedOption.points / maxPoints) * 100) : null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex min-h-5 items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>{t("Score")}</span>
+        {selectedPercent !== null && selectedOption ? (
+          <Badge
+            variant="outline"
+            className={cn(
+              "font-semibold tabular-nums",
+              RATING_TIER_CLASSES[ratingTier(selectedOption.points, maxPoints)].text,
+            )}
+          >
+            {selectedPercent}%
+          </Badge>
+        ) : null}
+      </div>
+      <div
+        id={id}
+        role="radiogroup"
+        aria-labelledby={ariaLabelledBy}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid}
+        className={cn("flex flex-wrap gap-2", disabled && "opacity-50")}
+      >
+        {orderedOptions.map((option) => {
+          const isSelected = option.value === value;
+          const displayPoints = Number.isInteger(option.points)
+            ? String(option.points)
+            : option.points.toFixed(1);
+          return (
+            <label
+              key={option.value}
+              className={cn(
+                "grid h-11 min-w-11 cursor-pointer place-items-center rounded-xl border-2 px-3 font-heading text-sm font-bold tabular-nums transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+                disabled && "cursor-not-allowed",
+                isSelected
+                  ? cn(
+                      RATING_TIER_CLASSES[ratingTier(option.points, maxPoints)].active,
+                      "shadow-sm",
+                    )
+                  : "border-border bg-card text-muted-foreground hover:border-border-strong hover:text-foreground",
+              )}
+            >
+              <input
+                type="radio"
+                name={`score-${id}`}
+                value={option.value}
+                checked={isSelected}
+                required={required}
+                disabled={disabled}
+                aria-label={t("{score} of {max} points", {
+                  score: displayPoints,
+                  max: maxPoints,
+                })}
+                onChange={(event) => onChange(event.target.value)}
+                className="sr-only"
+              />
+              {displayPoints}
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -321,4 +463,32 @@ function getOptionPairs(options: unknown): { label: string; value: string }[] {
       return null;
     })
     .filter((pair): pair is { label: string; value: string } => Boolean(pair?.value));
+}
+
+function getScoreScaleOptions(options: unknown): ScoreScaleOption[] {
+  if (!Array.isArray(options) || options.length < 2) return [];
+  const pointsPattern = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*points?$/i;
+  let expectedMaximum: number | null = null;
+  const parsed: ScoreScaleOption[] = [];
+
+  for (const option of options) {
+    if (!option || typeof option !== "object" || !("value" in option) || !("points" in option)) {
+      return [];
+    }
+    const value = String((option as { value: unknown }).value).trim();
+    const match = value.match(pointsPattern);
+    const points = Number((option as { points: unknown }).points);
+    if (!match || !Number.isFinite(points) || points < 0) return [];
+    const valuePoints = Number(match[1]);
+    const maximum = Number(match[2]);
+    if (!Number.isFinite(maximum) || maximum <= 0 || valuePoints !== points) return [];
+    if (expectedMaximum !== null && maximum !== expectedMaximum) return [];
+    expectedMaximum = maximum;
+    parsed.push({ value, points });
+  }
+
+  return expectedMaximum !== null &&
+    Math.max(...parsed.map((option) => option.points)) === expectedMaximum
+    ? parsed
+    : [];
 }
