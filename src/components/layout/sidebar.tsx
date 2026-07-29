@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileText,
+  HeartHandshake,
   LayoutDashboard,
   Menu,
   PhoneCall,
@@ -64,6 +65,18 @@ const primaryItems: NavigationItem[] = [
     icon: ClipboardCheck,
     isVisible: (access: UiAccess) =>
       access.canViewDashboard || access.canViewEvaluations || access.canViewReports,
+  },
+  {
+    href: "/performance",
+    label: "Performance Management",
+    icon: HeartHandshake,
+    isVisible: (access: UiAccess) =>
+      access.canViewCoaching ||
+      access.canManageCoaching ||
+      access.canTrackQaActivity ||
+      access.canViewQaActivity ||
+      access.canViewPips ||
+      access.canManagePips,
   },
   {
     href: "/reports",

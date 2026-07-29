@@ -24,6 +24,12 @@ describe("campaign access presets", () => {
       canManageDispositions: false,
       canManageCampaignScoring: false,
       canViewAudit: false,
+      canViewCoaching: true,
+      canManageCoaching: true,
+      canTrackQaActivity: true,
+      canViewQaActivity: false,
+      canViewPips: false,
+      canManagePips: false,
     });
   });
 

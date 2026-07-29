@@ -98,6 +98,94 @@ enum SpeakerRole {
   UNKNOWN
 }
 
+enum QaActivityType {
+  EVALUATION
+  COACHING_PREPARATION
+  COACHING_LIVE
+  COACHING_DOCUMENTATION
+  CALIBRATION
+  DISPUTE_REVIEW
+  TRAINING
+  MEETING
+  ADMINISTRATIVE
+  SYSTEM_ISSUE
+  OTHER
+}
+
+enum QaActivityStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum CoachingStatus {
+  DRAFT
+  SCHEDULED
+  IN_PROGRESS
+  AWAITING_ACKNOWLEDGEMENT
+  COMPLETED
+  CANCELLED
+}
+
+enum CoachingSource {
+  MANUAL
+  EVALUATION
+  TREND
+  CRITICAL_FAILURE
+  CALIBRATION
+  PIP_REVIEW
+  OTHER
+}
+
+enum AcknowledgementStatus {
+  PENDING
+  ACKNOWLEDGED
+  REFUSED
+}
+
+enum AcknowledgementMethod {
+  IN_PERSON
+  SECURE_LINK
+  EMAIL
+  COMPANY_SYSTEM
+  WITNESSED
+}
+
+enum CoachingActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PipStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  ON_HOLD
+  EXTENDED
+  COMPLETED_SUCCESSFULLY
+  COMPLETED_UNSUCCESSFULLY
+  CANCELLED
+}
+
+enum PipGoalStatus {
+  PENDING
+  ON_TRACK
+  AT_RISK
+  MET
+  NOT_MET
+  NOT_APPLICABLE
+}
+
+enum PipReviewOutcome {
+  ON_TRACK
+  AT_RISK
+  IMPROVED
+  NO_PROGRESS
+}
+
 // ─── Auth.js required models ─────────────────────────
 
 model Account {
@@ -152,13 +240,22 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  accounts            Account[]
-  sessions            Session[]
-  campaigns           UserCampaign[]
-  forms               Form[]         @relation("FormCreator")
-  responses           Response[]     @relation("Evaluator")
-  dispositionsCreated Disposition[]  @relation("DispositionCreator")
-  auditLogs           AuditLog[]     @relation("AuditActor")
+  accounts                          Account[]
+  sessions                          Session[]
+  campaigns                         UserCampaign[]
+  forms                             Form[]                    @relation("FormCreator")
+  responses                         Response[]                @relation("Evaluator")
+  dispositionsCreated               Disposition[]             @relation("DispositionCreator")
+  auditLogs                         AuditLog[]                @relation("AuditActor")
+  coachingSessionsCoached           CoachingSession[]         @relation("CoachingCoach")
+  coachingSessionsCreated           CoachingSession[]         @relation("CoachingCreator")
+  coachingAcknowledgementsWitnessed CoachingAcknowledgement[] @relation("CoachingAcknowledgementWitness")
+  qaActivitySessions                QaActivitySession[]
+  pipPlansOwned                     PipPlan[]                 @relation("PipOwner")
+  pipPlansCreated                   PipPlan[]                 @relation("PipCreator")
+  pipPlansApproved                  PipPlan[]                 @relation("PipApprover")
+  pipPlansWitnessed                 PipPlan[]                 @relation("PipAcknowledgementWitness")
+  pipReviews                        PipReview[]               @relation("PipReviewer")
 }
 
 model Campaign {
@@ -179,6 +276,9 @@ model Campaign {
   scoringSettings       CampaignScoringSettings?
   callSources           CampaignCallSource[]
   interactions          Interaction[]
+  coachingSessions      CoachingSession[]
+  qaActivitySessions    QaActivitySession[]
+  pipPlans              PipPlan[]
 }
 
 model UserCampaign {
@@ -201,6 +301,12 @@ model UserCampaign {
   canManageDispositions    Boolean             @default(false)
   canManageCampaignScoring Boolean             @default(false)
   canViewAudit             Boolean             @default(false)
+  canViewCoaching          Boolean             @default(true)
+  canManageCoaching        Boolean             @default(false)
+  canTrackQaActivity       Boolean             @default(false)
+  canViewQaActivity        Boolean             @default(false)
+  canViewPips              Boolean             @default(false)
+  canManagePips            Boolean             @default(false)
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -270,10 +376,12 @@ model Agent {
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
 
-  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  team         Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  responses    Response[]
-  interactions Interaction[]
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  responses        Response[]
+  interactions     Interaction[]
+  coachingSessions CoachingSession[]
+  pipPlans         PipPlan[]
 
   @@unique([agentCode, campaignId])
 }
@@ -395,12 +503,14 @@ model Response {
   cancellationReason String?
   interactionId      String?   @unique
 
-  form        Form         @relation(fields: [formId], references: [id])
-  agent       Agent        @relation(fields: [agentId], references: [id])
-  evaluator   User         @relation("Evaluator", fields: [evaluatorId], references: [id])
-  disposition Disposition? @relation(fields: [dispositionId], references: [id])
-  interaction Interaction? @relation(fields: [interactionId], references: [id], onDelete: SetNull)
-  answers     Answer[]
+  form               Form                @relation(fields: [formId], references: [id])
+  agent              Agent               @relation(fields: [agentId], references: [id])
+  evaluator          User                @relation("Evaluator", fields: [evaluatorId], references: [id])
+  disposition        Disposition?        @relation(fields: [dispositionId], references: [id])
+  interaction        Interaction?        @relation(fields: [interactionId], references: [id], onDelete: SetNull)
+  answers            Answer[]
+  coachingSessions   CoachingSession[]
+  qaActivitySessions QaActivitySession[]
 
   @@index([formId, createdAt])
   @@index([agentId])
@@ -468,6 +578,7 @@ model Interaction {
   transcripts           Transcript[]
   transcriptionAttempts TranscriptionAttempt[]
   transcriptionJobs     TranscriptionJob[]
+  coachingSessions      CoachingSession[]
 
   @@unique([provider, providerInstance, providerInteractionId])
   @@index([campaignId, startedAt])
@@ -613,6 +724,236 @@ model Answer {
   @@index([responseId])
   @@index([questionId])
   @@index([categoryId])
+}
+
+// ─── Performance Management ──────────────────────────
+
+model CoachingSession {
+  id                   String         @id @default(cuid())
+  campaignId           String
+  agentId              String
+  coachId              String
+  createdById          String
+  responseId           String?
+  interactionId        String?
+  pipPlanId            String?
+  title                String
+  focusArea            String
+  behavior             String?
+  objective            String         @db.Text
+  strengths            String?        @db.Text
+  opportunities        String?        @db.Text
+  rootCause            String?        @db.Text
+  comments             String?        @db.Text
+  source               CoachingSource @default(MANUAL)
+  status               CoachingStatus @default(DRAFT)
+  scheduledAt          DateTime?
+  acknowledgementDueAt DateTime?
+  followUpAt           DateTime?
+  startedAt            DateTime?
+  endedAt              DateTime?
+  closedAt             DateTime?
+  cancelledAt          DateTime?
+  cancellationReason   String?        @db.Text
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  campaign        Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  agent           Agent                    @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  coach           User                     @relation("CoachingCoach", fields: [coachId], references: [id], onDelete: Restrict)
+  createdBy       User                     @relation("CoachingCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  response        Response?                @relation(fields: [responseId], references: [id], onDelete: SetNull)
+  interaction     Interaction?             @relation(fields: [interactionId], references: [id], onDelete: SetNull)
+  pipPlan         PipPlan?                 @relation(fields: [pipPlanId], references: [id], onDelete: SetNull)
+  actionItems     CoachingActionItem[]
+  acknowledgement CoachingAcknowledgement?
+  activities      QaActivitySession[]
+
+  @@index([campaignId, status, createdAt])
+  @@index([agentId, status, createdAt])
+  @@index([coachId, status, createdAt])
+  @@index([responseId])
+  @@index([interactionId])
+  @@index([pipPlanId])
+}
+
+model CoachingActionItem {
+  id                String               @id @default(cuid())
+  coachingSessionId String
+  description       String               @db.Text
+  ownerType         String               @default("AGENT")
+  ownerName         String?
+  dueAt             DateTime?
+  status            CoachingActionStatus @default(OPEN)
+  completedAt       DateTime?
+  evidenceNote      String?              @db.Text
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  coachingSession CoachingSession @relation(fields: [coachingSessionId], references: [id], onDelete: Cascade)
+
+  @@index([coachingSessionId, status, dueAt])
+}
+
+model CoachingAcknowledgement {
+  id                String                 @id @default(cuid())
+  coachingSessionId String                 @unique
+  status            AcknowledgementStatus  @default(PENDING)
+  method            AcknowledgementMethod?
+  agentNameSnapshot String
+  comment           String?                @db.Text
+  acknowledgedAt    DateTime?
+  refusedAt         DateTime?
+  witnessUserId     String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  coachingSession CoachingSession @relation(fields: [coachingSessionId], references: [id], onDelete: Cascade)
+  witness         User?           @relation("CoachingAcknowledgementWitness", fields: [witnessUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
+  @@index([witnessUserId])
+}
+
+model QaActivitySession {
+  id                String           @id @default(cuid())
+  userId            String
+  campaignId        String
+  responseId        String?
+  coachingSessionId String?
+  pipPlanId         String?
+  activityType      QaActivityType
+  status            QaActivityStatus @default(ACTIVE)
+  label             String?
+  notes             String?          @db.Text
+  startedAt         DateTime         @default(now())
+  endedAt           DateTime?
+  totalSeconds      Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  campaign        Campaign             @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  response        Response?            @relation(fields: [responseId], references: [id], onDelete: SetNull)
+  coachingSession CoachingSession?     @relation(fields: [coachingSessionId], references: [id], onDelete: SetNull)
+  pipPlan         PipPlan?             @relation(fields: [pipPlanId], references: [id], onDelete: SetNull)
+  intervals       QaActivityInterval[]
+
+  @@index([userId, status, startedAt])
+  @@index([campaignId, startedAt])
+  @@index([responseId])
+  @@index([coachingSessionId])
+  @@index([pipPlanId])
+}
+
+model QaActivityInterval {
+  id                String    @id @default(cuid())
+  activitySessionId String
+  startedAt         DateTime  @default(now())
+  endedAt           DateTime?
+  durationSeconds   Int       @default(0)
+  stopReason        String?
+  createdAt         DateTime  @default(now())
+
+  activitySession QaActivitySession @relation(fields: [activitySessionId], references: [id], onDelete: Cascade)
+
+  @@index([activitySessionId, startedAt])
+}
+
+model PipPlan {
+  id                       String                 @id @default(cuid())
+  campaignId               String
+  agentId                  String
+  ownerId                  String
+  createdById              String
+  approvedById             String?
+  acknowledgementWitnessId String?
+  title                    String
+  templateKey              String
+  templateVersion          String
+  reason                   String                 @db.Text
+  objective                String                 @db.Text
+  baselineSummary          String?                @db.Text
+  supportSummary           String?                @db.Text
+  consequences             String?                @db.Text
+  employeeComments         String?                @db.Text
+  reviewFrequency          String?
+  startDate                DateTime
+  targetEndDate            DateTime
+  midpointDate             DateTime?
+  finalReviewDate          DateTime?
+  status                   PipStatus              @default(DRAFT)
+  approvedAt               DateTime?
+  acknowledgementStatus    AcknowledgementStatus  @default(PENDING)
+  acknowledgementMethod    AcknowledgementMethod?
+  acknowledgementComment   String?                @db.Text
+  acknowledgedAt           DateTime?
+  refusedAt                DateTime?
+  outcome                  String?
+  closureSummary           String?                @db.Text
+  closedAt                 DateTime?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  campaign               Campaign            @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  agent                  Agent               @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  owner                  User                @relation("PipOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy              User                @relation("PipCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy             User?               @relation("PipApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  acknowledgementWitness User?               @relation("PipAcknowledgementWitness", fields: [acknowledgementWitnessId], references: [id], onDelete: SetNull)
+  goals                  PipGoal[]
+  reviews                PipReview[]
+  coachingSessions       CoachingSession[]
+  activities             QaActivitySession[]
+
+  @@index([campaignId, status, createdAt])
+  @@index([agentId, status, createdAt])
+  @@index([ownerId, status])
+  @@index([approvedById])
+  @@index([acknowledgementWitnessId])
+}
+
+model PipGoal {
+  id                   String        @id @default(cuid())
+  pipPlanId            String
+  area                 String
+  baseline             String        @db.Text
+  target               String        @db.Text
+  measurementPeriod    String?
+  dataSource           String
+  measurementMethod    String?       @db.Text
+  sustainabilityPeriod String?
+  isCritical           Boolean       @default(false)
+  currentResult        String?       @db.Text
+  status               PipGoalStatus @default(PENDING)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  pipPlan PipPlan @relation(fields: [pipPlanId], references: [id], onDelete: Cascade)
+
+  @@index([pipPlanId, status])
+}
+
+model PipReview {
+  id              String            @id @default(cuid())
+  pipPlanId       String
+  reviewerId      String
+  scheduledAt     DateTime
+  completedAt     DateTime?
+  outcome         PipReviewOutcome?
+  summary         String?           @db.Text
+  metricsSnapshot Json?
+  barriers        String?           @db.Text
+  supportProvided String?           @db.Text
+  nextSteps       String?           @db.Text
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  pipPlan  PipPlan @relation(fields: [pipPlanId], references: [id], onDelete: Cascade)
+  reviewer User    @relation("PipReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([pipPlanId, scheduledAt])
+  @@index([reviewerId, scheduledAt])
 }
 
 // ─── Configuración global ──────────────────────────────

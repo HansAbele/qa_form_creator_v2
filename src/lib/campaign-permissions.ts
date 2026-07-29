@@ -14,6 +14,12 @@ export const CAMPAIGN_PERMISSION_KEYS = [
   "canManageDispositions",
   "canManageCampaignScoring",
   "canViewAudit",
+  "canViewCoaching",
+  "canManageCoaching",
+  "canTrackQaActivity",
+  "canViewQaActivity",
+  "canViewPips",
+  "canManagePips",
 ] as const;
 
 export type CampaignPermissionKey = (typeof CAMPAIGN_PERMISSION_KEYS)[number];
@@ -45,6 +51,12 @@ export const CAMPAIGN_PERMISSION_LABELS: Record<CampaignPermissionKey, string> =
   canManageDispositions: "Manage dispositions",
   canManageCampaignScoring: "Manage campaign scoring",
   canViewAudit: "View operational audit",
+  canViewCoaching: "View coaching",
+  canManageCoaching: "Create and manage coaching",
+  canTrackQaActivity: "Track own QA activity",
+  canViewQaActivity: "View QA activity analytics",
+  canViewPips: "View performance improvement plans",
+  canManagePips: "Create and manage performance improvement plans",
 };
 
 export const CAMPAIGN_PERMISSION_GROUPS = [
@@ -61,11 +73,22 @@ export const CAMPAIGN_PERMISSION_GROUPS = [
       "canViewEvaluations",
       "canEvaluate",
       "canEditEvaluations",
+      "canViewCoaching",
+      "canManageCoaching",
     ],
   },
   {
     title: "Operations and data",
-    keys: ["canExport", "canManageAgents", "canManageDispositions", "canManageCampaignScoring"],
+    keys: [
+      "canExport",
+      "canManageAgents",
+      "canManageDispositions",
+      "canManageCampaignScoring",
+      "canTrackQaActivity",
+      "canViewQaActivity",
+      "canViewPips",
+      "canManagePips",
+    ],
   },
 ] as const satisfies ReadonlyArray<{
   title: string;
@@ -89,6 +112,12 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermis
     canManageDispositions: true,
     canManageCampaignScoring: false,
     canViewAudit: true,
+    canViewCoaching: true,
+    canManageCoaching: true,
+    canTrackQaActivity: true,
+    canViewQaActivity: true,
+    canViewPips: true,
+    canManagePips: true,
   },
   EVALUATOR: {
     canViewDashboard: true,
@@ -106,6 +135,12 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermis
     canManageDispositions: false,
     canManageCampaignScoring: false,
     canViewAudit: false,
+    canViewCoaching: true,
+    canManageCoaching: true,
+    canTrackQaActivity: true,
+    canViewQaActivity: false,
+    canViewPips: false,
+    canManagePips: false,
   },
   SUPERVISOR: {
     canViewDashboard: true,
@@ -123,6 +158,12 @@ export const CAMPAIGN_ACCESS_PRESETS: Record<CampaignAccessLevel, CampaignPermis
     canManageDispositions: false,
     canManageCampaignScoring: false,
     canViewAudit: true,
+    canViewCoaching: true,
+    canManageCoaching: false,
+    canTrackQaActivity: false,
+    canViewQaActivity: false,
+    canViewPips: true,
+    canManagePips: false,
   },
 };
 
@@ -133,6 +174,8 @@ export const SUPERVISOR_READ_ONLY_PERMISSION_KEYS = [
   "canViewEvaluations",
   "canViewReports",
   "canViewAudit",
+  "canViewCoaching",
+  "canViewPips",
 ] as const satisfies readonly CampaignPermissionKey[];
 
 const SUPERVISOR_READ_ONLY_PERMISSION_SET = new Set<CampaignPermissionKey>(

@@ -73,6 +73,12 @@ export async function getCurrentUserUiAccess(): Promise<UiAccess> {
       canManageDispositions: true,
       canManageCampaignScoring: true,
       canViewAudit: true,
+      canViewCoaching: true,
+      canManageCoaching: true,
+      canTrackQaActivity: true,
+      canViewQaActivity: true,
+      canViewPips: true,
+      canManagePips: true,
     },
   });
 
