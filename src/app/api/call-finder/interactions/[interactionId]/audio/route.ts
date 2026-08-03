@@ -2,16 +2,18 @@ import { createReadStream } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { InteractionProvider } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { isAgentRole } from "@/lib/campaign-permissions";
 import { resolveByteRange } from "@/lib/http-byte-range";
 import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/server/audit-log";
+import { attachProviderRecording } from "@/server/call-finder/call-source-service";
 import {
   getRecordingStorageRoot,
   resolveRecordingStorageKey,
   safeAudioMimeType,
 } from "@/server/call-finder/storage";
-import { writeAuditLog } from "@/server/audit-log";
 import { getCallFinderCampaignFilter } from "@/server/queries/call-finder";
 import { canAgentAccessInteractionEvidence } from "@/server/queries/performance-access";
 
@@ -58,11 +60,18 @@ export async function GET(
       id: true,
       campaignId: true,
       provider: true,
+      providerInstance: true,
+      providerInteractionId: true,
+      hasRecording: true,
+      metadata: true,
+      startedAt: true,
+      durationSeconds: true,
       mediaAssets: {
         orderBy: [{ kind: "desc" }, { createdAt: "desc" }],
-        take: 1,
+        take: 2,
         select: {
           id: true,
+          kind: true,
           storageKey: true,
           originalFileName: true,
           mimeType: true,
@@ -70,8 +79,35 @@ export async function GET(
       },
     },
   });
-  const asset = interaction?.mediaAssets[0];
-  if (!interaction || !asset) return unavailable();
+  if (!interaction) return unavailable();
+
+  let asset =
+    interaction.provider === InteractionProvider.FREEPBX
+      ? interaction.mediaAssets.find((candidate) => candidate.kind === "PLAYBACK")
+      : interaction.mediaAssets[0];
+  if (!asset && interaction.hasRecording) {
+    try {
+      await attachProviderRecording({ interaction, userId: session.user.id });
+      asset =
+        (await prisma.mediaAsset.findFirst({
+          where: {
+            interactionId: interaction.id,
+            ...(interaction.provider === InteractionProvider.FREEPBX ? { kind: "PLAYBACK" } : {}),
+          },
+          orderBy: [{ kind: "desc" }, { createdAt: "desc" }],
+          select: {
+            id: true,
+            kind: true,
+            storageKey: true,
+            originalFileName: true,
+            mimeType: true,
+          },
+        })) ?? undefined;
+    } catch {
+      return unavailable();
+    }
+  }
+  if (!asset) return unavailable();
 
   try {
     const configuredRoot = getRecordingStorageRoot();

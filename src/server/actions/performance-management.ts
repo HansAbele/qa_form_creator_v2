@@ -8,7 +8,6 @@ import { isAgentRole } from "@/lib/campaign-permissions";
 import {
   ACKNOWLEDGEMENT_METHODS,
   availablePipReviewFrequencies,
-  COACHING_SOURCES,
   canTransitionCoaching,
   canTransitionPip,
   defaultPipTemplateVersion,
@@ -24,52 +23,17 @@ import { assertCampaignPermissionForUser } from "@/server/queries/campaign-filte
 const optionalIsoDate = z.string().datetime().nullish();
 const optionalText = z.string().trim().max(5_000).nullish();
 
-const createCoachingSchema = z
-  .object({
-    campaignId: z.string().trim().min(1).max(100),
-    agentId: z.string().trim().min(1).max(100),
-    responseId: z.string().trim().min(1).max(100).nullish(),
-    pipPlanId: z.string().trim().min(1).max(100).nullish(),
-    title: z.string().trim().min(3).max(160),
-    focusArea: z.string().trim().min(2).max(120),
-    behavior: z.string().trim().max(160).nullish(),
-    objective: z.string().trim().min(10).max(5_000),
-    evidenceSummary: z.string().trim().max(5_000).nullish(),
-    source: z.enum(COACHING_SOURCES),
-    scheduledAt: optionalIsoDate,
-    acknowledgementDueAt: optionalIsoDate,
-    followUpAt: optionalIsoDate,
-    actionItems: z
-      .array(
-        z.object({
-          description: z.string().trim().min(3).max(2_000),
-          ownerType: z.enum(["AGENT", "QA", "SUPERVISOR", "OTHER"]).default("AGENT"),
-          ownerName: z.string().trim().max(120).nullish(),
-          dueAt: optionalIsoDate,
-        }),
-      )
-      .max(20)
-      .default([]),
-  })
-  .superRefine((value, context) => {
-    if (
-      (value.source === "EVALUATION" || value.source === "CRITICAL_FAILURE") &&
-      !value.responseId
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["responseId"],
-        message: "Evaluation and critical-failure coaching require linked evidence",
-      });
-    }
-    if (!value.responseId && (!value.evidenceSummary || value.evidenceSummary.length < 10)) {
-      context.addIssue({
-        code: "custom",
-        path: ["evidenceSummary"],
-        message: "Describe the evidence used for coaching",
-      });
-    }
-  });
+const createCoachingSchema = z.object({
+  campaignId: z.string().trim().min(1).max(100),
+  agentId: z.string().trim().min(1).max(100),
+  responseId: z.string().trim().min(1).max(100),
+  pipPlanId: z.string().trim().min(1).max(100).nullish(),
+  focusArea: z.string().trim().min(2).max(120),
+  objective: z.string().trim().min(10).max(5_000),
+  scheduledAt: optionalIsoDate,
+  acknowledgementDueAt: optionalIsoDate,
+  followUpAt: optionalIsoDate,
+});
 
 const startActivitySchema = z.object({
   campaignId: z.string().trim().min(1).max(100),
@@ -352,23 +316,21 @@ export async function createCoachingSession(data: unknown) {
       where: { id: input.agentId, campaignId: input.campaignId, active: true },
       select: { id: true, name: true },
     }),
-    input.responseId
-      ? prisma.response.findFirst({
-          where: {
-            id: input.responseId,
-            agentId: input.agentId,
-            form: { campaignId: input.campaignId },
-            status: "SUBMITTED",
-          },
-          select: {
-            id: true,
-            interactionId: true,
-            score: true,
-            hasFatalFail: true,
-            form: { select: { title: true } },
-          },
-        })
-      : null,
+    prisma.response.findFirst({
+      where: {
+        id: input.responseId,
+        agentId: input.agentId,
+        form: { campaignId: input.campaignId },
+        status: "SUBMITTED",
+      },
+      select: {
+        id: true,
+        interactionId: true,
+        score: true,
+        hasFatalFail: true,
+        form: { select: { title: true } },
+      },
+    }),
     input.pipPlanId
       ? prisma.pipPlan.findFirst({
           where: { id: input.pipPlanId, campaignId: input.campaignId, agentId: input.agentId },
@@ -378,7 +340,7 @@ export async function createCoachingSession(data: unknown) {
   ]);
 
   if (!agent) throw new Error("Agent unavailable for this campaign");
-  if (input.responseId && !response) throw new Error("Evaluation unavailable for this agent");
+  if (!response) throw new Error("Evaluation unavailable for this agent");
   if (input.pipPlanId && !pipPlan) throw new Error("PIP unavailable for this agent");
 
   const coaching = await prisma.$transaction(async (tx) => {
@@ -388,14 +350,14 @@ export async function createCoachingSession(data: unknown) {
         agentId: input.agentId,
         coachId: session.user.id,
         createdById: session.user.id,
-        responseId: response?.id ?? null,
-        interactionId: response?.interactionId ?? null,
+        responseId: response.id,
+        interactionId: response.interactionId,
         pipPlanId: pipPlan?.id ?? null,
-        title: input.title,
+        title: `Coaching — ${input.focusArea}`,
         focusArea: input.focusArea,
-        behavior: input.behavior || null,
+        behavior: null,
         objective: input.objective,
-        source: input.source,
+        source: response.hasFatalFail ? "CRITICAL_FAILURE" : "EVALUATION",
         status: input.scheduledAt ? "SCHEDULED" : "DRAFT",
         scheduledAt: toDate(input.scheduledAt),
         acknowledgementDueAt: toDate(input.acknowledgementDueAt),
@@ -406,35 +368,16 @@ export async function createCoachingSession(data: unknown) {
             agentNameSnapshot: agent.name,
           },
         },
-        actionItems:
-          input.actionItems.length > 0
-            ? {
-                create: input.actionItems.map((item) => ({
-                  description: item.description,
-                  ownerType: item.ownerType,
-                  ownerName: item.ownerName || null,
-                  dueAt: toDate(item.dueAt),
-                })),
-              }
-            : undefined,
         evidence: {
-          create: response
-            ? {
-                campaignId: input.campaignId,
-                responseId: response.id,
-                interactionId: response.interactionId,
-                createdById: session.user.id,
-                type: "EVALUATION",
-                title: response.form.title,
-                description: `${Number(response.score).toFixed(2)}%${response.hasFatalFail ? " · Critical failure" : ""}`,
-              }
-            : {
-                campaignId: input.campaignId,
-                createdById: session.user.id,
-                type: "NOTE",
-                title: "Documented coaching evidence",
-                description: input.evidenceSummary || null,
-              },
+          create: {
+            campaignId: input.campaignId,
+            responseId: response.id,
+            interactionId: response.interactionId,
+            createdById: session.user.id,
+            type: "EVALUATION",
+            title: response.form.title,
+            description: `${Number(response.score).toFixed(2)}%${response.hasFatalFail ? " · Critical failure" : ""}`,
+          },
         },
       },
       select: { id: true, status: true, campaignId: true },
@@ -450,12 +393,12 @@ export async function createCoachingSession(data: unknown) {
         entityId: created.id,
         afterValue: {
           agentId: input.agentId,
-          responseId: response?.id ?? null,
+          responseId: response.id,
           pipPlanId: pipPlan?.id ?? null,
-          source: input.source,
+          source: response.hasFatalFail ? "CRITICAL_FAILURE" : "EVALUATION",
           status: created.status,
-          evidenceType: response ? "EVALUATION" : "NOTE",
-          actionItemCount: input.actionItems.length,
+          evidenceType: "EVALUATION",
+          actionItemCount: 0,
         },
         impact: "A campaign-scoped coaching record and acknowledgement trail were created.",
       },

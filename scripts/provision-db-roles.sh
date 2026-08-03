@@ -180,7 +180,13 @@ BEGIN
       ('Account'), ('Session'), ('VerificationToken'), ('User'), ('Campaign'),
       ('UserCampaign'), ('Team'), ('DispositionCategory'), ('Disposition'),
       ('Agent'), ('Form'), ('Question'), ('QACategory'), ('FormCategory'),
-      ('Response'), ('Answer'), ('AppSetting'), ('CampaignScoringSettings'),
+      ('Response'), ('CampaignCallSource'), ('Interaction'), ('MediaAsset'),
+      ('Transcript'), ('TranscriptSegment'), ('TranscriptionAttempt'),
+      ('TranscriptionJob'), ('Answer'), ('CoachingSession'),
+      ('CoachingActionItem'), ('CoachingAcknowledgement'),
+      ('QaActivitySession'), ('QaActivityInterval'), ('PipPlan'), ('PipGoal'),
+      ('PipReview'), ('PerformanceEvidence'), ('AppSetting'),
+      ('CampaignScoringSettings'),
       ('LoginRateLimit'), ('LoginRateLimitReservation'),
       ('AuditLog')
   ) AS expected(table_name)
@@ -205,7 +211,12 @@ BEGIN
       'Account', 'Session', 'VerificationToken', 'User', 'Campaign',
       'UserCampaign', 'Team', 'DispositionCategory', 'Disposition',
       'Agent', 'Form', 'Question', 'QACategory', 'FormCategory',
-      'Response', 'Answer', 'AppSetting', 'CampaignScoringSettings',
+      'Response', 'CampaignCallSource', 'Interaction', 'MediaAsset',
+      'Transcript', 'TranscriptSegment', 'TranscriptionAttempt',
+      'TranscriptionJob', 'Answer', 'CoachingSession', 'CoachingActionItem',
+      'CoachingAcknowledgement', 'QaActivitySession', 'QaActivityInterval',
+      'PipPlan', 'PipGoal', 'PipReview', 'PerformanceEvidence', 'AppSetting',
+      'CampaignScoringSettings',
       'LoginRateLimit', 'LoginRateLimitReservation',
       'AuditLog'
     );
@@ -225,7 +236,13 @@ FROM (
     ('Account'), ('Session'), ('VerificationToken'), ('User'), ('Campaign'),
     ('UserCampaign'), ('Team'), ('DispositionCategory'), ('Disposition'),
     ('Agent'), ('Form'), ('Question'), ('QACategory'), ('FormCategory'),
-    ('Response'), ('Answer'), ('AppSetting'), ('CampaignScoringSettings'),
+    ('Response'), ('CampaignCallSource'), ('Interaction'), ('MediaAsset'),
+    ('Transcript'), ('TranscriptSegment'), ('TranscriptionAttempt'),
+    ('TranscriptionJob'), ('Answer'), ('CoachingSession'),
+    ('CoachingActionItem'), ('CoachingAcknowledgement'),
+    ('QaActivitySession'), ('QaActivityInterval'), ('PipPlan'), ('PipGoal'),
+    ('PipReview'), ('PerformanceEvidence'), ('AppSetting'),
+    ('CampaignScoringSettings'),
     ('LoginRateLimit')
 ) AS allowed(table_name)
 \gexec

@@ -7,6 +7,7 @@ import {
   Clock3,
   Hash,
   Phone,
+  PhoneOff,
   Radio,
   Tags,
   User,
@@ -27,7 +28,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { callEndPartyLabel } from "@/lib/call-end-party";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { cn } from "@/lib/utils";
 import type { CallFinderInteractionDetail } from "@/server/queries/call-finder";
 
@@ -83,7 +86,7 @@ export function CallDetailClient({ interaction }: { interaction: CallFinderInter
         {linkedResponse ? <Badge variant="secondary">{linkedResponse.status}</Badge> : null}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <DetailCard
           icon={User}
           label={t("Agent")}
@@ -119,6 +122,12 @@ export function CallDetailClient({ interaction }: { interaction: CallFinderInter
           value={interaction.disposition?.name ?? t("No disposition")}
           detail={interaction.disposition?.code ?? interaction.status}
         />
+        <DetailCard
+          icon={PhoneOff}
+          label={t("Ended by")}
+          value={t(callEndPartyLabel(interaction.endedBy, interaction.campaign.name))}
+          detail={interaction.status}
+        />
       </div>
 
       <InteractionMediaPanel
@@ -132,6 +141,8 @@ export function CallDetailClient({ interaction }: { interaction: CallFinderInter
           startedAt: interaction.startedAt,
           durationSeconds: interaction.durationSeconds,
           status: interaction.status,
+          endedBy: interaction.endedBy,
+          campaignName: interaction.campaign.name,
           dispositionName: interaction.disposition?.name ?? null,
           callMetadata: interaction.callMetadata,
           audioUrl: interaction.audioUrl,
@@ -206,12 +217,12 @@ export function CallDetailClient({ interaction }: { interaction: CallFinderInter
               interaction.forms.length > 0 ? (
                 <Select value={formId} onValueChange={(value) => value && setFormId(value)}>
                   <SelectTrigger className="w-full" aria-label={t("Choose a published form")}>
-                    <SelectValue />
+                    <SelectValue placeholder={t("Choose a published form")} />
                   </SelectTrigger>
                   <SelectContent>
                     {interaction.forms.map((form) => (
                       <SelectItem key={form.id} value={form.id}>
-                        {form.title} · v{form.version}
+                        {formDisplayName(form.title)}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -52,16 +52,24 @@ export function DashboardManager({
   userName,
   access,
   campaigns,
+  initialCampaignId,
+  initialDateFrom,
+  initialDateTo,
 }: {
   userName: string;
   access: UiAccess;
   campaigns: { id: string; name: string }[];
+  initialCampaignId?: string;
+  initialDateFrom?: string;
+  initialDateTo?: string;
 }) {
   const { t } = useI18n();
   const router = useRouter();
-  const [campaignId, setCampaignId] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [campaignId, setCampaignId] = useState(
+    campaigns.length === 1 ? (campaigns[0]?.id ?? "") : (initialCampaignId ?? ""),
+  );
+  const [dateFrom, setDateFrom] = useState(initialDateFrom ?? "");
+  const [dateTo, setDateTo] = useState(initialDateTo ?? "");
   const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
   const requestGeneration = useRef(0);
 

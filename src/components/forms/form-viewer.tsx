@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import {
   APP_NAVIGATION_REQUEST_EVENT,
   type AppNavigationRequestEvent,
@@ -825,13 +826,10 @@ export function FormViewer({
                       <ClipboardCheck className="mr-1 size-3.5" />
                       {t("Official scorecard")}
                     </Badge>
-                    {form.templateVersion && (
-                      <Badge className="border-white/25 bg-white/10 text-white hover:bg-white/10">
-                        {form.templateVersion}
-                      </Badge>
-                    )}
                   </div>
-                  <h2 className="font-heading text-2xl font-bold tracking-tight">{form.title}</h2>
+                  <h2 className="font-heading text-2xl font-bold tracking-tight">
+                    {formDisplayName(form.title)}
+                  </h2>
                   {form.description && (
                     <p className="max-w-3xl text-sm text-white/80">{form.description}</p>
                   )}

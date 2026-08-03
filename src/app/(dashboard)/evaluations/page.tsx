@@ -2,11 +2,13 @@ import { redirect } from "next/navigation";
 import { EvaluationsListClient } from "@/components/evaluations/evaluations-list-client";
 import { auth } from "@/lib/auth";
 import { reportOperationalError } from "@/lib/observability";
+import { resolvePreferredCampaignId, resolveWorkspaceDateRange } from "@/lib/workspace-preferences";
 import {
   getEvaluationHistoryCampaigns,
   getExportCampaigns,
   getOwnEvaluationHistoryCampaigns,
 } from "@/server/actions/campaigns";
+import { readMyWorkspacePreferences } from "@/server/actions/workspace-preferences";
 import {
   type EvaluationHistoryFilterOptions,
   type EvaluationHistoryScope,
@@ -37,13 +39,19 @@ export default async function EvaluationsPage({
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const [access, query] = await Promise.all([getCurrentUserUiAccess(), searchParams]);
+  const [access, query, workspace] = await Promise.all([
+    getCurrentUserUiAccess(),
+    searchParams,
+    readMyWorkspacePreferences(),
+  ]);
   const canViewOwn = access.isAdmin || access.canViewDashboard;
   const canViewManaged = access.isAdmin || access.canViewEvaluations;
   if (!canViewOwn && !canViewManaged) redirect("/settings");
 
+  const preferredScope: EvaluationHistoryScope =
+    workspace.preferences.defaultEvaluationScope === "OWN" ? "own" : "managed";
   const requestedScope: EvaluationHistoryScope =
-    query.scope === "own" ? "own" : query.scope === "managed" ? "managed" : "managed";
+    query.scope === "own" ? "own" : query.scope === "managed" ? "managed" : preferredScope;
   const initialScope: EvaluationHistoryScope =
     requestedScope === "own" && canViewOwn
       ? "own"
@@ -72,7 +80,11 @@ export default async function EvaluationsPage({
   const initialFilterOptions = initialScope === "managed" ? managedFilterOptions : ownFilterOptions;
   const initialCampaignId = initialCampaigns.some((campaign) => campaign.id === query.campaignId)
     ? query.campaignId
-    : undefined;
+    : resolvePreferredCampaignId(workspace.preferences, initialCampaigns);
+  const preferredDates = resolveWorkspaceDateRange(workspace.preferences.defaultDateRange);
+  const hasExplicitPeriod = Boolean(query.dateFrom || query.dateTo);
+  const initialDateFrom = hasExplicitPeriod ? query.dateFrom : preferredDates.dateFrom;
+  const initialDateTo = hasExplicitPeriod ? query.dateTo : preferredDates.dateTo;
   const belongsToInitialCampaign = (campaignId: string) =>
     !initialCampaignId || campaignId === initialCampaignId;
   const initialAgentId = initialFilterOptions.agents.some(
@@ -126,8 +138,8 @@ export default async function EvaluationsPage({
       minScore: initialMinScore,
       maxScore: initialMaxScore,
       campaignId: initialCampaignId,
-      dateFrom: query.dateFrom,
-      dateTo: query.dateTo,
+      dateFrom: initialDateFrom,
+      dateTo: initialDateTo,
       resultStatus: initialResultStatus,
       agentId: initialAgentId,
       evaluatorId: initialEvaluatorId,
@@ -172,8 +184,8 @@ export default async function EvaluationsPage({
       initialMinScore={initialMinScore}
       initialMaxScore={initialMaxScore}
       initialCampaignId={initialCampaignId}
-      initialDateFrom={query.dateFrom}
-      initialDateTo={query.dateTo}
+      initialDateFrom={initialDateFrom}
+      initialDateTo={initialDateTo}
       initialResultStatus={initialResultStatus}
       initialAgentId={initialAgentId}
       initialEvaluatorId={initialEvaluatorId}

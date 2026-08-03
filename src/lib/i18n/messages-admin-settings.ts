@@ -560,4 +560,39 @@ export const ADMIN_SETTINGS_ES_MESSAGES = {
     "Esta cuenta solo verá los registros de coaching y PIP del agente seleccionado.",
   "Personal coaching": "Coaching personal",
   "Personal PIP": "PIP personal",
+  "My Workspace": "Mi espacio de trabajo",
+  "Personal defaults for daily QA work": "Valores personales para el trabajo diario de QA",
+  "Manage your personal defaults for daily quality work.":
+    "Administra tus valores personales para el trabajo diario de calidad.",
+  "Personal workspace": "Espacio de trabajo personal",
+  "These defaults apply only to your account and never change campaign permissions or global scoring.":
+    "Estos valores solo se aplican a tu cuenta y nunca cambian los permisos de campaña ni la puntuación global.",
+  "Daily workflow defaults": "Valores predeterminados del flujo diario",
+  "Default campaign": "Campaña predeterminada",
+  "No active campaigns are assigned to your account.":
+    "No hay campañas activas asignadas a tu cuenta.",
+  Automatic: "Automático",
+  "All campaigns / choose each time": "Todas las campañas / elegir cada vez",
+  "When only one campaign is available, Qore selects it automatically.":
+    "Cuando solo hay una campaña disponible, Qore la selecciona automáticamente.",
+  "Default period": "Período predeterminado",
+  "All time": "Todo el período",
+  "Last 7 days": "Últimos 7 días",
+  "Last 14 days": "Últimos 14 días",
+  "Last 30 days": "Últimos 30 días",
+  "Used when a page opens without a period in its URL.":
+    "Se usa cuando una página abre sin un período en su URL.",
+  "Default evaluation view": "Vista predeterminada de evaluaciones",
+  "Role default": "Según el rol",
+  "Save preferences": "Guardar preferencias",
+  "Workspace preferences saved": "Preferencias del espacio de trabajo guardadas",
+  "Unsupported default date range": "Período predeterminado no compatible",
+  "Unsupported evaluation view": "Vista de evaluación no compatible",
+  "Invalid default campaign": "Campaña predeterminada no válida",
+  "The default campaign is outside your assigned scope":
+    "La campaña predeterminada está fuera de tu alcance asignado",
+  "Managed evaluations are not available for your role":
+    "Las evaluaciones administradas no están disponibles para tu rol",
+  "Own evaluations are not available for your role":
+    "Tus evaluaciones no están disponibles para tu rol",
 } as const;

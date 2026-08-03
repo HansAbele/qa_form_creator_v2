@@ -7,7 +7,15 @@ services:
     container_name: qa_form_creator_app
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${QORE_BIND_ADDRESS:-127.0.0.1}:${QORE_HTTP_PORT:-3000}:3000"
+    mem_limit: ${QORE_APP_MEMORY_LIMIT:-1536m}
+    cpus: ${QORE_APP_CPU_LIMIT:-2.0}
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - DATABASE_URL=postgresql://${DB_APP_USER:-qa_app}:${DB_APP_PASSWORD:?DB_APP_PASSWORD is required}@db:5432/qa_form_creator
       - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET is required}
@@ -27,6 +35,13 @@ services:
       - NICE_CXONE_INSTANCE_KEY=${NICE_CXONE_INSTANCE_KEY:-hapusa}
       - NICE_CXONE_SCOPE_FIELD=${NICE_CXONE_SCOPE_FIELD:-campaign}
       - NICE_CXONE_PAGE_SIZE=${NICE_CXONE_PAGE_SIZE:-1000}
+      - FREEPBX_INSTANCE_KEY=${FREEPBX_INSTANCE_KEY:-parker-davis}
+      - FREEPBX_BASE_URL=${FREEPBX_BASE_URL:-https://pbx.pdhvac.com/}
+      - FREEPBX_ALLOWED_HOSTS=${FREEPBX_ALLOWED_HOSTS:-pbx.pdhvac.com}
+      - FREEPBX_USERNAME=${FREEPBX_USERNAME:-}
+      - FREEPBX_PASSWORD=${FREEPBX_PASSWORD:-}
+      - FREEPBX_TIME_ZONE=${FREEPBX_TIME_ZONE:-America/New_York}
+      - FREEPBX_CDR_PAGE_SIZE=${FREEPBX_CDR_PAGE_SIZE:-5000}
       - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY:-}
       - NVIDIA_NIM_API_KEY_II=${NVIDIA_NIM_API_KEY_II:-}
       - NVIDIA_NIM_TRANSCRIPTION_URL=${NVIDIA_NIM_TRANSCRIPTION_URL:-https://1598d209-5e27-4d3c-8079-4751568b1081.invocation.api.nvcf.nvidia.com/v1/audio/transcriptions}
@@ -55,8 +70,8 @@ services:
       - EXPORT_MAX_CONCURRENT_GLOBAL=${EXPORT_MAX_CONCURRENT_GLOBAL:-2}
       - EXPORT_LEASE_TIMEOUT_SECONDS=${EXPORT_LEASE_TIMEOUT_SECONDS:-900}
       - OBSERVABILITY_SERVICE_NAME=${OBSERVABILITY_SERVICE_NAME:-qore-production}
-      - ERROR_REPORTING_WEBHOOK_URL=${ERROR_REPORTING_WEBHOOK_URL:?ERROR_REPORTING_WEBHOOK_URL is required}
-      - ERROR_REPORTING_WEBHOOK_TOKEN=${ERROR_REPORTING_WEBHOOK_TOKEN:?ERROR_REPORTING_WEBHOOK_TOKEN is required}
+      - ERROR_REPORTING_WEBHOOK_URL=${ERROR_REPORTING_WEBHOOK_URL:-}
+      - ERROR_REPORTING_WEBHOOK_TOKEN=${ERROR_REPORTING_WEBHOOK_TOKEN:-}
     volumes:
       - recordings:/var/lib/qore/recordings
     depends_on:
@@ -73,6 +88,14 @@ services:
     image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: qa_form_creator_db
     restart: unless-stopped
+    mem_limit: ${QORE_DB_MEMORY_LIMIT:-768m}
+    cpus: ${QORE_DB_CPU_LIMIT:-1.5}
+    shm_size: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: ${DB_OWNER_USER:-qa_owner}
       POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD is required}

@@ -114,6 +114,11 @@ test.describe("RBAC matrix - standard QA", () => {
     await page.goto("/evaluations?scope=managed");
     await expect(page.getByText("Managed scope", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Evaluator")).toBeVisible();
+    await page.goto("/settings");
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /My Workspace/ })).toBeVisible();
+    await expect(page.getByText("Customer Service", { exact: true })).toBeVisible();
+    await expect(page.getByText("Automatic", { exact: true }).first()).toBeVisible();
     await page.goto("/admin/users");
     await expect(page).toHaveURL(/\/$/);
     await expectRestrictedFormDenied(page, "error");

@@ -1,0 +1,1 @@
+ALTER TYPE "InteractionProvider" ADD VALUE IF NOT EXISTS 'FREEPBX';

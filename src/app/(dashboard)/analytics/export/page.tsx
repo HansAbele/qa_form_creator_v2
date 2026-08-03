@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { resolvePreferredCampaignId, resolveWorkspaceDateRange } from "@/lib/workspace-preferences";
 import { getExportCampaigns } from "@/server/actions/campaigns";
 import { getFormsForExport } from "@/server/actions/forms";
+import { readMyWorkspacePreferences } from "@/server/actions/workspace-preferences";
 import { hasAnyCampaignPermissions } from "@/server/queries/ui-access";
 import { ExportClient } from "./export-client";
 
@@ -12,12 +14,21 @@ export default async function ExportDataPage() {
     redirect("/settings");
   }
 
-  const [campaigns, forms] = await Promise.all([getExportCampaigns(), getFormsForExport()]);
+  const [campaigns, forms, workspace] = await Promise.all([
+    getExportCampaigns(),
+    getFormsForExport(),
+    readMyWorkspacePreferences(),
+  ]);
+  const initialCampaignId = resolvePreferredCampaignId(workspace.preferences, campaigns);
+  const initialDates = resolveWorkspaceDateRange(workspace.preferences.defaultDateRange);
 
   return (
     <ExportClient
       campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
       forms={forms.map((f) => ({ id: f.id, title: f.title, campaignId: f.campaignId }))}
+      initialCampaignId={initialCampaignId}
+      initialDateFrom={initialDates.dateFrom}
+      initialDateTo={initialDates.dateTo}
     />
   );
 }

@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import { OUTCOME_LABELS_EN } from "@/lib/disposition-outcome";
+import { formDisplayName } from "@/lib/form-display-name";
 import { getMetricDisplay, type MetricDisplay } from "@/lib/metric-display";
 import { getReportData } from "@/server/queries/analytics";
 
@@ -46,16 +47,29 @@ interface ReportsClientProps {
   forms: { id: string; title: string; campaignId: string }[];
   dispositions: { id: string; name: string; campaignId: string; campaignName: string }[];
   canExport: boolean;
+  initialCampaignId?: string;
+  initialDateFrom?: string;
+  initialDateTo?: string;
 }
 
-export function ReportsClient({ campaigns, forms, dispositions, canExport }: ReportsClientProps) {
+export function ReportsClient({
+  campaigns,
+  forms,
+  dispositions,
+  canExport,
+  initialCampaignId,
+  initialDateFrom,
+  initialDateTo,
+}: ReportsClientProps) {
   const { locale, t } = useI18n();
   const operationalTimeZone = useOperationalTimeZone();
   const displayLocale = locale === "es" ? "es" : "en";
-  const [campaignId, setCampaignId] = useState("");
+  const [campaignId, setCampaignId] = useState(
+    campaigns.length === 1 ? (campaigns[0]?.id ?? "") : (initialCampaignId ?? ""),
+  );
   const [formId, setFormId] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(initialDateFrom ?? "");
+  const [dateTo, setDateTo] = useState(initialDateTo ?? "");
   const [reportPage, setReportPage] = useState<ReportPage | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -107,7 +121,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
 
   const resetFilters = () => {
     setPage(1);
-    setCampaignId("");
+    setCampaignId(campaigns.length === 1 ? (campaigns[0]?.id ?? "") : "");
     setFormId("");
     setDateFrom("");
     setDateTo("");
@@ -131,7 +145,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
   const responses: ReportResponse[] = reportPage?.items ?? [];
   const summary = reportPage?.summary;
   const hasActiveFilters = Boolean(
-    campaignId ||
+    (campaigns.length > 1 && campaignId) ||
       formId ||
       dateFrom ||
       dateTo ||
@@ -145,7 +159,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
   ];
   const formOptions = [
     { value: "all", label: t("All forms") },
-    ...filteredForms.map((form) => ({ value: form.id, label: form.title })),
+    ...filteredForms.map((form) => ({ value: form.id, label: formDisplayName(form.title) })),
   ];
   const dispositionSelectOptions = [
     { value: "all", label: t("All dispositions") },
@@ -267,20 +281,30 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
             ) : null}
           </div>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-            <FilterSelect
-              id="reports-campaign"
-              label={t("Campaign")}
-              value={campaignId || "all"}
-              options={campaignOptions}
-              onValueChange={(value) => {
-                setPage(1);
-                setCampaignId(value === "all" ? "" : value);
-                setFormId("");
-                setDispositionFilter("all");
-              }}
-              placeholder={t("All campaigns")}
-              icon={Megaphone}
-            />
+            {campaigns.length === 1 ? (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">{t("Campaign")}</p>
+                <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                  <span className="font-medium">{campaigns[0]?.name}</span>
+                  <Badge variant="secondary">{t("Automatic")}</Badge>
+                </div>
+              </div>
+            ) : (
+              <FilterSelect
+                id="reports-campaign"
+                label={t("Campaign")}
+                value={campaignId || "all"}
+                options={campaignOptions}
+                onValueChange={(value) => {
+                  setPage(1);
+                  setCampaignId(value === "all" ? "" : value);
+                  setFormId("");
+                  setDispositionFilter("all");
+                }}
+                placeholder={t("All campaigns")}
+                icon={Megaphone}
+              />
+            )}
             <FilterSelect
               id="reports-form"
               label={t("Form")}
@@ -487,7 +511,7 @@ export function ReportsClient({ campaigns, forms, dispositions, canExport }: Rep
                   )}
                 </TableCell>
                 <TableCell className="max-w-[150px] truncate">{r.campaignName}</TableCell>
-                <TableCell>{r.formTitle}</TableCell>
+                <TableCell>{formDisplayName(r.formTitle)}</TableCell>
                 <TableCell>
                   {r.agentName}
                   {r.agentCode && (

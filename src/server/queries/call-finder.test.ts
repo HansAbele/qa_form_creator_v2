@@ -100,7 +100,11 @@ describe("buildInteractionWhere", () => {
       expect.objectContaining({
         AND: expect.arrayContaining([
           {
-            OR: [{ agentId: { not: null } }, { providerAgentName: { not: null } }],
+            OR: [
+              { agentId: { not: null } },
+              { providerAgentId: { not: null } },
+              { providerAgentName: { not: null } },
+            ],
           },
         ]),
       }),

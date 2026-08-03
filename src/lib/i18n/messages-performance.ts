@@ -44,6 +44,8 @@ export const PERFORMANCE_ES_MESSAGES: Record<string, string> = {
   "No coaching sessions yet": "Aún no hay sesiones de coaching",
   "Create the first documented coaching session for this scope.":
     "Crea la primera sesión de coaching documentada para este alcance.",
+  "Choose one evaluated call so the agent can review the evidence and recording.":
+    "Elige una llamada evaluada para que el agente pueda revisar la evidencia y la grabación.",
   "Start coaching": "Iniciar coaching",
   "Record acknowledgement": "Registrar acuse",
   "Linked evaluation": "Evaluación vinculada",

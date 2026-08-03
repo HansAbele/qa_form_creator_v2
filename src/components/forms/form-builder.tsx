@@ -25,7 +25,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseOfficialQuestionLabel } from "@/lib/official-form-templates";
 import {
   Select,
   SelectContent,
@@ -35,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { parseOfficialQuestionLabel } from "@/lib/official-form-templates";
 import { createForm, updateForm } from "@/server/actions/forms";
 import {
   type CriticalTypeValue,
@@ -105,7 +105,9 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(initialData?.title ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
-  const [campaignId, setCampaignId] = useState(initialData?.campaignId ?? "");
+  const [campaignId, setCampaignId] = useState(
+    initialData?.campaignId ?? (campaigns.length === 1 ? (campaigns[0]?.id ?? "") : ""),
+  );
   const [questions, setQuestions] = useState<QuestionData[]>(
     initialData?.questions.map((q) => {
       const { options, optionPoints } = parseStoredOptions(q.options);
@@ -383,29 +385,36 @@ export function FormBuilder({ campaigns, qaCategories, initialData }: FormBuilde
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="campaign">{t("Campaign")}</Label>
-                  <Select
-                    value={campaignId}
-                    onValueChange={(v) => v && setCampaignId(v)}
-                    disabled={editingPublished}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t("Select a campaign")}>
-                        {(value: string | null) => {
-                          if (!value) return t("Select a campaign");
-                          return (
-                            campaigns.find((c) => c.id === value)?.name ?? t("Select a campaign")
-                          );
-                        }}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {campaigns.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {campaigns.length === 1 ? (
+                    <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                      <span className="font-medium">{campaigns[0]?.name}</span>
+                      <Badge variant="secondary">{t("Automatic")}</Badge>
+                    </div>
+                  ) : (
+                    <Select
+                      value={campaignId}
+                      onValueChange={(v) => v && setCampaignId(v)}
+                      disabled={editingPublished}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={t("Select a campaign")}>
+                          {(value: string | null) => {
+                            if (!value) return t("Select a campaign");
+                            return (
+                              campaigns.find((c) => c.id === value)?.name ?? t("Select a campaign")
+                            );
+                          }}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {campaigns.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="description">{t("Description (optional)")}</Label>

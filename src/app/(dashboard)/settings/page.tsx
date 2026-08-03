@@ -1,16 +1,18 @@
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getMyProfile } from "@/server/actions/profile";
-import { readSettings } from "@/server/actions/settings";
-import { readCampaignScoringSettings } from "@/server/actions/campaign-scoring";
+import { auth } from "@/lib/auth";
 import { readOperationalAudit } from "@/server/actions/audit";
-import { readQACategories } from "@/server/actions/qa-categories";
+import { readCampaignScoringSettings } from "@/server/actions/campaign-scoring";
 import { getAuditCampaigns, getCampaigns } from "@/server/actions/campaigns";
+import { getMyProfile } from "@/server/actions/profile";
+import { readQACategories } from "@/server/actions/qa-categories";
+import { readSettings } from "@/server/actions/settings";
 import { getUsers } from "@/server/actions/users";
+import { readMyWorkspacePreferences } from "@/server/actions/workspace-preferences";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 import { SettingsClient, type SettingsSectionId } from "./settings-client";
 
 const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
+  "workspace",
   "access",
   "scoring",
   "campaign-scoring",
@@ -45,13 +47,15 @@ export default async function SettingsPage({
   if (!session?.user) redirect("/login");
 
   const [profile, query] = await Promise.all([getProfileOrLogin(), searchParams]);
+  if (profile.role === "AGENT") redirect("/account");
   if (query.section === "account") redirect("/account");
   const isAdmin = profile.role === "ADMIN";
   const canViewAudit = isAdmin || (await hasAnyCampaignPermission("canViewAudit"));
-  const [settings, users, campaigns] = await Promise.all([
+  const [settings, users, campaigns, workspace] = await Promise.all([
     readSettings(),
     isAdmin ? getUsers() : Promise.resolve([]),
     isAdmin ? getCampaigns() : canViewAudit ? getAuditCampaigns() : Promise.resolve([]),
+    readMyWorkspacePreferences(),
   ]);
   const [campaignScoring, auditEvents, qaCategories] = isAdmin
     ? await Promise.all([
@@ -70,6 +74,11 @@ export default async function SettingsPage({
   return (
     <SettingsClient
       settings={settings}
+      workspacePreferences={workspace.preferences}
+      workspaceCampaigns={workspace.campaigns}
+      canUseOwnEvaluationScope={workspace.canUseOwnEvaluationScope}
+      canUseManagedEvaluationScope={workspace.canUseManagedEvaluationScope}
+      role={profile.role}
       isAdmin={isAdmin}
       canViewAudit={canViewAudit}
       accessUsers={users.map((u) => ({
@@ -87,7 +96,9 @@ export default async function SettingsPage({
       initialSection={
         query.section && SETTINGS_SECTION_IDS.has(query.section as SettingsSectionId)
           ? (query.section as SettingsSectionId)
-          : "access"
+          : isAdmin
+            ? "access"
+            : "workspace"
       }
     />
   );

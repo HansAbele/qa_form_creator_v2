@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { link, mkdir, stat, unlink } from "node:fs/promises";
+import { constants, createReadStream, createWriteStream } from "node:fs";
+import { copyFile, link, mkdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { InteractionProvider } from "@prisma/client";
 import { probeAudioMetadata } from "@/server/call-finder/audio-metadata";
+import { prepareAudioForPlayback } from "@/server/call-finder/audio-preparation";
 import {
   getRecordingStorageRoot,
   isAllowedAudioMimeType,
@@ -84,6 +85,80 @@ async function removeIfPresent(filePath: string) {
     await unlink(filePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+async function fileDigest(filePath: string) {
+  const hash = createHash("sha256");
+  let byteSize = 0;
+  for await (const chunk of createReadStream(filePath)) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    byteSize += bytes.length;
+    hash.update(bytes);
+  }
+  return { byteSize, sha256: hash.digest("hex") };
+}
+
+export async function persistPlaybackRecording(input: {
+  sourceStorageKey: string;
+  provider: InteractionProvider;
+  providerInstance: string;
+  interactionId: string;
+  startedAt: Date;
+}): Promise<StoredRecording> {
+  const root = getRecordingStorageRoot();
+  const sourcePath = resolveRecordingStorageKey(input.sourceStorageKey, root);
+  const maximumBytes = configuredMaxBytes();
+  const prepared = await prepareAudioForPlayback({
+    sourcePath,
+    ffmpegPath: process.env.FFMPEG_PATH?.trim() || "ffmpeg",
+    ffprobePath: process.env.FFPROBE_PATH?.trim() || "ffprobe",
+    maxAudioBytes: maximumBytes,
+  });
+
+  try {
+    const digest = await fileDigest(prepared.audioPath);
+    if (digest.byteSize <= 0 || digest.byteSize > maximumBytes) {
+      throw new RecordingIngestError(
+        "Browser-compatible recording exceeds the configured size limit",
+        "FILE_TOO_LARGE",
+      );
+    }
+    const year = String(input.startedAt.getUTCFullYear());
+    const month = String(input.startedAt.getUTCMonth() + 1).padStart(2, "0");
+    const storageKey = path.posix.join(
+      input.provider.toLowerCase(),
+      normalizeInstanceKey(input.providerInstance),
+      year,
+      month,
+      `${input.interactionId}-${digest.sha256.slice(0, 16)}-playback.wav`,
+    );
+    const destination = resolveRecordingStorageKey(storageKey, root);
+    await mkdir(path.dirname(destination), { recursive: true });
+    try {
+      await copyFile(prepared.audioPath, destination, constants.COPYFILE_EXCL);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const existing = await stat(destination);
+      if (!existing.isFile() || existing.size !== digest.byteSize) {
+        throw new RecordingIngestError(
+          "Stored playback recording conflicts with an existing file",
+          "STORAGE_CONFLICT",
+        );
+      }
+    }
+
+    return {
+      storageKey,
+      originalFileName: `playback-${input.interactionId}.wav`,
+      mimeType: "audio/wav",
+      byteSize: BigInt(digest.byteSize),
+      sha256: digest.sha256,
+      durationMs: prepared.durationMs,
+      channelCount: prepared.channelCount,
+    };
+  } finally {
+    await prepared.cleanup();
   }
 }
 

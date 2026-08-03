@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { cn } from "@/lib/utils";
 import { archiveForm, deleteForm, publishForm } from "@/server/actions/forms";
 
@@ -82,7 +83,9 @@ function EvaluationDraftGroup({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium">{draft.agentName}</p>
-                  <p className="truncate text-sm text-muted-foreground">{draft.formTitle}</p>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {formDisplayName(draft.formTitle)}
+                  </p>
                 </div>
                 <Badge variant={draft.isOwn ? "secondary" : "outline"}>
                   {draft.isOwn ? t("Mine") : t("Managed")}
@@ -235,7 +238,7 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
             <Card key={form.id} className="group relative">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
-                  <CardTitle className="text-base">{form.title}</CardTitle>
+                  <CardTitle className="text-base">{formDisplayName(form.title)}</CardTitle>
                   <Badge variant={statusVariant(form.status)}>{statusLabel(form.status)}</Badge>
                 </div>
                 <div className="flex flex-wrap gap-2">

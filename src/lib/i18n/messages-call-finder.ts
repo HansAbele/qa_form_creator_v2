@@ -40,6 +40,8 @@ export const CALL_FINDER_ES_MESSAGES = {
   "Unable to synchronize calls": "No se pudieron sincronizar las llamadas",
   "NICE CXone synchronized: {created} new, {updated} updated.":
     "NICE CXone sincronizado: {created} nuevas, {updated} actualizadas.",
+  "Call sources synchronized: {created} new, {updated} updated.":
+    "Fuentes de llamadas sincronizadas: {created} nuevas, {updated} actualizadas.",
   "Call data freshness": "Actualización de los datos de llamadas",
   "Never synchronized": "Nunca sincronizados",
   "Use refresh before searching for today's calls.":
@@ -69,6 +71,7 @@ export const CALL_FINDER_ES_MESSAGES = {
   Available: "Disponible",
   Pending: "Pendiente",
   "Available in NICE": "Disponible en NICE",
+  "Available from provider": "Disponible en el proveedor",
   "Ready to transcribe": "Lista para transcribir",
   "Download recording first": "Descargar grabación primero",
   "Not available": "No disponible",
@@ -82,11 +85,22 @@ export const CALL_FINDER_ES_MESSAGES = {
   "Contact point": "Punto de contacto",
   Transfer: "Transferencia",
   Status: "Estado",
+  "Ended by": "Finalizada por",
+  Patient: "Paciente",
+  System: "Sistema",
+  Transferred: "Transferida",
+  "Not provided": "No informado",
   Actions: "Acciones",
   Open: "Abrir",
   "No calls match these filters": "No hay llamadas para estos filtros",
   "Calls will appear here after NICE CXone or VICIdial synchronization is configured.":
     "Las llamadas aparecerán aquí cuando se configure la sincronización con NICE CXone o VICIdial.",
+  "Calls will appear here after a call source is configured and synchronized.":
+    "Las llamadas aparecerán aquí cuando se configure y sincronice una fuente de llamadas.",
+  "Agent extension": "Extensión del agente",
+  "Talk time": "Tiempo de conversación",
+  "PBX application": "Aplicación PBX",
+  DID: "DID",
   "Call details": "Detalles de la llamada",
   "Back to Call Finder": "Volver a Call Finder",
   Queue: "Cola",

@@ -28,12 +28,12 @@ vi.mock("@/server/audit-log", () => ({ writeAuditLog: writeAuditLogMock }));
 vi.mock("@/server/queries/call-finder", () => ({
   getCallFinderCampaignFilter: campaignFilterMock,
 }));
-vi.mock("@/server/call-finder/nice-cxone-service", () => ({
+vi.mock("@/server/call-finder/call-source-service", () => ({
   CallRecordingProviderError: class CallRecordingProviderError extends Error {
     code = "RECORDING_NOT_FOUND";
   },
-  attachNiceCxoneRecording: attachRecordingMock,
-  syncEnabledNiceCxoneSources: syncSourcesMock,
+  attachProviderRecording: attachRecordingMock,
+  syncEnabledCallSources: syncSourcesMock,
 }));
 vi.mock("@/server/call-finder/transcription-queue", () => ({
   enqueueTranscriptionJob: enqueueTranscriptionMock,
@@ -80,6 +80,7 @@ describe("Call Finder actions", () => {
     syncSourcesMock.mockResolvedValue([
       {
         campaignId: "campaign-1",
+        provider: "NICE_CXONE",
         sourceId: "source-1",
         pages: 1,
         discovered: 3,

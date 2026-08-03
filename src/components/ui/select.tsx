@@ -1,12 +1,55 @@
 "use client";
 
-import type * as React from "react";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
-
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import * as React from "react";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react";
 
-const Select = SelectPrimitive.Root;
+type InferredSelectItem = {
+  label: React.ReactNode;
+  value: unknown;
+};
+
+function collectSelectItems(node: React.ReactNode, items: InferredSelectItem[]) {
+  React.Children.forEach(node, (child) => {
+    if (!React.isValidElement(child)) return;
+    const element = child as React.ReactElement<{
+      children?: React.ReactNode;
+      label?: string;
+      value?: unknown;
+    }>;
+    if (element.type === SelectItem && element.props.value !== undefined) {
+      items.push({
+        value: element.props.value,
+        label: element.props.label ?? element.props.children,
+      });
+      return;
+    }
+    if (element.props.children) collectSelectItems(element.props.children, items);
+  });
+}
+
+function Select<Value, Multiple extends boolean | undefined = false>(
+  props: SelectPrimitive.Root.Props<Value, Multiple>,
+) {
+  const { children, items, ...rootProps } = props;
+  const inferredItems: InferredSelectItem[] = [];
+  if (!items) collectSelectItems(children, inferredItems);
+
+  return (
+    <SelectPrimitive.Root
+      {...rootProps}
+      items={
+        items ??
+        (inferredItems.length > 0
+          ? (inferredItems as ReadonlyArray<{ label: React.ReactNode; value: Value }>)
+          : undefined)
+      }
+    >
+      {children}
+    </SelectPrimitive.Root>
+  );
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (

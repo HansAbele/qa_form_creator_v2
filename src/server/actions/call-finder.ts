@@ -6,12 +6,12 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/server/audit-log";
 import {
-  attachNiceCxoneRecording,
+  attachProviderRecording,
   CallRecordingProviderError,
-  syncEnabledNiceCxoneSources,
-} from "@/server/call-finder/nice-cxone-service";
-import { enqueueTranscriptionJob } from "@/server/call-finder/transcription-queue";
+  syncEnabledCallSources,
+} from "@/server/call-finder/call-source-service";
 import { hasDiarizationProviderConfigured } from "@/server/call-finder/transcription-config";
+import { enqueueTranscriptionJob } from "@/server/call-finder/transcription-queue";
 import { getCallFinderCampaignFilter } from "@/server/queries/call-finder";
 
 const interactionIdSchema = z.string().trim().min(1).max(100);
@@ -44,7 +44,7 @@ const speakerAssignmentsSchema = z
     }
   });
 
-export async function syncNiceCxoneCalls(input?: unknown) {
+export async function syncCallSources(input?: unknown) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
   const scope = syncScopeSchema.parse(input);
@@ -67,7 +67,7 @@ export async function syncNiceCxoneCalls(input?: unknown) {
     if (!campaign) throw new Error("Campaign not found");
   }
 
-  const results = await syncEnabledNiceCxoneSources(scope);
+  const results = await syncEnabledCallSources(scope);
   for (const result of results) {
     await writeAuditLog({
       userId: session.user.id,
@@ -77,7 +77,7 @@ export async function syncNiceCxoneCalls(input?: unknown) {
       entityType: "campaign_call_source",
       entityId: result.sourceId,
       afterValue: {
-        provider: "NICE_CXONE",
+        provider: result.provider,
         pages: result.pages,
         discovered: result.discovered,
         created: result.created,
@@ -98,6 +98,11 @@ export async function syncNiceCxoneCalls(input?: unknown) {
     updated: results.reduce((total, result) => total + result.updated, 0),
     errors: results.reduce((total, result) => total + result.errors.length, 0),
   };
+}
+
+/** @deprecated Use syncCallSources. Kept for in-flight clients during deployment. */
+export async function syncNiceCxoneCalls(input?: unknown) {
+  return syncCallSources(input);
 }
 
 export async function attachCallRecording(interactionIdInput: string) {
@@ -122,7 +127,7 @@ export async function attachCallRecording(interactionIdInput: string) {
   if (!interaction) throw new Error("Call not found or access denied");
 
   try {
-    const result = await attachNiceCxoneRecording({ interaction, userId: session.user.id });
+    const result = await attachProviderRecording({ interaction, userId: session.user.id });
     revalidatePath(`/call-finder/${interaction.id}`);
     revalidatePath("/call-finder");
     return { ...result, error: null, errorCode: null };

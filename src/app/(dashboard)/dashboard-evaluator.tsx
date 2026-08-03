@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { getMetricDisplay } from "@/lib/metric-display";
 import { cn } from "@/lib/utils";
 import { getMyDashboard } from "@/server/queries/analytics";
@@ -32,17 +33,21 @@ export function DashboardEvaluator({
   userName,
   access,
   campaigns,
+  initialDateFrom,
+  initialDateTo,
 }: {
   userName: string;
   access: UiAccess;
   campaigns: { id: string; name: string }[];
+  initialDateFrom?: string;
+  initialDateTo?: string;
 }) {
   const { locale, t } = useI18n();
   const operationalTimeZone = useOperationalTimeZone();
   const displayLocale = locale === "es" ? "es" : "en";
   const router = useRouter();
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(initialDateFrom ?? "");
+  const [dateTo, setDateTo] = useState(initialDateTo ?? "");
   const [loadStatus, setLoadStatus] = useState<DataLoadStatus>("loading");
   const [data, setData] = useState<MyDashboard | null>(null);
   const requestGeneration = useRef(0);
@@ -280,7 +285,9 @@ export function DashboardEvaluator({
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{r.agentName}</p>
-                        <p className="truncate text-xs text-muted-foreground">{r.formTitle}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {formDisplayName(r.formTitle)}
+                        </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <Badge

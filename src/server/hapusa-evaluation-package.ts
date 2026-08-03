@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createReadStream } from "node:fs";
-import { realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { InteractionProvider } from "@prisma/client";
 import ExcelJS from "exceljs";
@@ -15,38 +15,22 @@ import { getCampaignFilterForPermissions } from "@/server/queries/campaign-filte
 
 export const MAX_HAPUSA_PACKAGE_EVALUATIONS = 50;
 
-const QUALITY_TIPS = [
-  "Did the agent use the caller's name throughout the call?",
-  "Did the agent ask permission to place the caller on hold before doing so?",
-  "If placing the caller on hold, did the agent use the appropriate amount of hold time (no more than 2 minutes without check-ins with the patient)?",
-  "Did the agent mute the call when appropriate?",
-  "Did the agent answer the question correctly?",
-  "Did the agent transfer the call to a peer when necessary (escalated calls)?",
-  "Did the agent add rapport to the call?",
-  "Did the agent maintain professionalism?",
-  "Did the agent maintain adaptability and respond flexibly to the caller's needs?",
-  "Did the agent interrupt or talk over the caller?",
-  "Did the agent maintain proper tone, pitch, volume, and pace throughout the call?",
-  "Did the agent use courteous words and phrases?",
-  "Did the agent adapt their approach to the patient's unique needs and issues?",
-  "Did the agent avoid long silences during the call?",
-  "Did the agent remain confident throughout the call?",
-  "Did the agent use jargon on the call? (This would be a negative regarding quality.)",
-  "Did the agent apologize for any inconveniences?",
-] as const;
-
-const CATEGORY_FILL = "FFC3D69B";
-const TITLE_FILL = "FF8EB4E3";
 const FULL_SCORE_FILL = "FFC6E0B4";
 const PARTIAL_SCORE_FILL = "FFFFD966";
 const ZERO_SCORE_FILL = "FFFF0000";
 const NOT_APPLICABLE_FILL = "FFD9E1F2";
-const THIN_BORDER = {
-  top: { style: "thin", color: { argb: "FF000000" } },
-  left: { style: "thin", color: { argb: "FF000000" } },
-  bottom: { style: "thin", color: { argb: "FF000000" } },
-  right: { style: "thin", color: { argb: "FF000000" } },
-} satisfies Partial<ExcelJS.Borders>;
+const HAPUSA_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "src",
+  "server",
+  "templates",
+  "hapusa-scorecard-template.xlsx",
+);
+const HAPUSA_ANSWER_ROWS = [
+  4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33,
+  34,
+] as const;
+let templateBufferPromise: Promise<Buffer> | null = null;
 
 export class HapusaPackageError extends Error {
   constructor(
@@ -92,6 +76,7 @@ function operationalDateTime(value: Date) {
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return {
     date: `${values.month}-${values.day}-${values.year}`,
+    scorecardDate: `${values.month}/${values.day}/${values.year}`,
     time: `${values.hour}:${values.minute}:${values.second}${values.dayPeriod}`,
   };
 }
@@ -100,175 +85,89 @@ function scoreLabel(score: number) {
   return Number.isInteger(score) ? String(score) : score.toFixed(1);
 }
 
-function answerCategory(answer: PackageResponse["answers"][number]) {
-  return answer.category?.name ?? answer.question.formCategory?.qaCategory.name ?? "Uncategorized";
-}
-
 function answerPoints(answer: PackageResponse["answers"][number]) {
   if (answer.notApplicable || answer.score === null) return null;
   return (Number(answer.score) / 100) * answer.question.weight;
 }
 
-function applyBodyCellStyle(cell: ExcelJS.Cell, options: { centered?: boolean } = {}) {
-  cell.font = { name: "Arial", size: 10 };
-  cell.border = THIN_BORDER;
-  cell.alignment = {
-    vertical: "middle",
-    horizontal: options.centered ? "center" : "left",
-    wrapText: true,
+function applyScoreFill(cell: ExcelJS.Cell, argb: string) {
+  cell.style = {
+    ...cell.style,
+    fill: {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb },
+    },
   };
+}
+
+function scoreFill(answer: PackageResponse["answers"][number]) {
+  if (answer.notApplicable || answer.score === null) return NOT_APPLICABLE_FILL;
+  const percentage = Number(answer.score);
+  if (percentage <= 0) return ZERO_SCORE_FILL;
+  if (percentage >= 100) return FULL_SCORE_FILL;
+  return PARTIAL_SCORE_FILL;
+}
+
+function totalScoreFill(score: number) {
+  if (score >= 95) return FULL_SCORE_FILL;
+  if (score >= 80) return PARTIAL_SCORE_FILL;
+  return ZERO_SCORE_FILL;
+}
+
+function patientAni(phoneNumber: string | null | undefined) {
+  const raw = phoneNumber?.trim() ?? "";
+  const digits = raw.replace(/\D/g, "");
+  return digits.length >= 7 ? digits : raw;
+}
+
+function requiredTemplateBuffer() {
+  templateBufferPromise ??= readFile(HAPUSA_TEMPLATE_PATH);
+  return templateBufferPromise;
 }
 
 export async function buildHapusaScorecardWorkbook(response: PackageResponse) {
   const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    Buffer.from(await requiredTemplateBuffer()) as unknown as Parameters<
+      typeof workbook.xlsx.load
+    >[0],
+  );
   workbook.creator = "Qore";
+  workbook.lastModifiedBy = "Qore";
   workbook.created = new Date();
   workbook.modified = new Date();
+  workbook.calcProperties.fullCalcOnLoad = true;
 
-  const sheet = workbook.addWorksheet("Scorecard", {
-    pageSetup: {
-      orientation: "landscape",
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
-    },
-    views: [{ state: "frozen", ySplit: 3 }],
-  });
-  sheet.properties.defaultRowHeight = 18;
-  sheet.columns = [
-    { key: "criterion", width: 105 },
-    { key: "possible", width: 13 },
-    { key: "scored", width: 15 },
-    { key: "comment", width: 55 },
-  ];
-
-  sheet.mergeCells("A1:D1");
-  const titleCell = sheet.getCell("A1");
-  titleCell.value = "Call Monitoring Score Card";
-  titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TITLE_FILL } };
-  titleCell.font = { name: "Arial", size: 16, bold: true };
-  titleCell.alignment = { horizontal: "center", vertical: "middle" };
-  titleCell.border = THIN_BORDER;
-  sheet.getRow(1).height = 25;
-
-  sheet.mergeCells("A2:D2");
+  const sheet = workbook.getWorksheet("Scorecard");
+  if (!sheet) throw new Error("The official HAPUSA workbook template is invalid");
   const evaluatedAt = operationalDateTime(response.submittedAt ?? response.createdAt);
-  const infoCell = sheet.getCell("A2");
-  infoCell.value = `Name: ${response.agent.name}   Date: ${evaluatedAt.date}   Time: ${evaluatedAt.time}   Account #:                 ANI#:`;
-  infoCell.font = { name: "Arial", size: 10, bold: true };
-  infoCell.alignment = { vertical: "middle", wrapText: true };
-  infoCell.border = THIN_BORDER;
-  sheet.getRow(2).height = 22;
+  sheet.getCell("A2").value =
+    `Name: ${response.agent.name}  Date: ${evaluatedAt.scorecardDate}  ` +
+    `Time: ${evaluatedAt.time}  Account #:                 ` +
+    `ANI#: ${patientAni(response.interaction?.phoneNumber)}`;
 
-  let rowNumber = 3;
-  let activeCategory = "";
-  const totalAnswerRows: number[] = [];
-  for (const answer of response.answers) {
-    const category = answerCategory(answer);
-    if (category !== activeCategory) {
-      const categoryAnswers = response.answers.filter(
-        (candidate) => answerCategory(candidate) === category,
-      );
-      const categoryPoints = categoryAnswers.reduce(
-        (total, candidate) => total + candidate.question.weight,
-        0,
-      );
-      const row = sheet.getRow(rowNumber);
-      row.values = [
-        category,
-        `${scoreLabel(categoryPoints)} Points`,
-        "Points Scored",
-        "Comment Section",
-      ];
-      row.height = 20;
-      for (let column = 1; column <= 4; column += 1) {
-        const cell = row.getCell(column);
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: CATEGORY_FILL } };
-        cell.font = { name: "Arial", size: 10, bold: true };
-        cell.border = THIN_BORDER;
-        cell.alignment = {
-          vertical: "middle",
-          horizontal: column === 4 ? "center" : "left",
-          wrapText: true,
-        };
-      }
-      activeCategory = category;
-      rowNumber += 1;
-    }
-
+  for (const [index, answer] of response.answers.entries()) {
+    const rowNumber = HAPUSA_ANSWER_ROWS[index];
+    if (!rowNumber) break;
     const row = sheet.getRow(rowNumber);
     const awardedPoints = answerPoints(answer);
-    row.values = [
-      `* ${answer.question.label}`,
-      answer.question.weight,
-      awardedPoints ?? "N/A",
-      answer.comment ?? "",
-    ];
-    row.height = Math.max(20, Math.min(60, 18 + Math.ceil(answer.question.label.length / 95) * 12));
-    applyBodyCellStyle(row.getCell(1));
-    applyBodyCellStyle(row.getCell(2), { centered: true });
-    applyBodyCellStyle(row.getCell(3), { centered: true });
-    applyBodyCellStyle(row.getCell(4));
-
     const scoredCell = row.getCell(3);
-    const awardedPercent = Number(answer.score ?? 0);
-    scoredCell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: {
-        argb: answer.notApplicable
-          ? NOT_APPLICABLE_FILL
-          : awardedPercent <= 0
-            ? ZERO_SCORE_FILL
-            : awardedPercent >= 100
-              ? FULL_SCORE_FILL
-              : PARTIAL_SCORE_FILL,
-      },
-    };
-    totalAnswerRows.push(rowNumber);
-    rowNumber += 1;
+    scoredCell.value = awardedPoints ?? "N/A";
+    applyScoreFill(scoredCell, scoreFill(answer));
+    const comment = answer.comment?.trim() ?? "";
+    row.getCell(4).value = comment || null;
+
+    const commentLines = Math.max(1, Math.ceil(comment.length / 58));
+    row.height = Math.max(row.height ?? 12.75, Math.min(76.5, commentLines * 12.75));
   }
 
-  const totalRow = sheet.getRow(rowNumber);
-  totalRow.getCell(1).value = "Totals Points Allowed";
-  totalRow.getCell(2).value = 100;
-  totalRow.getCell(3).value = {
-    formula: `SUM(${totalAnswerRows.map((row) => `C${row}`).join(",")})`,
+  const totalScore = Number(response.score);
+  sheet.getCell("C35").value = {
+    formula: "SUM(C4:C34)",
     result: Number(response.score),
   };
-  for (let column = 1; column <= 4; column += 1) {
-    applyBodyCellStyle(totalRow.getCell(column), { centered: column > 1 });
-    totalRow.getCell(column).font = { name: "Arial", size: 10, bold: true };
-  }
-  totalRow.height = 22;
-
-  const policyStart = rowNumber + 2;
-  sheet.mergeCells(`A${policyStart}:D${policyStart + 2}`);
-  const policyCell = sheet.getCell(`A${policyStart}`);
-  policyCell.value =
-    'Total points accumulate on a scale of 100%. Each representative must maintain a monthly average of 95% or higher. Scorecards are reviewed during 1-on-1s, and calls may be reviewed on an "as needed" basis or upon the representative’s request.';
-  policyCell.font = { name: "Arial", size: 10, bold: true };
-  policyCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  policyCell.border = THIN_BORDER;
-  sheet.getRow(policyStart).height = 22;
-  sheet.getRow(policyStart + 1).height = 22;
-  sheet.getRow(policyStart + 2).height = 22;
-  sheet.autoFilter = { from: "A3", to: `D${rowNumber}` };
-
-  const tipsSheet = workbook.addWorksheet("Adding Quality to the call tips");
-  tipsSheet.getColumn(1).width = 105;
-  const tipsTitle = tipsSheet.getCell("A1");
-  tipsTitle.value = "Added Quality to the call";
-  tipsTitle.fill = { type: "pattern", pattern: "solid", fgColor: { argb: CATEGORY_FILL } };
-  tipsTitle.font = { name: "Arial", size: 10, bold: true };
-  for (const [index, tip] of QUALITY_TIPS.entries()) {
-    const row = tipsSheet.getRow(index + 2);
-    row.getCell(1).value = `* ${tip}`;
-    row.getCell(1).font = { name: "Arial", size: 10 };
-    row.getCell(1).alignment = { vertical: "middle", wrapText: true };
-    row.height = Math.max(20, Math.min(50, 18 + Math.ceil(tip.length / 100) * 12));
-  }
+  applyScoreFill(sheet.getCell("C35"), totalScoreFill(totalScore));
 
   return workbook;
 }
@@ -318,6 +217,7 @@ async function loadPackageResponses(responseIds: string[]) {
           provider: true,
           providerInstance: true,
           providerInteractionId: true,
+          phoneNumber: true,
           hasRecording: true,
           metadata: true,
           startedAt: true,

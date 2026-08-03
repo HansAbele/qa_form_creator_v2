@@ -81,7 +81,9 @@ export function AgentPerformanceClient({
   const chartAnimation = useChartAnimation();
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgScore", desc: true }]);
   const [globalFilter, setGlobalFilter] = useState("");
-  const [campaignFilter, setCampaignFilter] = useState("all");
+  const [campaignFilter, setCampaignFilter] = useState(
+    campaigns.length === 1 ? (campaigns[0]?.id ?? "all") : "all",
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<"leaderboard" | "comparison">("leaderboard");
 
@@ -469,19 +471,26 @@ export function AgentPerformanceClient({
           onChange={(e) => setGlobalFilter(e.target.value)}
           className="w-64"
         />
-        <Select value={campaignFilter} onValueChange={(v) => v && setCampaignFilter(v)}>
-          <SelectTrigger aria-label={t("Filter by campaign")} className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("All campaigns")}</SelectItem>
-            {campaigns.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {campaigns.length === 1 ? (
+          <div className="flex min-h-10 w-48 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+            <span className="truncate font-medium">{campaigns[0]?.name}</span>
+            <Badge variant="secondary">{t("Automatic")}</Badge>
+          </div>
+        ) : (
+          <Select value={campaignFilter} onValueChange={(v) => v && setCampaignFilter(v)}>
+            <SelectTrigger aria-label={t("Filter by campaign")} className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("All campaigns")}</SelectItem>
+              {campaigns.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <p className="text-sm text-muted-foreground ml-auto">
           {t("{count} agents", { count: filtered.length })}
           {selectedIds.size > 0 &&

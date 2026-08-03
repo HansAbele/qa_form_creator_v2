@@ -83,6 +83,80 @@ export type PreparedAudio = {
   cleanup: () => Promise<void>;
 };
 
+export type PreparedPlaybackAudio = {
+  audioPath: string;
+  byteSize: number;
+  durationMs: number | null;
+  channelCount: number | null;
+  cleanup: () => Promise<void>;
+};
+
+/** Convert telephony codecs such as GSM-in-WAV into browser-compatible PCM WAV. */
+export async function prepareAudioForPlayback(input: {
+  sourcePath: string;
+  ffmpegPath: string;
+  ffprobePath?: string;
+  maxAudioBytes: number;
+  timeoutMs?: number;
+}): Promise<PreparedPlaybackAudio> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "qore-playback-"));
+  const audioPath = path.join(directory, "playback.wav");
+  const cleanup = () => rm(directory, { recursive: true, force: true });
+
+  try {
+    await runFfmpeg(
+      input.ffmpegPath,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-i",
+        input.sourcePath,
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        audioPath,
+      ],
+      input.timeoutMs ?? DEFAULT_PREPARATION_TIMEOUT_MS,
+    );
+    const output = await stat(audioPath);
+    if (!output.isFile() || output.size <= 0) {
+      throw new AudioPreparationError(
+        "Audio preprocessing produced an empty file",
+        "AUDIO_PREPROCESSING_FAILED",
+      );
+    }
+    if (output.size > input.maxAudioBytes) {
+      throw new AudioPreparationError(
+        "The browser-compatible audio exceeds the storage limit",
+        "AUDIO_TOO_LARGE",
+      );
+    }
+    const metadata = await probeAudioMetadata({
+      sourcePath: audioPath,
+      ffprobePath: input.ffprobePath,
+    }).catch(() => ({ durationMs: null, channelCount: null }));
+    return {
+      audioPath,
+      byteSize: output.size,
+      durationMs: metadata.durationMs,
+      channelCount: metadata.channelCount,
+      cleanup,
+    };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+}
+
 export async function prepareAudioForTranscription(input: {
   sourcePath: string;
   ffmpegPath: string;

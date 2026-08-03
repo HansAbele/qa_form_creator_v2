@@ -35,6 +35,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { type CallEndParty, callEndPartyLabel } from "@/lib/call-end-party";
 import type { CallMetadataSummary } from "@/lib/call-metadata";
 import { cn } from "@/lib/utils";
 import {
@@ -51,6 +52,8 @@ export type InteractionMediaContext = {
   phoneNumber: string | null;
   queueName: string | null;
   status?: string | null;
+  endedBy?: CallEndParty;
+  campaignName?: string | null;
   dispositionName?: string | null;
   callMetadata?: CallMetadataSummary;
   startedAt: string;
@@ -380,12 +383,24 @@ export function InteractionMediaPanel({
             </p>
           )}
 
-          <div className="grid gap-2 rounded-lg border bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-2 rounded-lg border bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <MediaFact
               label={t("Disposition")}
               value={
                 interaction.dispositionName ?? interaction.callMetadata?.primaryDispositionId ?? "—"
               }
+            />
+            <MediaFact
+              label={t("Ended by")}
+              value={t(
+                callEndPartyLabel(interaction.endedBy ?? "UNKNOWN", interaction.campaignName),
+              )}
+            />
+            <MediaFact
+              label={t("Talk time")}
+              value={formatDuration(
+                interaction.callMetadata?.talkSeconds ?? interaction.durationSeconds,
+              )}
             />
             <MediaFact
               label={t("Hold time")}
@@ -406,8 +421,18 @@ export function InteractionMediaPanel({
             />
             <MediaFact label={t("Team")} value={interaction.callMetadata?.teamName ?? "—"} />
             <MediaFact
+              label={t("Agent extension")}
+              value={interaction.callMetadata?.agentExtension ?? "—"}
+            />
+            <MediaFact label={t("DID")} value={interaction.callMetadata?.did ?? "—"} />
+            <MediaFact
               label={t("Contact point")}
-              value={interaction.callMetadata?.pointOfContactName ?? interaction.status ?? "—"}
+              value={
+                interaction.callMetadata?.pointOfContactName ??
+                interaction.callMetadata?.application ??
+                interaction.status ??
+                "—"
+              }
             />
           </div>
 

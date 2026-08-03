@@ -39,7 +39,9 @@ function toUiAccess(
     isAdmin,
     isSupervisor,
     isAgent,
-    canOpenSettings: !isAgent && (isAdmin || permissions.canViewAudit),
+    // QA and Supervisors always receive a personal workspace section. Global
+    // settings remain independently protected by ADMIN checks.
+    canOpenSettings: !isAgent,
   };
 }
 

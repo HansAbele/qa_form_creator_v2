@@ -8,9 +8,11 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { inferCallEndParty } from "@/lib/call-end-party";
 import { summarizeCallMetadata } from "@/lib/call-metadata";
 import { getOperationalDateBounds } from "@/lib/operational-time";
 import { prisma } from "@/lib/prisma";
+import { providerAgentDisplayName } from "@/lib/provider-agent";
 import { getCampaignFilter } from "@/server/queries/campaign-filter";
 
 const PAGE_SIZE = 25;
@@ -131,7 +133,11 @@ export function buildInteractionWhere(
     ...campaignFilter,
     AND: [
       {
-        OR: [{ agentId: { not: null } }, { providerAgentName: { not: null } }],
+        OR: [
+          { agentId: { not: null } },
+          { providerAgentId: { not: null } },
+          { providerAgentName: { not: null } },
+        ],
       },
       ...(hasDurationFilter
         ? [
@@ -179,11 +185,23 @@ export function toCampaignWhere(campaignFilter: {
   };
 }
 
+export async function getCallFinderCampaignOptions() {
+  const campaignFilter = await getCallFinderCampaignFilter("evaluate");
+  return prisma.campaign.findMany({
+    where: toCampaignWhere(campaignFilter),
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function getCallFinderPageData(filters: CallFinderFilters) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
 
-  const campaignFilter = await getCallFinderCampaignFilter("evaluate", filters.campaignId);
+  const [campaignFilter, availableCampaignFilter] = await Promise.all([
+    getCallFinderCampaignFilter("evaluate", filters.campaignId),
+    getCallFinderCampaignFilter("evaluate"),
+  ]);
   const where = buildInteractionWhere(filters, campaignFilter);
 
   const [totalCount, interactions, campaigns, agents, externalAgents, callSources] =
@@ -230,7 +248,7 @@ export async function getCallFinderPageData(filters: CallFinderFilters) {
         },
       }),
       prisma.campaign.findMany({
-        where: toCampaignWhere(campaignFilter),
+        where: toCampaignWhere(availableCampaignFilter),
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       }),
@@ -247,15 +265,15 @@ export async function getCallFinderPageData(filters: CallFinderFilters) {
           ...campaignFilter,
           agentId: null,
           providerAgentId: { not: null },
-          providerAgentName: { not: null },
         },
         distinct: ["campaignId", "providerAgentId"],
         select: {
           campaignId: true,
+          provider: true,
           providerAgentId: true,
           providerAgentName: true,
         },
-        orderBy: { providerAgentName: "asc" },
+        orderBy: { providerAgentId: "asc" },
       }),
       prisma.campaignCallSource.findMany({
         where: {
@@ -287,22 +305,33 @@ export async function getCallFinderPageData(filters: CallFinderFilters) {
     })),
     agents: [
       ...agents,
-      ...externalAgents.flatMap((agent) =>
-        agent.providerAgentId && agent.providerAgentName
+      ...externalAgents.flatMap((agent) => {
+        const displayName = providerAgentDisplayName(
+          agent.provider,
+          agent.providerAgentId,
+          agent.providerAgentName,
+        );
+        return agent.providerAgentId && displayName
           ? [
               {
                 id: `provider:${agent.providerAgentId}`,
-                name: agent.providerAgentName,
+                name: displayName,
                 agentCode: agent.providerAgentId,
                 campaignId: agent.campaignId,
                 external: true as const,
               },
             ]
-          : [],
-      ),
+          : [];
+      }),
     ],
     interactions: interactions.map((interaction) => ({
       ...interaction,
+      endedBy: inferCallEndParty(interaction.status),
+      providerAgentName: providerAgentDisplayName(
+        interaction.provider,
+        interaction.providerAgentId,
+        interaction.providerAgentName,
+      ),
       callMetadata: summarizeCallMetadata(interaction.metadata),
       metadata: undefined,
       startedAt: interaction.startedAt.toISOString(),
@@ -337,6 +366,7 @@ export async function getCallFinderInteractionDetail(id: string) {
       provider: true,
       providerInstance: true,
       providerInteractionId: true,
+      providerAgentId: true,
       providerAgentName: true,
       direction: true,
       phoneNumber: true,
@@ -415,6 +445,12 @@ export async function getCallFinderInteractionDetail(id: string) {
 
   return {
     ...interaction,
+    endedBy: inferCallEndParty(interaction.status),
+    providerAgentName: providerAgentDisplayName(
+      interaction.provider,
+      interaction.providerAgentId,
+      interaction.providerAgentName,
+    ),
     callMetadata: summarizeCallMetadata(interaction.metadata),
     metadata: undefined,
     startedAt: interaction.startedAt.toISOString(),
@@ -446,10 +482,12 @@ const evaluationInteractionSelect = {
   id: true,
   provider: true,
   providerInteractionId: true,
+  providerAgentId: true,
   providerAgentName: true,
   direction: true,
   phoneNumber: true,
   queueName: true,
+  status: true,
   startedAt: true,
   durationSeconds: true,
   hasRecording: true,
@@ -523,6 +561,12 @@ async function loadInteractionForForm(
 
   return {
     ...interaction,
+    endedBy: inferCallEndParty(interaction.status),
+    providerAgentName: providerAgentDisplayName(
+      interaction.provider,
+      interaction.providerAgentId,
+      interaction.providerAgentName,
+    ),
     callMetadata: summarizeCallMetadata(interaction.metadata),
     metadata: undefined,
     startedAt: interaction.startedAt.toISOString(),

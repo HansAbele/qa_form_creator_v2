@@ -76,6 +76,7 @@ import {
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import type { AppSettings, CampaignScoringSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import type { WorkspacePreferences } from "@/lib/workspace-preferences";
 import {
   type OperationalAuditEvent,
   type OperationalAuditPage,
@@ -91,9 +92,15 @@ import {
 } from "@/server/actions/qa-categories";
 import { resetSettings, updateSettings } from "@/server/actions/settings";
 import { updateCampaignAccess } from "@/server/actions/users";
+import { updateMyWorkspacePreferences } from "@/server/actions/workspace-preferences";
 
 interface SettingsClientProps {
   settings: AppSettings;
+  workspacePreferences: WorkspacePreferences;
+  workspaceCampaigns: { id: string; name: string }[];
+  canUseOwnEvaluationScope: boolean;
+  canUseManagedEvaluationScope: boolean;
+  role: "ADMIN" | "QA" | "SUPERVISOR" | "AGENT";
   isAdmin: boolean;
   canViewAudit: boolean;
   accessUsers: AccessUser[];
@@ -119,6 +126,7 @@ type AccessCampaign = {
 } & CampaignPermissionState;
 
 export type SettingsSectionId =
+  | "workspace"
   | "access"
   | "scoring"
   | "campaign-scoring"
@@ -136,6 +144,12 @@ const SETTINGS_SECTIONS: {
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
 }[] = [
+  {
+    id: "workspace",
+    label: "My Workspace",
+    description: "Personal defaults for daily QA work",
+    icon: SettingsIcon,
+  },
   {
     id: "access",
     label: "Access Control",
@@ -203,6 +217,11 @@ const SETTINGS_SECTIONS: {
 
 export function SettingsClient({
   settings,
+  workspacePreferences,
+  workspaceCampaigns,
+  canUseOwnEvaluationScope,
+  canUseManagedEvaluationScope,
+  role,
   isAdmin,
   canViewAudit,
   accessUsers,
@@ -235,7 +254,9 @@ export function SettingsClient({
           <h1 className="font-heading text-3xl font-bold tracking-tight">{t("Settings")}</h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          {t("Manage access, scoring, quality rules, and audit controls.")}
+          {isAdmin
+            ? t("Manage access, scoring, quality rules, and audit controls.")
+            : t("Manage your personal defaults for daily quality work.")}
         </p>
       </motion.div>
 
@@ -290,6 +311,15 @@ export function SettingsClient({
           {isAdmin && currentSection.id === "access" && (
             <AccessTab users={accessUsers} campaigns={accessCampaigns} />
           )}
+          {currentSection.id === "workspace" && (
+            <WorkspacePreferencesTab
+              initialPreferences={workspacePreferences}
+              campaigns={workspaceCampaigns}
+              canUseOwnEvaluationScope={canUseOwnEvaluationScope}
+              canUseManagedEvaluationScope={canUseManagedEvaluationScope}
+              role={role}
+            />
+          )}
           {isAdmin && currentSection.id === "scoring" && <ScoringTab settings={settings} />}
           {isAdmin && currentSection.id === "campaign-scoring" && (
             <CampaignScoringTab campaigns={accessCampaigns} scoring={campaignScoring} />
@@ -317,6 +347,171 @@ export function SettingsClient({
 // ══════════════════════════════════════════════════════════════════════════
 //   My Account tab
 // ══════════════════════════════════════════════════════════════════════════
+function WorkspacePreferencesTab({
+  initialPreferences,
+  campaigns,
+  canUseOwnEvaluationScope,
+  canUseManagedEvaluationScope,
+  role,
+}: {
+  initialPreferences: WorkspacePreferences;
+  campaigns: { id: string; name: string }[];
+  canUseOwnEvaluationScope: boolean;
+  canUseManagedEvaluationScope: boolean;
+  role: "ADMIN" | "QA" | "SUPERVISOR" | "AGENT";
+}) {
+  const { t } = useI18n();
+  const router = useRouter();
+  const [draft, setDraft] = useState(initialPreferences);
+  const [saving, startSaving] = useTransition();
+  const fixedCampaign = campaigns.length === 1 ? campaigns[0] : null;
+  const hasChanges = JSON.stringify(draft) !== JSON.stringify(initialPreferences);
+  useEffect(() => setDraft(initialPreferences), [initialPreferences]);
+
+  const save = () => {
+    startSaving(async () => {
+      try {
+        const result = await updateMyWorkspacePreferences(draft);
+        setDraft(result.preferences);
+        toast.success(t("Workspace preferences saved"));
+        router.refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? t(error.message) : t("Unable to save changes"));
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-5">
+      <Card className="border-primary/20 bg-primary/[0.03]">
+        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-medium">{t("Personal workspace")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t(
+                "These defaults apply only to your account and never change campaign permissions or global scoring.",
+              )}
+            </p>
+          </div>
+          <Badge variant="outline">{t(getBaseRoleLabel(role))}</Badge>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("Daily workflow defaults")}</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{t("Default campaign")}</Label>
+            {campaigns.length === 0 ? (
+              <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                {t("No active campaigns are assigned to your account.")}
+              </div>
+            ) : fixedCampaign ? (
+              <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                <span className="font-medium">{fixedCampaign.name}</span>
+                <Badge variant="secondary">{t("Automatic")}</Badge>
+              </div>
+            ) : (
+              <Select
+                value={draft.defaultCampaignId ?? "automatic"}
+                onValueChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    defaultCampaignId: !value || value === "automatic" ? null : value,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("Select a campaign")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="automatic">{t("All campaigns / choose each time")}</SelectItem>
+                  {campaigns.map((campaign) => (
+                    <SelectItem key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {t("When only one campaign is available, Qore selects it automatically.")}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t("Default period")}</Label>
+            <Select
+              value={draft.defaultDateRange}
+              onValueChange={(value) => {
+                if (!value) return;
+                setDraft((current) => ({
+                  ...current,
+                  defaultDateRange: value as WorkspacePreferences["defaultDateRange"],
+                }));
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL_TIME">{t("All time")}</SelectItem>
+                <SelectItem value="TODAY">{t("Today")}</SelectItem>
+                <SelectItem value="LAST_7_DAYS">{t("Last 7 days")}</SelectItem>
+                <SelectItem value="LAST_14_DAYS">{t("Last 14 days")}</SelectItem>
+                <SelectItem value="LAST_30_DAYS">{t("Last 30 days")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("Used when a page opens without a period in its URL.")}
+            </p>
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <Label>{t("Default evaluation view")}</Label>
+            {canUseOwnEvaluationScope && canUseManagedEvaluationScope ? (
+              <Select
+                value={draft.defaultEvaluationScope}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setDraft((current) => ({
+                    ...current,
+                    defaultEvaluationScope: value as WorkspacePreferences["defaultEvaluationScope"],
+                  }));
+                }}
+              >
+                <SelectTrigger className="md:max-w-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MANAGED">{t("Team & campaigns")}</SelectItem>
+                  <SelectItem value="OWN">{t("My evaluations")}</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="flex min-h-10 max-w-sm items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                <span className="font-medium">
+                  {canUseManagedEvaluationScope ? t("Team & campaigns") : t("My evaluations")}
+                </span>
+                <Badge variant="secondary">{t("Role default")}</Badge>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-end">
+        <Button type="button" onClick={save} disabled={saving || !hasChanges}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? t("Saving...") : t("Save preferences")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function AccessTab({
   users,
   campaigns,

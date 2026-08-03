@@ -9,6 +9,12 @@ export type CallMetadataSummary = {
   holdCount: number | null;
   holdSeconds: number | null;
   transferIndicatorName: string | null;
+  providerSystem: string | null;
+  agentExtension: string | null;
+  application: string | null;
+  did: string | null;
+  outboundCallerId: string | null;
+  talkSeconds: number | null;
 };
 
 function metadataRecord(value: unknown): Record<string, unknown> {
@@ -47,5 +53,11 @@ export function summarizeCallMetadata(value: unknown): CallMetadataSummary {
     holdCount: metadataNumber(record, "holdCount"),
     holdSeconds: metadataNumber(record, "holdSeconds"),
     transferIndicatorName: metadataString(record, "transferIndicatorName"),
+    providerSystem: metadataString(record, "providerSystem"),
+    agentExtension: metadataString(record, "agentExtension"),
+    application: metadataString(record, "application"),
+    did: metadataString(record, "did"),
+    outboundCallerId: metadataString(record, "outboundCallerId"),
+    talkSeconds: metadataNumber(record, "talkSeconds"),
   };
 }

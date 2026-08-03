@@ -55,6 +55,13 @@ describe("performance management actions", () => {
 
   it("creates campaign-scoped coaching with an acknowledgement trail", async () => {
     prismaMock.agent.findFirst.mockResolvedValue({ id: "agent-1", name: "Agent One" });
+    prismaMock.response.findFirst.mockResolvedValue({
+      id: "response-1",
+      interactionId: "interaction-1",
+      score: 86,
+      hasFatalFail: false,
+      form: { title: "Official scorecard" },
+    } as never);
     prismaMock.coachingSession.create.mockResolvedValue({
       id: "coaching-1",
       status: "DRAFT",
@@ -64,18 +71,13 @@ describe("performance management actions", () => {
     await createCoachingSession({
       campaignId: "campaign-1",
       agentId: "agent-1",
-      responseId: null,
+      responseId: "response-1",
       pipPlanId: null,
-      title: "Quality recovery coaching",
       focusArea: "Documentation",
-      behavior: null,
       objective: "Improve documentation accuracy in every evaluated interaction.",
-      evidenceSummary: "Documented trend across the agent's recent quality results.",
-      source: "MANUAL",
       scheduledAt: null,
       acknowledgementDueAt: null,
       followUpAt: null,
-      actionItems: [],
     });
 
     expect(prismaMock.coachingSession.create).toHaveBeenCalledWith(
@@ -84,6 +86,11 @@ describe("performance management actions", () => {
           campaignId: "campaign-1",
           agentId: "agent-1",
           coachId: "qa-1",
+          responseId: "response-1",
+          interactionId: "interaction-1",
+          title: "Coaching — Documentation",
+          behavior: null,
+          source: "EVALUATION",
           acknowledgement: {
             create: {
               status: "PENDING",
@@ -108,12 +115,9 @@ describe("performance management actions", () => {
       createCoachingSession({
         campaignId: "campaign-2",
         agentId: "agent-2",
-        title: "Out of scope coaching",
+        responseId: "response-2",
         focusArea: "Quality",
         objective: "This request must be rejected before campaign data is queried.",
-        evidenceSummary: "Out-of-scope evidence that must not be queried.",
-        source: "MANUAL",
-        actionItems: [],
       }),
     ).rejects.toThrow("Unauthorized for this campaign");
 

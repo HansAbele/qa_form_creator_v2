@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { formatTrackedDuration, QA_ACTIVITY_TYPES } from "@/lib/performance-management";
 import {
   finishQaActivity,
@@ -497,23 +498,30 @@ function ActivityStarter({ data, onChanged }: { data: WorkspaceData; onChanged: 
         <form action={submit} className="grid gap-4 lg:grid-cols-[1fr_1fr_1.2fr_1.5fr_auto]">
           <div className="space-y-1.5">
             <Label>{t("Campaign")}</Label>
-            <Select value={campaignId} onValueChange={(value) => setCampaignId(value ?? "")}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(value: string | null) =>
-                    campaigns.find((campaign) => campaign.id === value)?.name ??
-                    t("Select campaign")
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {campaigns.map((campaign) => (
-                  <SelectItem key={campaign.id} value={campaign.id}>
-                    {campaign.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {campaigns.length === 1 ? (
+              <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                <span className="font-medium">{campaigns[0]?.name}</span>
+                <Badge variant="secondary">{t("Automatic")}</Badge>
+              </div>
+            ) : (
+              <Select value={campaignId} onValueChange={(value) => setCampaignId(value ?? "")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(value: string | null) =>
+                      campaigns.find((campaign) => campaign.id === value)?.name ??
+                      t("Select campaign")
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {campaigns.map((campaign) => (
+                    <SelectItem key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>{t("Activity type")}</Label>
@@ -650,7 +658,8 @@ function ActivityPanel({ data, onChanged }: { data: WorkspaceData; onChanged: ()
                       {activity.response ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span>
-                            {activity.response.agent.name} · {activity.response.form.title}
+                            {activity.response.agent.name} ·{" "}
+                            {formDisplayName(activity.response.form.title)}
                             {activity.response.interaction
                               ? ` · #${activity.response.interaction.providerInteractionId}`
                               : ""}
@@ -709,7 +718,6 @@ function PipCard({
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={statusVariant(pip.status)}>{t(titleCase(pip.status))}</Badge>
-          <Badge variant="outline">{pip.templateVersion}</Badge>
           {PIP_ACTIVE.has(pip.status) ? (
             <Badge variant={statusVariant(pip.acknowledgementStatus)}>
               {t("Receipt")}: {t(titleCase(pip.acknowledgementStatus))}

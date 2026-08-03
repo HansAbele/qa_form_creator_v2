@@ -39,9 +39,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { callEndPartyLabel } from "@/lib/call-end-party";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import { cn } from "@/lib/utils";
-import { syncNiceCxoneCalls } from "@/server/actions/call-finder";
+import { syncCallSources } from "@/server/actions/call-finder";
 import type { CallFinderPageData } from "@/server/queries/call-finder";
 
 type FilterState = {
@@ -140,10 +141,10 @@ export function CallFinderClient({
     (campaignId: string | undefined, automatic = false) => {
       startSyncTransition(async () => {
         try {
-          const result = await syncNiceCxoneCalls({ campaignId });
+          const result = await syncCallSources({ campaignId });
           if (!automatic) {
             toast.success(
-              t("NICE CXone synchronized: {created} new, {updated} updated.", {
+              t("Call sources synchronized: {created} new, {updated} updated.", {
                 created: result.created,
                 updated: result.updated,
               }),
@@ -241,31 +242,38 @@ export function CallFinderClient({
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1.5">
               <Label>{t("Campaign")}</Label>
-              <Select
-                value={filters.campaignId || "all"}
-                onValueChange={(value) =>
-                  updateFilter("campaignId", !value || value === "all" ? "" : value)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value: string | null) =>
-                      !value || value === "all"
-                        ? t("All campaigns")
-                        : (data.campaigns.find((campaign) => campaign.id === value)?.name ??
-                          t("All campaigns"))
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("All campaigns")}</SelectItem>
-                  {data.campaigns.map((campaign) => (
-                    <SelectItem key={campaign.id} value={campaign.id}>
-                      {campaign.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {data.campaigns.length === 1 ? (
+                <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                  <span className="font-medium">{data.campaigns[0]?.name}</span>
+                  <Badge variant="secondary">{t("Automatic")}</Badge>
+                </div>
+              ) : (
+                <Select
+                  value={filters.campaignId || "all"}
+                  onValueChange={(value) =>
+                    updateFilter("campaignId", !value || value === "all" ? "" : value)
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(value: string | null) =>
+                        !value || value === "all"
+                          ? t("All campaigns")
+                          : (data.campaigns.find((campaign) => campaign.id === value)?.name ??
+                            t("All campaigns"))
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("All campaigns")}</SelectItem>
+                    {data.campaigns.map((campaign) => (
+                      <SelectItem key={campaign.id} value={campaign.id}>
+                        {campaign.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>{t("Agent")}</Label>
@@ -309,7 +317,8 @@ export function CallFinderClient({
                     {(value: string | null) => {
                       if (!value || value === "all") return t("All providers");
                       if (value === "NICE_CXONE") return "NICE CXone";
-                      return value === "VICIDIAL" ? "VICIdial" : t("All providers");
+                      if (value === "VICIDIAL") return "VICIdial";
+                      return value === "FREEPBX" ? "FreePBX" : t("All providers");
                     }}
                   </SelectValue>
                 </SelectTrigger>
@@ -317,6 +326,7 @@ export function CallFinderClient({
                   <SelectItem value="all">{t("All providers")}</SelectItem>
                   <SelectItem value="NICE_CXONE">NICE CXone</SelectItem>
                   <SelectItem value="VICIDIAL">VICIdial</SelectItem>
+                  <SelectItem value="FREEPBX">FreePBX</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -439,8 +449,7 @@ export function CallFinderClient({
                     <TableHead>{t("Disposition")}</TableHead>
                     <TableHead>{t("Hold")}</TableHead>
                     <TableHead>{t("Direction")}</TableHead>
-                    <TableHead>{t("Recording")}</TableHead>
-                    <TableHead>{t("Transcript")}</TableHead>
+                    <TableHead>{t("Ended by")}</TableHead>
                     <TableHead className="text-right">{t("Actions")}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -475,6 +484,7 @@ export function CallFinderClient({
                       <TableCell className="max-w-40 truncate text-xs">
                         {interaction.disposition?.name ??
                           interaction.callMetadata.primaryDispositionId ??
+                          interaction.status ??
                           "—"}
                       </TableCell>
                       <TableCell className="font-mono text-xs tabular-nums">
@@ -492,24 +502,9 @@ export function CallFinderClient({
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <AvailabilityBadge
-                          available={interaction.recordingAvailable}
-                          pending={interaction.hasRecording && !interaction.recordingAvailable}
-                          pendingLabel={t("Available in NICE")}
-                          label={t("Recording")}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <AvailabilityBadge
-                          available={Boolean(interaction.transcript)}
-                          pending={!interaction.transcript && interaction.hasRecording}
-                          pendingLabel={
-                            interaction.recordingAvailable
-                              ? t("Ready to transcribe")
-                              : t("Download recording first")
-                          }
-                          label={t("Transcript")}
-                        />
+                        <Badge variant={interaction.endedBy === "AGENT" ? "secondary" : "outline"}>
+                          {t(callEndPartyLabel(interaction.endedBy, interaction.campaign.name))}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <Link
@@ -568,9 +563,7 @@ export function CallFinderClient({
               <PhoneCall className="size-10 text-muted-foreground/50" />
               <p className="mt-3 font-medium">{t("No calls match these filters")}</p>
               <p className="mt-1 max-w-lg text-sm text-muted-foreground">
-                {t(
-                  "Calls will appear here after NICE CXone or VICIdial synchronization is configured.",
-                )}
+                {t("Calls will appear here after a call source is configured and synchronized.")}
               </p>
             </div>
           )}
@@ -603,29 +596,5 @@ function SummaryCard({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function AvailabilityBadge({
-  available,
-  pending = false,
-  pendingLabel,
-  label,
-}: {
-  available: boolean;
-  pending?: boolean;
-  pendingLabel?: string;
-  label: string;
-}) {
-  const { t } = useI18n();
-  return (
-    <Badge
-      variant={available ? "secondary" : "outline"}
-      className={cn("gap-1", pending && "border-primary/30 text-primary")}
-    >
-      {available ? <CheckCircle2 className="size-3" /> : null}
-      <span className="sr-only">{label}: </span>
-      {available ? t("Available") : pending ? (pendingLabel ?? t("Pending")) : t("Not available")}
-    </Badge>
   );
 }

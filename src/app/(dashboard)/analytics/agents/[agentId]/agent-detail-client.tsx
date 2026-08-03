@@ -36,6 +36,7 @@ import {
 import { useChartAnimation } from "@/components/ui/use-chart-animation";
 import { summarizeChartData } from "@/lib/chart-accessibility";
 import { formatDateOnlyForDisplay, formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { getMetricDisplay } from "@/lib/metric-display";
 import { getAgentDetail } from "@/server/queries/analytics";
 
@@ -709,7 +710,7 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate font-medium">
-                          {r.formTitle}
+                          {formDisplayName(r.formTitle)}
                         </TableCell>
                         <TableCell>{r.evaluatorName}</TableCell>
                         <TableCell>

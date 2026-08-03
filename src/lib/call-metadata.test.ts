@@ -27,6 +27,12 @@ describe("summarizeCallMetadata", () => {
       holdCount: 2,
       holdSeconds: 47.6,
       transferIndicatorName: "None",
+      providerSystem: null,
+      agentExtension: null,
+      application: null,
+      did: null,
+      outboundCallerId: null,
+      talkSeconds: null,
     });
   });
 
@@ -42,6 +48,36 @@ describe("summarizeCallMetadata", () => {
       holdCount: null,
       holdSeconds: null,
       transferIndicatorName: null,
+      providerSystem: null,
+      agentExtension: null,
+      application: null,
+      did: null,
+      outboundCallerId: null,
+      talkSeconds: null,
     });
+  });
+
+  it("normalizes useful FreePBX metadata without exposing recording locators", () => {
+    expect(
+      summarizeCallMetadata({
+        providerSystem: "FreePBX",
+        agentExtension: 4141,
+        application: "DIAL",
+        did: "18005550100",
+        outboundCallerId: "18005550101",
+        talkSeconds: "300",
+        recordingId: "private-recording-locator",
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        providerSystem: "FreePBX",
+        agentExtension: "4141",
+        application: "DIAL",
+        did: "18005550100",
+        outboundCallerId: "18005550101",
+        talkSeconds: 300,
+      }),
+    );
+    expect(summarizeCallMetadata({ recordingId: "private" })).not.toHaveProperty("recordingId");
   });
 });

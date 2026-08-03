@@ -3,18 +3,19 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { CreatableCombobox } from "@/components/forms/creatable-combobox";
-import { useI18n } from "@/components/providers/i18n-provider";
 import { DateTimePicker } from "@/components/filters/date-time-picker";
+import { CreatableCombobox } from "@/components/forms/creatable-combobox";
 import {
-  EvaluationEvidencePicker,
   type EvaluationEvidenceItem,
+  EvaluationEvidencePicker,
 } from "@/components/performance/evaluation-evidence-picker";
+import { useI18n } from "@/components/providers/i18n-provider";
 import {
   addOperationalCalendarDays,
   formatOperationalDate,
   useOperationalTimeZone,
 } from "@/components/providers/operational-time-provider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -38,8 +39,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   availablePipReviewFrequencies,
-  pipPlanDurationDays,
   type PipTemplateKey,
+  pipPlanDurationDays,
 } from "@/lib/performance-management";
 import {
   addPipReview,
@@ -81,6 +82,46 @@ function templateForCampaign(campaignName: string): PipTemplateKey {
   return "CUSTOM";
 }
 
+function CampaignSelector({
+  campaigns,
+  value,
+  onValueChange,
+}: {
+  campaigns: { id: string; name: string }[];
+  value: string;
+  onValueChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  if (campaigns.length === 1) {
+    return (
+      <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+        <span className="font-medium">{campaigns[0]?.name}</span>
+        <Badge variant="secondary">{t("Automatic")}</Badge>
+      </div>
+    );
+  }
+
+  return (
+    <Select value={value} onValueChange={(nextValue) => onValueChange(nextValue ?? "")}>
+      <SelectTrigger className="w-full">
+        <SelectValue placeholder={t("Select campaign")}>
+          {(selectedValue: string | null) =>
+            campaigns.find((campaign) => campaign.id === selectedValue)?.name ??
+            t("Select campaign")
+          }
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {campaigns.map((campaign) => (
+          <SelectItem key={campaign.id} value={campaign.id}>
+            {campaign.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSaved: () => void }) {
   const { t } = useI18n();
   const campaigns = data.campaigns.filter((campaign) => campaign.canManageCoaching);
@@ -90,11 +131,9 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
   const [agentId, setAgentId] = useState("");
   const [selectedEvidence, setSelectedEvidence] = useState<EvaluationEvidenceItem[]>([]);
   const [focusArea, setFocusArea] = useState("");
-  const [source, setSource] = useState("MANUAL");
   const [scheduledAt, setScheduledAt] = useState("");
   const [acknowledgementDueAt, setAcknowledgementDueAt] = useState("");
   const [followUpAt, setFollowUpAt] = useState("");
-  const [actionDueAt, setActionDueAt] = useState("");
   const filteredAgents = useMemo(
     () => data.agents.filter((agent) => agent.campaignId === campaignId),
     [campaignId, data.agents],
@@ -108,26 +147,13 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
         await createCoachingSession({
           campaignId,
           agentId,
-          responseId: responseId || null,
+          responseId,
           pipPlanId: null,
-          title: String(formData.get("title") ?? ""),
           focusArea,
-          behavior: String(formData.get("behavior") ?? "") || null,
           objective: String(formData.get("objective") ?? ""),
-          evidenceSummary: String(formData.get("evidenceSummary") ?? "") || null,
-          source,
           scheduledAt: optionalIso(scheduledAt),
           acknowledgementDueAt: optionalIso(acknowledgementDueAt),
           followUpAt: optionalIso(followUpAt),
-          actionItems: String(formData.get("actionItem") ?? "").trim()
-            ? [
-                {
-                  description: String(formData.get("actionItem")),
-                  ownerType: "AGENT",
-                  dueAt: optionalIso(actionDueAt),
-                },
-              ]
-            : [],
         });
         toast.success(t("Coaching session created"));
         setOpen(false);
@@ -152,31 +178,16 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>{t("Campaign")}</Label>
-              <Select
+              <CampaignSelector
+                campaigns={campaigns}
                 value={campaignId}
                 onValueChange={(value) => {
-                  setCampaignId(value ?? "");
+                  setCampaignId(value);
                   setAgentId("");
                   setSelectedEvidence([]);
                   setFocusArea("");
                 }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t("Select campaign")}>
-                    {(value: string | null) =>
-                      campaigns.find((campaign) => campaign.id === value)?.name ??
-                      t("Select campaign")
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {campaigns.map((campaign) => (
-                    <SelectItem key={campaign.id} value={campaign.id}>
-                      {campaign.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </div>
             <div className="space-y-1.5">
               <Label>{t("Agent")}</Label>
@@ -214,68 +225,24 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
               scope="coaching"
               selectionMode="single"
               selected={selectedEvidence}
-              onSelectionChange={(items) => {
-                setSelectedEvidence(items);
-                if (items.length > 0) setSource("EVALUATION");
-              }}
+              onSelectionChange={setSelectedEvidence}
             />
+            <p className="text-xs text-muted-foreground">
+              {t("Choose one evaluated call so the agent can review the evidence and recording.")}
+            </p>
           </div>
 
-          {!responseId ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="coaching-evidence-summary">{t("Evidence summary")}</Label>
-              <Textarea
-                id="coaching-evidence-summary"
-                name="evidenceSummary"
-                required
-                rows={3}
-                maxLength={5000}
-                placeholder={t(
-                  "Describe the metric, trend, policy, or documented behavior reviewed with the agent.",
-                )}
-              />
-            </div>
-          ) : null}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="coaching-title">{t("Title")}</Label>
-              <Input id="coaching-title" name="title" required maxLength={160} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="coaching-focus">{t("Focus area")}</Label>
-              <CreatableCombobox
-                id="coaching-focus"
-                value={focusArea}
-                options={selectedCampaign?.focusAreas ?? []}
-                onChange={setFocusArea}
-                placeholder={t("Choose a scorecard category or type a custom focus area.")}
-                searchPlaceholder={t("Search or add focus area")}
-                customLabel={(value) => t("Use custom focus area: {value}", { value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="coaching-behavior">{t("Behavior")}</Label>
-              <Input id="coaching-behavior" name="behavior" maxLength={160} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("Source")}</Label>
-              <Select value={source} onValueChange={(value) => setSource(value ?? "MANUAL")}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value: string | null) => (value ? t(optionLabel(value)) : t("Other"))}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="MANUAL">{t("Other")}</SelectItem>
-                  <SelectItem value="EVALUATION">{t("Evaluations")}</SelectItem>
-                  <SelectItem value="TREND">{t("Performance")}</SelectItem>
-                  <SelectItem value="CRITICAL_FAILURE">Critical failure</SelectItem>
-                  <SelectItem value="CALIBRATION">{t("Calibration")}</SelectItem>
-                  <SelectItem value="PIP_REVIEW">{t("Improvement plans")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="coaching-focus">{t("Focus area")}</Label>
+            <CreatableCombobox
+              id="coaching-focus"
+              value={focusArea}
+              options={selectedCampaign?.focusAreas ?? []}
+              onChange={setFocusArea}
+              placeholder={t("Choose a scorecard category or type a custom focus area.")}
+              searchPlaceholder={t("Search or add focus area")}
+              customLabel={(value) => t("Use custom focus area: {value}", { value })}
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -313,24 +280,11 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-[1fr_13rem]">
-            <div className="space-y-1.5">
-              <Label htmlFor="coaching-action">{t("Initial action item")}</Label>
-              <Input id="coaching-action" name="actionItem" maxLength={2000} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="coaching-action-due">{t("Action due date")}</Label>
-              <DateTimePicker
-                id="coaching-action-due"
-                value={actionDueAt}
-                onChange={setActionDueAt}
-                placeholder={t("Select date and time")}
-              />
-            </div>
-          </div>
-
           <DialogFooter>
-            <Button type="submit" disabled={pending || !campaignId || !agentId || !focusArea}>
+            <Button
+              type="submit"
+              disabled={pending || !campaignId || !agentId || !responseId || !focusArea}
+            >
               {pending ? t("Saving…") : t("Create coaching session")}
             </Button>
           </DialogFooter>
@@ -578,23 +532,11 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>{t("Campaign")}</Label>
-              <Select value={campaignId} onValueChange={(value) => changeCampaign(value ?? "")}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t("Select campaign")}>
-                    {(value: string | null) =>
-                      campaigns.find((campaign) => campaign.id === value)?.name ??
-                      t("Select campaign")
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {campaigns.map((campaign) => (
-                    <SelectItem key={campaign.id} value={campaign.id}>
-                      {campaign.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CampaignSelector
+                campaigns={campaigns}
+                value={campaignId}
+                onValueChange={changeCampaign}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>{t("Agent")}</Label>

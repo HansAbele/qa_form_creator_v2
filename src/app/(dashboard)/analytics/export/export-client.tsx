@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { FilterSelect } from "@/components/filters/filter-select";
 import { useI18n } from "@/components/providers/i18n-provider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,18 +17,30 @@ import {
   EXPORT_FIELD_GROUPS,
   type ExportFieldKey,
 } from "@/lib/export-fields";
+import { formDisplayName } from "@/lib/form-display-name";
 
 interface ExportClientProps {
   campaigns: { id: string; name: string }[];
   forms: { id: string; title: string; campaignId: string }[];
+  initialCampaignId?: string;
+  initialDateFrom?: string;
+  initialDateTo?: string;
 }
 
-export function ExportClient({ campaigns, forms }: ExportClientProps) {
+export function ExportClient({
+  campaigns,
+  forms,
+  initialCampaignId,
+  initialDateFrom,
+  initialDateTo,
+}: ExportClientProps) {
   const { t } = useI18n();
-  const [campaignId, setCampaignId] = useState("");
+  const [campaignId, setCampaignId] = useState(
+    campaigns.length === 1 ? (campaigns[0]?.id ?? "") : (initialCampaignId ?? ""),
+  );
   const [formId, setFormId] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(initialDateFrom ?? "");
+  const [dateTo, setDateTo] = useState(initialDateTo ?? "");
   const [selectedFields, setSelectedFields] = useState<ExportFieldKey[]>(DEFAULT_EXPORT_FIELDS);
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -102,28 +115,41 @@ export function ExportClient({ campaigns, forms }: ExportClientProps) {
         </CardHeader>
         <CardContent>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <FilterSelect
-              id="export-campaign"
-              label={t("Campaign")}
-              value={campaignId || "all"}
-              options={[
-                { value: "all", label: t("All") },
-                ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
-              ]}
-              onValueChange={(value) => {
-                setCampaignId(value === "all" ? "" : value);
-                setFormId("");
-              }}
-              placeholder={t("All")}
-              icon={Megaphone}
-            />
+            {campaigns.length === 1 ? (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">{t("Campaign")}</p>
+                <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                  <span className="font-medium">{campaigns[0]?.name}</span>
+                  <Badge variant="secondary">{t("Automatic")}</Badge>
+                </div>
+              </div>
+            ) : (
+              <FilterSelect
+                id="export-campaign"
+                label={t("Campaign")}
+                value={campaignId || "all"}
+                options={[
+                  { value: "all", label: t("All") },
+                  ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
+                ]}
+                onValueChange={(value) => {
+                  setCampaignId(value === "all" ? "" : value);
+                  setFormId("");
+                }}
+                placeholder={t("All")}
+                icon={Megaphone}
+              />
+            )}
             <FilterSelect
               id="export-form"
               label={t("Form")}
               value={formId || "all"}
               options={[
                 { value: "all", label: t("All") },
-                ...filteredForms.map((form) => ({ value: form.id, label: form.title })),
+                ...filteredForms.map((form) => ({
+                  value: form.id,
+                  label: formDisplayName(form.title),
+                })),
               ]}
               onValueChange={(value) => setFormId(value === "all" ? "" : value)}
               placeholder={t("All")}

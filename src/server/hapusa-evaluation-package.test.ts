@@ -65,7 +65,7 @@ describe("buildHapusaScorecardWorkbook", () => {
           },
         },
       ],
-      interaction: null,
+      interaction: { phoneNumber: "+1 (978) 935-3171" },
     } as never);
 
     const serialized = await workbook.xlsx.writeBuffer();
@@ -75,10 +75,20 @@ describe("buildHapusaScorecardWorkbook", () => {
 
     expect(scorecard?.getCell("A1").value).toBe("Call Monitoring Score Card");
     expect(scorecard?.getCell("A2").value).toContain("Name: Antonia Eugene");
-    expect(scorecard?.getCell("A2").value).toContain("Account #:                 ANI#:");
+    expect(scorecard?.getCell("A2").value).toContain("Date: 07/13/2026");
+    expect(scorecard?.getCell("A2").value).toContain(
+      "Account #:                 ANI#: 19789353171",
+    );
+    expect(scorecard?.getCell("A3").value).toBe("Greeting");
+    expect(scorecard?.getCell("B3").value).toBe("10 Points ");
+    expect(scorecard?.getCell("C3").value).toBe("Points Scored");
+    expect(scorecard?.getCell("D3").value).toBe("Comment Section");
     expect(scorecard?.getCell("C4").value).toBe(2);
     expect(scorecard?.getCell("C5").value).toBe(1);
-    expect(scorecard?.getCell("C7").value).toBe(0);
+    expect(scorecard?.getCell("C6").value).toBe(0);
+    expect(scorecard?.getCell("D4").value).toBe("Complete");
+    expect(scorecard?.getCell("D5").value).toBe("Partial");
+    expect(scorecard?.getCell("D6").value).toBe("Missed");
     expect(scorecard?.getCell("C4").fill).toMatchObject({
       type: "pattern",
       fgColor: { argb: "FFC6E0B4" },
@@ -87,10 +97,25 @@ describe("buildHapusaScorecardWorkbook", () => {
       type: "pattern",
       fgColor: { argb: "FFFFD966" },
     });
-    expect(scorecard?.getCell("C7").fill).toMatchObject({
+    expect(scorecard?.getCell("C6").fill).toMatchObject({
       type: "pattern",
       fgColor: { argb: "FFFF0000" },
     });
+    expect(scorecard?.getCell("C35").value).toEqual({ formula: "SUM(C4:C34)", result: 50 });
+    expect(
+      (scorecard as unknown as { conditionalFormattings: unknown[] }).conditionalFormattings,
+    ).toHaveLength(2);
+    expect(scorecard?.getColumn(1).width).toBeCloseTo(94.5703125);
+    expect(scorecard?.getColumn(4).width).toBeCloseTo(48.42578125);
+    expect(scorecard?.getRow(33).height).toBe(38.25);
+    expect(String(scorecard?.getCell("A37").value)).toContain(
+      "Total points accumulate on a scale of 100%",
+    );
+    expect(loaded.worksheets.map((sheet) => sheet.name)).toEqual([
+      "Scorecard",
+      "Adding Quality to the call tips",
+      "Sheet3",
+    ]);
     expect(loaded.getWorksheet("Adding Quality to the call tips")?.getCell("A1").value).toBe(
       "Added Quality to the call",
     );

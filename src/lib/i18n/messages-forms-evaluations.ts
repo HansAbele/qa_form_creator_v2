@@ -114,6 +114,8 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Export Excel + call ({count})": "Exportar Excel + llamada ({count})",
   "HAPUSA package exported for {count} evaluations":
     "Paquete HAPUSA exportado para {count} evaluaciones",
+  "QA evidence package exported for {count} evaluations":
+    "Paquete de evidencia QA exportado para {count} evaluaciones",
   Evaluations: "Evaluaciones",
   "Evaluations from other QA specialists that you can correct or complete.":
     "Evaluaciones de otros especialistas de QA que puedes corregir o completar.",
@@ -265,8 +267,11 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Select an agent.": "Selecciona un agente.",
   "Select all exportable HAPUSA evaluations on this page":
     "Seleccionar todas las evaluaciones HAPUSA exportables de esta página",
+  "Select all exportable official evaluations on this page":
+    "Seleccionar todas las evaluaciones oficiales exportables de esta página",
   "Select evaluation for {agent}": "Seleccionar evaluación de {agent}",
   "Select HAPUSA evaluations with recordings": "Selecciona evaluaciones HAPUSA con grabación",
+  "Select official evaluations with recordings": "Selecciona evaluaciones oficiales con grabación",
   "Select an agent...": "Seleccionar agente...",
   "Select at least one critical option for each critical question":
     "Selecciona al menos una opción crítica para cada pregunta crítica",
@@ -310,6 +315,7 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Unable to save form": "No se pudo guardar el formulario",
   "Unable to submit evaluation": "No se pudo enviar la evaluación",
   "Unable to export HAPUSA package": "No se pudo exportar el paquete HAPUSA",
+  "Unable to export QA evidence package": "No se pudo exportar el paquete de evidencia QA",
   Unavailable: "No disponible",
   Unclassified: "Sin clasificar",
   "Unsaved draft: {error}": "Borrador sin guardar: {error}",

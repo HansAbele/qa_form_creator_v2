@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { cancelResponseAction } from "@/server/actions/responses";
 import { getResponseDetail } from "@/server/queries/analytics";
 import { questionTypeLabel } from "@/types/form-builder";
@@ -196,7 +197,9 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                 <ClipboardCheck className="h-8 w-8 text-orange-600 dark:text-orange-400" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight">{data.form.title}</h1>
+                <h1 className="text-2xl font-bold tracking-tight">
+                  {formDisplayName(data.form.title)}
+                </h1>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <Badge variant="secondary" className="gap-1">
                     <Calendar className="h-3 w-3" />

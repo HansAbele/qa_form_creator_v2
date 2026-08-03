@@ -136,6 +136,7 @@ export function DispositionsAnalyticsClient() {
       const result = await getKpiCampaigns();
       if (requestId !== campaignRequestGeneration.current) return;
       setCampaigns(result.map((campaign) => ({ id: campaign.id, name: campaign.name })));
+      if (result.length === 1) setCampaignId(result[0]?.id ?? "all");
       setCampaignLoadStatus(result.length === 0 ? "empty" : "success");
     } catch (error) {
       if (requestId !== campaignRequestGeneration.current) return;
@@ -380,19 +381,29 @@ export function DispositionsAnalyticsClient() {
           </p>
         </div>
         <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:grid-cols-2">
-          <FilterSelect
-            id="dispositions-campaign"
-            label={t("Campaign")}
-            value={campaignId}
-            options={[
-              { value: "all", label: t("All") },
-              ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
-            ]}
-            onValueChange={setCampaignId}
-            icon={Megaphone}
-            disabled={campaignLoadStatus === "loading"}
-            className="sm:w-48"
-          />
+          {campaigns.length === 1 ? (
+            <div className="space-y-1.5 sm:w-48">
+              <p className="text-xs font-medium text-muted-foreground">{t("Campaign")}</p>
+              <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                <span className="truncate font-medium">{campaigns[0]?.name}</span>
+                <Badge variant="secondary">{t("Automatic")}</Badge>
+              </div>
+            </div>
+          ) : (
+            <FilterSelect
+              id="dispositions-campaign"
+              label={t("Campaign")}
+              value={campaignId}
+              options={[
+                { value: "all", label: t("All") },
+                ...campaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
+              ]}
+              onValueChange={setCampaignId}
+              icon={Megaphone}
+              disabled={campaignLoadStatus === "loading"}
+              className="sm:w-48"
+            />
+          )}
           <DateRangeFilter
             id="dispositions-period"
             label={t("Period")}

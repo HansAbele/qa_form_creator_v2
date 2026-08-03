@@ -52,6 +52,7 @@ describe("effective UI access", () => {
     const access = await getCurrentUserUiAccess();
 
     expect(access.canExport).toBe(true);
+    expect(access.canOpenSettings).toBe(true);
   });
 
   it("keeps global administrators unrestricted", async () => {
@@ -65,6 +66,44 @@ describe("effective UI access", () => {
     expect(access.isAdmin).toBe(true);
     expect(access.canViewReports).toBe(true);
     expect(access.canExport).toBe(true);
+    expect(prismaMock.userCampaign.findMany).not.toHaveBeenCalled();
+  });
+
+  it("gives supervisors personal settings without granting administration", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "supervisor-1", role: "SUPERVISOR", campaignIds: ["campaign-1"] },
+    });
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "supervisor-1",
+      role: "SUPERVISOR",
+      agentProfile: null,
+    });
+    prismaMock.userCampaign.findMany.mockResolvedValue([
+      { campaignId: "campaign-1", canViewReports: true, canViewEvaluations: true },
+    ]);
+
+    const access = await getCurrentUserUiAccess();
+
+    expect(access.isSupervisor).toBe(true);
+    expect(access.canOpenSettings).toBe(true);
+    expect(access.isAdmin).toBe(false);
+    expect(access.canViewReports).toBe(true);
+  });
+
+  it("keeps agent portal accounts out of QA settings", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "agent-user-1", role: "AGENT", campaignIds: [] },
+    });
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "agent-user-1",
+      role: "AGENT",
+      agentProfile: { id: "agent-1", active: true },
+    });
+
+    const access = await getCurrentUserUiAccess();
+
+    expect(access.isAgent).toBe(true);
+    expect(access.canOpenSettings).toBe(false);
     expect(prismaMock.userCampaign.findMany).not.toHaveBeenCalled();
   });
 });

@@ -45,8 +45,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { getMetricDisplay } from "@/lib/metric-display";
-import { HAPUSA_SCORECARD_KEY } from "@/lib/official-form-templates";
+import { HAPUSA_SCORECARD_KEY, PARKER_DAVIS_SCORECARD_KEY } from "@/lib/official-form-templates";
 import { cn } from "@/lib/utils";
 import {
   type EvaluationHistoryFilterOptions,
@@ -58,6 +59,7 @@ import {
 type ResultStatus = "PASS" | "FAIL";
 type EvaluationHistoryData = Awaited<ReturnType<typeof getEvaluationHistory>>;
 type CampaignOption = { id: string; name: string };
+const OFFICIAL_EXPORT_TEMPLATE_KEYS = new Set([HAPUSA_SCORECARD_KEY, PARKER_DAVIS_SCORECARD_KEY]);
 
 function parseScore(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -162,7 +164,10 @@ export function EvaluationsListClient({
     () =>
       (data?.responses ?? []).filter(
         (response) =>
-          response.form.templateKey === HAPUSA_SCORECARD_KEY &&
+          Boolean(
+            response.form.templateKey &&
+              OFFICIAL_EXPORT_TEMPLATE_KEYS.has(response.form.templateKey),
+          ) &&
           response.interaction?.recordingAvailable === true &&
           exportCampaignIds.includes(response.campaignId),
       ),
@@ -233,6 +238,11 @@ export function EvaluationsListClient({
     : filterOptions.evaluators;
 
   useEffect(() => {
+    if (campaigns.length === 1 && campaignId !== campaigns[0]?.id) {
+      setCampaignId(campaigns[0]?.id ?? "");
+      setPage(1);
+      return;
+    }
     if (campaignId && !campaigns.some((campaign) => campaign.id === campaignId)) {
       setCampaignId("");
       setPage(1);
@@ -416,11 +426,11 @@ export function EvaluationsListClient({
     });
   };
 
-  const exportHapusaPackage = async () => {
+  const exportOfficialPackage = async () => {
     if (selectedResponseIds.size === 0) return;
     setExportingPackage(true);
     try {
-      const response = await fetch("/api/evaluations/hapusa-package", {
+      const response = await fetch("/api/evaluations/official-package", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ responseIds: [...selectedResponseIds] }),
@@ -429,7 +439,7 @@ export function EvaluationsListClient({
         const payload = (await response.json().catch(() => null)) as {
           error?: { message?: string };
         } | null;
-        throw new Error(payload?.error?.message ?? t("Unable to export HAPUSA package"));
+        throw new Error(payload?.error?.message ?? t("Unable to export QA evidence package"));
       }
 
       const contentDisposition = response.headers.get("content-disposition") ?? "";
@@ -437,7 +447,7 @@ export function EvaluationsListClient({
       const plainName = /filename="([^"]+)"/i.exec(contentDisposition)?.[1];
       const fileName = encodedName
         ? decodeURIComponent(encodedName)
-        : plainName || "HAPUSA QA Reports.zip";
+        : plainName || "Qore QA Evidence.zip";
       const blobUrl = URL.createObjectURL(await response.blob());
       const anchor = document.createElement("a");
       anchor.href = blobUrl;
@@ -447,13 +457,15 @@ export function EvaluationsListClient({
       anchor.remove();
       URL.revokeObjectURL(blobUrl);
       toast.success(
-        t("HAPUSA package exported for {count} evaluations", {
+        t("QA evidence package exported for {count} evaluations", {
           count: selectedResponseIds.size,
         }),
       );
       setSelectedResponseIds(new Set());
     } catch (error) {
-      toast.error(error instanceof Error ? t(error.message) : t("Unable to export HAPUSA package"));
+      toast.error(
+        error instanceof Error ? t(error.message) : t("Unable to export QA evidence package"),
+      );
     } finally {
       setExportingPackage(false);
     }
@@ -579,28 +591,38 @@ export function EvaluationsListClient({
             </div>
           </div>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            <FilterSelect
-              id="evaluations-campaign"
-              label={t("Campaign")}
-              value={campaignId || "all"}
-              options={[
-                { value: "all", label: t("All campaigns") },
-                ...campaigns.map((campaign) => ({
-                  value: campaign.id,
-                  label: campaign.name,
-                })),
-              ]}
-              onValueChange={(value) => {
-                setCampaignId(value === "all" ? "" : value);
-                setAgentId("");
-                setEvaluatorId("");
-                setFormId("");
-                setDispositionId("");
-                setPage(1);
-              }}
-              icon={Megaphone}
-              disabled={campaigns.length === 0}
-            />
+            {campaigns.length === 1 ? (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">{t("Campaign")}</p>
+                <div className="flex min-h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm">
+                  <span className="font-medium">{campaigns[0]?.name}</span>
+                  <Badge variant="secondary">{t("Automatic")}</Badge>
+                </div>
+              </div>
+            ) : (
+              <FilterSelect
+                id="evaluations-campaign"
+                label={t("Campaign")}
+                value={campaignId || "all"}
+                options={[
+                  { value: "all", label: t("All campaigns") },
+                  ...campaigns.map((campaign) => ({
+                    value: campaign.id,
+                    label: campaign.name,
+                  })),
+                ]}
+                onValueChange={(value) => {
+                  setCampaignId(value === "all" ? "" : value);
+                  setAgentId("");
+                  setEvaluatorId("");
+                  setFormId("");
+                  setDispositionId("");
+                  setPage(1);
+                }}
+                icon={Megaphone}
+                disabled={campaigns.length === 0}
+              />
+            )}
             <DateRangeFilter
               id="evaluations-period"
               label={t("Period")}
@@ -783,17 +805,17 @@ export function EvaluationsListClient({
           {exportableResponses.length > 0 ? (
             <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-600/20 bg-emerald-500/5 p-3 sm:flex-row sm:items-center sm:justify-between">
               <label
-                htmlFor="select-visible-hapusa-evaluations"
+                htmlFor="select-visible-official-evaluations"
                 className="flex cursor-pointer items-center gap-2 text-sm"
               >
                 <Checkbox
-                  id="select-visible-hapusa-evaluations"
+                  id="select-visible-official-evaluations"
                   checked={allVisibleExportableSelected}
                   onCheckedChange={(checked) => toggleVisibleExportable(checked === true)}
-                  aria-label={t("Select all exportable HAPUSA evaluations on this page")}
+                  aria-label={t("Select all exportable official evaluations on this page")}
                 />
                 <span>
-                  {t("Select HAPUSA evaluations with recordings")}
+                  {t("Select official evaluations with recordings")}
                   <span className="ml-1 text-xs text-muted-foreground">
                     ({exportableResponses.length} {t("on this page")})
                   </span>
@@ -804,7 +826,7 @@ export function EvaluationsListClient({
                 size="sm"
                 className="gap-2"
                 disabled={selectedResponseIds.size === 0 || exportingPackage}
-                onClick={() => void exportHapusaPackage()}
+                onClick={() => void exportOfficialPackage()}
               >
                 {exportingPackage ? (
                   <LoaderCircle className="size-4 animate-spin" />
@@ -890,7 +912,7 @@ export function EvaluationsListClient({
                           </TableCell>
                         ) : null}
                         <TableCell className="max-w-[220px] truncate text-muted-foreground">
-                          {response.form.title}
+                          {formDisplayName(response.form.title)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {response.disposition?.name ?? "—"}

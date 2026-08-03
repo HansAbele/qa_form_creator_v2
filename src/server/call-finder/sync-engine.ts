@@ -183,6 +183,7 @@ export async function syncCampaignCallSource(
     startedTo: Date;
     maxPages?: number;
     downloadRecordings?: boolean;
+    providerAgentIds?: string[];
   },
   dependencies: SyncDependencies = {},
 ): Promise<CallSourceSyncResult> {
@@ -229,6 +230,7 @@ export async function syncCampaignCallSource(
   while (result.pages < maximumPages) {
     const page = await input.adapter.searchCalls({
       externalCampaignIds: source.externalCampaignIds,
+      providerAgentIds: input.providerAgentIds,
       startedFrom: input.startedFrom,
       startedTo: input.startedTo,
       cursor,

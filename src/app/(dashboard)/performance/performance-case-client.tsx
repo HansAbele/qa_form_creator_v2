@@ -12,13 +12,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { InteractionMediaPanel } from "@/components/call-finder/interaction-media-panel";
 import { useI18n } from "@/components/providers/i18n-provider";
 import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
-import { InteractionMediaPanel } from "@/components/call-finder/interaction-media-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import type { CoachingCaseDetail, PipCaseDetail } from "@/server/queries/performance-case-detail";
 import { AcknowledgementDialog, PipAcknowledgementDialog } from "./performance-dialogs";
 
@@ -112,8 +113,7 @@ function EvidenceCard({ evidence, isAgent }: { evidence: Evidence; isAgent: bool
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {t("Scorecard")}
                 </p>
-                <p className="mt-1 text-sm font-medium">{response.formTitle}</p>
-                <p className="text-xs text-muted-foreground">v{response.formVersion}</p>
+                <p className="mt-1 text-sm font-medium">{formDisplayName(response.formTitle)}</p>
               </div>
               <div className="rounded-lg border bg-background p-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

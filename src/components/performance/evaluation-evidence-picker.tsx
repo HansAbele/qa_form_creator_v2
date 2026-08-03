@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatOperationalTimestamp } from "@/lib/date-display";
+import { formDisplayName } from "@/lib/form-display-name";
 import { cn } from "@/lib/utils";
 
 export type EvaluationEvidenceItem = {
@@ -205,7 +206,7 @@ export function EvaluationEvidencePicker({
           {selected.map((item) => (
             <Badge key={item.id} variant="outline" className="max-w-full gap-1.5 py-1">
               <span className="truncate">
-                {item.formTitle} · {item.score.toFixed(1)}%
+                {formDisplayName(item.formTitle)} · {item.score.toFixed(1)}%
               </span>
               <button
                 type="button"
@@ -264,7 +265,7 @@ export function EvaluationEvidencePicker({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{item.formTitle}</span>
+                      <span className="font-medium">{formDisplayName(item.formTitle)}</span>
                       <Badge variant={item.hasFatalFail ? "destructive" : "secondary"}>
                         {item.score.toFixed(1)}%
                       </Badge>

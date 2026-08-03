@@ -58,6 +58,7 @@ enum DispositionOutcome {
 enum InteractionProvider {
   NICE_CXONE
   VICIDIAL
+  FREEPBX
 }
 
 enum InteractionDirection {
@@ -246,6 +247,7 @@ model User {
   active         Boolean   @default(true)
   sessionVersion Int       @default(0)
   locale         String    @default("en")
+  workspacePreferences Json?
   image          String?
   emailVerified  DateTime?
   createdAt      DateTime  @default(now())

@@ -81,6 +81,7 @@ test.describe("Navigation (campaign-scoped QA)", () => {
     await expect(page.getByRole("link", { name: "Manage agents" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Manage teams" })).not.toBeVisible();
     await expect(page.getByRole("link", { name: "Manage dispositions" })).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   });
 
   test("opens analytics only for the assigned campaign", async ({ page }) => {
