@@ -1,17 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prismaMock, resetPrismaMock } from "@/test/prisma-mock";
 
-const { authMock, compareMock, hashMock, revalidatePathMock, writeAuditLogMock } = vi.hoisted(
-  () => ({
-    authMock: vi.fn(),
-    compareMock: vi.fn(),
-    hashMock: vi.fn(),
-    revalidatePathMock: vi.fn(),
-    writeAuditLogMock: vi.fn(),
-  }),
-);
+const {
+  authMock,
+  authForPasswordChangeMock,
+  compareMock,
+  hashMock,
+  revalidatePathMock,
+  writeAuditLogMock,
+} = vi.hoisted(() => ({
+  authMock: vi.fn(),
+  authForPasswordChangeMock: vi.fn(),
+  compareMock: vi.fn(),
+  hashMock: vi.fn(),
+  revalidatePathMock: vi.fn(),
+  writeAuditLogMock: vi.fn(),
+}));
 
-vi.mock("@/lib/auth", () => ({ auth: authMock }));
+vi.mock("@/lib/auth", () => ({
+  auth: authMock,
+  authForPasswordChange: authForPasswordChangeMock,
+}));
 
 vi.mock("@/lib/prisma", async () => {
   const module = await vi.importActual("@/test/prisma-mock");
@@ -26,12 +35,13 @@ vi.mock("bcryptjs", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: revalidatePathMock }));
 vi.mock("@/server/audit-log", () => ({ writeAuditLog: writeAuditLogMock }));
 
-import { changeMyPassword, updateMyName } from "./profile";
+import { changeMyPassword, completeRequiredPasswordChange, updateMyName } from "./profile";
 
 describe("profile session revocation", () => {
   beforeEach(() => {
     resetPrismaMock();
     authMock.mockReset();
+    authForPasswordChangeMock.mockReset();
     compareMock.mockReset();
     hashMock.mockReset();
     revalidatePathMock.mockReset();
@@ -48,8 +58,9 @@ describe("profile session revocation", () => {
       password: "old-hash",
       active: true,
       sessionVersion: 3,
+      mustChangePassword: false,
     });
-    compareMock.mockResolvedValue(true);
+    compareMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     hashMock.mockResolvedValue("new-hash");
     prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
 
@@ -66,6 +77,7 @@ describe("profile session revocation", () => {
       },
       data: {
         password: "new-hash",
+        mustChangePassword: false,
         sessionVersion: { increment: 1 },
       },
     });
@@ -87,8 +99,9 @@ describe("profile session revocation", () => {
       password: "old-hash",
       active: true,
       sessionVersion: 3,
+      mustChangePassword: false,
     });
-    compareMock.mockResolvedValue(true);
+    compareMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     hashMock.mockResolvedValue("new-hash");
     prismaMock.user.updateMany.mockResolvedValue({ count: 0 });
 
@@ -96,6 +109,44 @@ describe("profile session revocation", () => {
       "password or session changed",
     );
     expect(writeAuditLogMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces a temporary password and clears the required-change flag", async () => {
+    authForPasswordChangeMock.mockResolvedValue({
+      user: {
+        id: "user-1",
+        role: "QA",
+        campaignIds: ["campaign-1"],
+        sessionVersion: 3,
+        mustChangePassword: true,
+      },
+    });
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      password: "temporary-hash",
+      active: true,
+      sessionVersion: 3,
+      mustChangePassword: true,
+    });
+    compareMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    hashMock.mockResolvedValue("private-hash");
+    prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
+
+    await completeRequiredPasswordChange("temporary-password", "My-Private-Pass-93!");
+
+    expect(prismaMock.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          password: "private-hash",
+          mustChangePassword: false,
+          sessionVersion: { increment: 1 },
+        },
+      }),
+    );
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "temporary_password_replaced" }),
+      prismaMock,
+    );
   });
 
   it("updates a profile name with compare-and-swap and audit in one transaction", async () => {

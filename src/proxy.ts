@@ -12,9 +12,24 @@ export async function proxy(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.AUTH_SECRET });
   const isLoggedIn = !!token;
   const isLoginPage = pathname === "/login";
+  const isPasswordChangePage = pathname === "/change-password";
 
   if (!isLoggedIn && !isLoginPage) {
     return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  if (isLoggedIn && token.mustChangePassword && !isPasswordChangePage) {
+    return NextResponse.redirect(new URL("/change-password", req.url));
+  }
+
+  if (isLoggedIn && !token.mustChangePassword && isPasswordChangePage) {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
+
+  if (isLoggedIn && isLoginPage) {
+    return NextResponse.redirect(
+      new URL(token.mustChangePassword ? "/change-password" : "/", req.url),
+    );
   }
 
   if (pathname.startsWith("/admin") && token?.role !== "ADMIN") {

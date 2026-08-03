@@ -6,6 +6,7 @@ declare module "next-auth" {
     role: Role;
     campaignIds: string[];
     sessionVersion?: number;
+    mustChangePassword?: boolean;
     locale: "en" | "es";
   }
 
@@ -15,6 +16,7 @@ declare module "next-auth" {
       role: Role;
       campaignIds: string[];
       sessionVersion?: number;
+      mustChangePassword?: boolean;
       locale: "en" | "es";
     } & DefaultSession["user"];
   }
@@ -26,6 +28,7 @@ declare module "next-auth/jwt" {
     role?: Role;
     campaignIds?: string[];
     sessionVersion?: number;
+    mustChangePassword?: boolean;
     locale?: "en" | "es";
   }
 }

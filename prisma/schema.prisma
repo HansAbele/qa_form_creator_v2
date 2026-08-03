@@ -239,19 +239,20 @@ model VerificationToken {
 // ─── Usuarios y campañas ─────────────────────────────
 
 model User {
-  id             String    @id @default(cuid())
-  email          String    @unique
-  name           String
-  password       String?
-  role           Role      @default(QA)
-  active         Boolean   @default(true)
-  sessionVersion Int       @default(0)
-  locale         String    @default("en")
+  id                   String    @id @default(cuid())
+  email                String    @unique
+  name                 String
+  password             String?
+  role                 Role      @default(QA)
+  active               Boolean   @default(true)
+  sessionVersion       Int       @default(0)
+  mustChangePassword   Boolean   @default(false)
+  locale               String    @default("en")
   workspacePreferences Json?
-  image          String?
-  emailVerified  DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  image                String?
+  emailVerified        DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   accounts                          Account[]
   sessions                          Session[]

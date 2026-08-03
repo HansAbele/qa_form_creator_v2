@@ -4,13 +4,17 @@ import { logger } from "./logger";
 import { prisma } from "./prisma";
 
 type RawAuth = () => Promise<Session | null>;
+type RevalidationOptions = { allowPasswordChangeRequired?: boolean };
 
 /**
  * Revalidates the identity and authorization snapshot carried by a JWT against
  * the database. A session version mismatch deliberately rejects every token
  * issued before a sensitive account change.
  */
-export async function revalidateSession(session: Session | null): Promise<Session | null> {
+export async function revalidateSession(
+  session: Session | null,
+  options: RevalidationOptions = {},
+): Promise<Session | null> {
   const userId = session?.user?.id;
   const tokenSessionVersion = session?.user?.sessionVersion;
 
@@ -28,6 +32,7 @@ export async function revalidateSession(session: Session | null): Promise<Sessio
       role: true,
       active: true,
       sessionVersion: true,
+      mustChangePassword: true,
       locale: true,
       campaigns: { select: { campaignId: true } },
     },
@@ -46,6 +51,11 @@ export async function revalidateSession(session: Session | null): Promise<Sessio
     return null;
   }
 
+  if (user.mustChangePassword && !options.allowPasswordChangeRequired) {
+    logger.info({ userId }, "Session restricted: password change required");
+    return null;
+  }
+
   return {
     ...session,
     user: {
@@ -57,12 +67,16 @@ export async function revalidateSession(session: Session | null): Promise<Sessio
       role: user.role,
       campaignIds: user.campaigns.map(({ campaignId }) => campaignId),
       sessionVersion: user.sessionVersion,
+      mustChangePassword: user.mustChangePassword,
       locale: isLocale(user.locale) ? user.locale : DEFAULT_LOCALE,
     },
   };
 }
 
 /** Wraps Auth.js' cookie/JWT reader with the authoritative database check. */
-export function createAuthoritativeAuth(rawAuth: RawAuth): RawAuth {
-  return async () => revalidateSession(await rawAuth());
+export function createAuthoritativeAuth(
+  rawAuth: RawAuth,
+  options: RevalidationOptions = {},
+): RawAuth {
+  return async () => revalidateSession(await rawAuth(), options);
 }

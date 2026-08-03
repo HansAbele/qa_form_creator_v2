@@ -77,6 +77,7 @@ export default {
             role: user.role,
             campaignIds: user.campaigns.map((c) => c.campaignId),
             sessionVersion: user.sessionVersion,
+            mustChangePassword: user.mustChangePassword,
             locale: user.locale === "es" ? "es" : "en",
           };
         } finally {

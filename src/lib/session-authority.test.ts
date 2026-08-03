@@ -31,6 +31,7 @@ const tokenSession: Session = {
     role: "QA",
     campaignIds: ["old-campaign"],
     sessionVersion: 3,
+    mustChangePassword: false,
     locale: "en",
   },
 };
@@ -43,6 +44,7 @@ const activeUser = {
   role: "SUPERVISOR" as const,
   active: true,
   sessionVersion: 3,
+  mustChangePassword: false,
   locale: "es",
   campaigns: [{ campaignId: "campaign-2" }, { campaignId: "campaign-3" }],
 };
@@ -65,6 +67,7 @@ describe("authoritative server sessions", () => {
         name: "Current name",
         role: "SUPERVISOR",
         campaignIds: ["campaign-2", "campaign-3"],
+        mustChangePassword: false,
         locale: "es",
       },
     });
@@ -75,6 +78,7 @@ describe("authoritative server sessions", () => {
         active: true,
         role: true,
         sessionVersion: true,
+        mustChangePassword: true,
         locale: true,
         campaigns: { select: { campaignId: true } },
       }),
@@ -119,6 +123,28 @@ describe("authoritative server sessions", () => {
 
     await expect(revalidateSession(legacySession)).resolves.toBeNull();
     expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("restricts ordinary application access until a required password change is complete", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ ...activeUser, mustChangePassword: true });
+
+    await expect(revalidateSession(tokenSession)).resolves.toBeNull();
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      { userId: "user-1" },
+      "Session restricted: password change required",
+    );
+  });
+
+  it("allows the dedicated password-change flow to validate a restricted session", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ ...activeUser, mustChangePassword: true });
+
+    await expect(
+      revalidateSession(tokenSession, { allowPasswordChangeRequired: true }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        user: expect.objectContaining({ mustChangePassword: true }),
+      }),
+    );
   });
 
   it("should perform the database check on every wrapped auth call", async () => {

@@ -15,6 +15,7 @@ const nextAuth = NextAuth({
         token.role = user.role;
         token.campaignIds = user.campaignIds;
         token.sessionVersion = user.sessionVersion;
+        token.mustChangePassword = user.mustChangePassword;
         token.locale = user.locale;
       }
 
@@ -31,6 +32,7 @@ const nextAuth = NextAuth({
             image: true,
             role: true,
             locale: true,
+            mustChangePassword: true,
             campaigns: { select: { campaignId: true } },
           },
         });
@@ -41,6 +43,7 @@ const nextAuth = NextAuth({
           token.picture = currentUser.image;
           token.role = currentUser.role;
           token.locale = currentUser.locale === "es" ? "es" : "en";
+          token.mustChangePassword = currentUser.mustChangePassword;
           token.campaignIds = currentUser.campaigns.map(({ campaignId }) => campaignId);
         }
       }
@@ -52,6 +55,7 @@ const nextAuth = NextAuth({
         session.user.role = token.role ?? "QA";
         session.user.campaignIds = token.campaignIds ?? [];
         session.user.sessionVersion = token.sessionVersion ?? -1;
+        session.user.mustChangePassword = token.mustChangePassword === true;
         session.user.locale = token.locale === "es" ? "es" : "en";
       }
       return session;
@@ -67,3 +71,6 @@ export const { handlers, signIn, signOut } = nextAuth;
 // Do not export Auth.js' raw reader. Every server caller must pass through the
 // database-backed active/role/campaign/session-version verification.
 export const auth = cache(createAuthoritativeAuth(nextAuth.auth));
+export const authForPasswordChange = cache(
+  createAuthoritativeAuth(nextAuth.auth, { allowPasswordChangeRequired: true }),
+);

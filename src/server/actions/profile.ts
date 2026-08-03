@@ -3,7 +3,8 @@
 import { compare, hash } from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, authForPasswordChange } from "@/lib/auth";
+import { shouldUseSecureAuthCookies } from "@/lib/auth-cookie-policy";
 import { DEFAULT_LOCALE, isLocale, LOCALE_COOKIE, type Locale } from "@/lib/i18n";
 import { assertStrongPassword } from "@/lib/password-policy";
 import { prisma } from "@/lib/prisma";
@@ -119,7 +120,7 @@ export async function updateMyLocale(locale: string): Promise<void> {
     maxAge: 31_536_000,
     path: "/",
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAuthCookies(),
   });
   revalidatePath("/", "layout");
 }
@@ -190,14 +191,46 @@ export async function changeMyPassword(
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
 
+  await updateOwnPassword(session.user, currentPassword, newPassword, false);
+  revalidatePath("/settings");
+}
+
+/** Complete the mandatory first-login password change for a temporary credential. */
+export async function completeRequiredPasswordChange(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  const session = await authForPasswordChange();
+  if (!session?.user?.mustChangePassword) {
+    throw new Error("A required password change is not pending for this account.");
+  }
+
+  await updateOwnPassword(session.user, currentPassword, newPassword, true);
+}
+
+async function updateOwnPassword(
+  sessionUser: {
+    id: string;
+    sessionVersion?: number;
+  },
+  currentPassword: string,
+  newPassword: string,
+  wasRequired: boolean,
+): Promise<void> {
   if (!currentPassword) {
     throw new Error("Enter your current password.");
   }
   assertStrongPassword(newPassword);
 
   const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { id: true, password: true, active: true, sessionVersion: true },
+    where: { id: sessionUser.id },
+    select: {
+      id: true,
+      password: true,
+      active: true,
+      sessionVersion: true,
+      mustChangePassword: true,
+    },
   });
 
   if (!user?.active) throw new Error("User not found or inactive");
@@ -206,8 +239,8 @@ export async function changeMyPassword(
     throw new Error("This account uses an external identity provider and has no local password.");
   }
   if (
-    session.user.sessionVersion !== undefined &&
-    user.sessionVersion !== session.user.sessionVersion
+    sessionUser.sessionVersion !== undefined &&
+    user.sessionVersion !== sessionUser.sessionVersion
   ) {
     throw new Error("Your session changed; sign in again");
   }
@@ -215,6 +248,12 @@ export async function changeMyPassword(
   const valid = await compare(currentPassword, user.password);
   if (!valid) {
     throw new Error("Current password is incorrect.");
+  }
+  if (await compare(newPassword, user.password)) {
+    throw new Error("Choose a new password that is different from your current password.");
+  }
+  if (wasRequired && !user.mustChangePassword) {
+    throw new Error("A required password change is not pending for this account.");
   }
 
   const hashed = await hash(newPassword, 12);
@@ -226,7 +265,11 @@ export async function changeMyPassword(
         password: user.password,
         sessionVersion: user.sessionVersion,
       },
-      data: { password: hashed, sessionVersion: { increment: 1 } },
+      data: {
+        password: hashed,
+        mustChangePassword: false,
+        sessionVersion: { increment: 1 },
+      },
     });
     if (updated.count !== 1) {
       throw new Error("The password or session changed; try again");
@@ -236,15 +279,15 @@ export async function changeMyPassword(
       {
         userId: user.id,
         module: "profile",
-        action: "password_changed",
+        action: wasRequired ? "temporary_password_replaced" : "password_changed",
         entityType: "user",
         entityId: user.id,
         afterValue: { passwordChanged: true, sessionsRevoked: true },
-        impact: "Password updated and previous sessions revoked.",
+        impact: wasRequired
+          ? "Temporary password replaced and previous sessions revoked."
+          : "Password updated and previous sessions revoked.",
       },
       tx,
     );
   });
-
-  revalidatePath("/settings");
 }

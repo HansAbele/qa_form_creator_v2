@@ -199,6 +199,7 @@ export async function createUser(data: {
         email: input.email,
         name: input.name,
         password: hashedPassword,
+        mustChangePassword: true,
         role: input.role,
       },
       select: SAFE_USER_SELECT,
@@ -280,6 +281,7 @@ export async function updateUser(
 
   if (input.password) {
     updateData.password = await hash(input.password, 12);
+    updateData.mustChangePassword = true;
   }
 
   const user = await prisma.$transaction(async (tx) => {
