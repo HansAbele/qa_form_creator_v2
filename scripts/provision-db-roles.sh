@@ -143,6 +143,7 @@ BEGIN
   WHERE function_schema.nspname = 'public'
     AND function_object.proname NOT IN (
       'qa_protect_audit_log',
+      'qa_validate_call_finder_integrity',
       'qa_validate_reference_integrity',
       'qa_reserve_login_attempt',
       'qa_complete_login_attempt'
