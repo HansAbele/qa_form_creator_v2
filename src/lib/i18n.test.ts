@@ -12,7 +12,7 @@ describe("i18n", () => {
     expect(translate("es", "Dispositions")).toBe("Disposiciones");
     expect(translate("es", "Unable to load data")).toBe("No pudimos cargar los datos");
     expect(translate("es", "All time")).toBe("Todo el periodo");
-    expect(translate("es", "Evaluation Drafts")).toBe("Borradores de evaluación");
+    expect(translate("es", "New Evaluation")).toBe("Nueva evaluación");
     expect(translate("es", "Evaluated Calls")).toBe("Llamadas evaluadas");
   });
 

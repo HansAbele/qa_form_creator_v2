@@ -1,24 +1,13 @@
 "use client";
 
-import {
-  Archive,
-  ClipboardPenLine,
-  Clock3,
-  FileText,
-  Pencil,
-  Plus,
-  Send,
-  Trash2,
-} from "lucide-react";
+import { Archive, FileText, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useI18n } from "@/components/providers/i18n-provider";
-import { useOperationalTimeZone } from "@/components/providers/operational-time-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatOperationalTimestamp } from "@/lib/date-display";
 import { formDisplayName } from "@/lib/form-display-name";
 import { cn } from "@/lib/utils";
 import { archiveForm, deleteForm, publishForm } from "@/server/actions/forms";
@@ -36,99 +25,14 @@ interface FormItem {
   canPublish: boolean;
 }
 
-interface EvaluationDraftItem {
-  id: string;
-  formId: string;
-  formTitle: string;
-  campaignName: string;
-  agentName: string;
-  agentCode: string | null;
-  evaluatorName: string;
-  updatedAt: string;
-  isOwn: boolean;
-}
-
 interface FormsListClientProps {
   forms: FormItem[];
-  evaluationDrafts: EvaluationDraftItem[];
   canCreate: boolean;
 }
 
-function EvaluationDraftGroup({
-  title,
-  description,
-  drafts,
-}: {
-  title: string;
-  description: string;
-  drafts: EvaluationDraftItem[];
-}) {
-  const { locale, t } = useI18n();
-  const operationalTimeZone = useOperationalTimeZone();
-  if (drafts.length === 0) return null;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-heading font-semibold">{title}</h3>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <Badge variant="secondary">{drafts.length}</Badge>
-      </div>
-      <div className="space-y-3">
-        {drafts.map((draft) => (
-          <Card key={draft.id} className="bg-muted/20">
-            <CardContent className="space-y-3 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{draft.agentName}</p>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {formDisplayName(draft.formTitle)}
-                  </p>
-                </div>
-                <Badge variant={draft.isOwn ? "secondary" : "outline"}>
-                  {draft.isOwn ? t("Mine") : t("Managed")}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline">{draft.campaignName}</Badge>
-                {draft.agentCode && <span>{t("Agent {code}", { code: draft.agentCode })}</span>}
-                {!draft.isOwn && (
-                  <span>{t("Evaluator: {name}", { name: draft.evaluatorName })}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock3 className="h-3.5 w-3.5" />
-                <span>{t("Updated")}</span>
-                <time dateTime={draft.updatedAt} suppressHydrationWarning>
-                  {formatOperationalTimestamp(
-                    draft.updatedAt,
-                    operationalTimeZone,
-                    { dateStyle: "medium", timeStyle: "short" },
-                    locale === "es" ? "es-ES" : "en-US",
-                  )}
-                </time>
-              </div>
-              <Link
-                href={`/forms/${draft.formId}?responseId=${draft.id}`}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full")}
-              >
-                {draft.isOwn ? t("Continue draft") : t("Manage draft")}
-              </Link>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsListClientProps) {
+export function FormsListClient({ forms, canCreate }: FormsListClientProps) {
   const { t } = useI18n();
   const router = useRouter();
-  const ownDrafts = evaluationDrafts.filter((draft) => draft.isOwn);
-  const manageableDrafts = evaluationDrafts.filter((draft) => !draft.isOwn);
 
   const statusLabel = (status: string) => {
     switch (status) {
@@ -191,39 +95,6 @@ export function FormsListClient({ forms, evaluationDrafts, canCreate }: FormsLis
           </Link>
         )}
       </div>
-
-      {evaluationDrafts.length > 0 && (
-        <section aria-labelledby="evaluation-drafts-heading" className="space-y-4">
-          <div>
-            <h2
-              id="evaluation-drafts-heading"
-              className="flex items-center gap-2 font-heading text-xl font-semibold"
-            >
-              <ClipboardPenLine className="h-5 w-5 text-primary" />
-              {t("Evaluation Drafts")}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t(
-                "Resume pending evaluations or manage drafts under your responsibility. Up to 50 recent drafts are shown.",
-              )}
-            </p>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-2">
-            <EvaluationDraftGroup
-              title={t("My drafts")}
-              description={t("Evaluations you started and can continue.")}
-              drafts={ownDrafts}
-            />
-            <EvaluationDraftGroup
-              title={t("Managed drafts")}
-              description={t(
-                "Evaluations from other QA specialists that you can correct or complete.",
-              )}
-              drafts={manageableDrafts}
-            />
-          </div>
-        </section>
-      )}
 
       {forms.length === 0 ? (
         <div className="flex h-64 items-center justify-center rounded-lg border border-dashed">

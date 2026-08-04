@@ -17,7 +17,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 /**
  * Corrections to a submitted evaluation keep the scoring contract captured when it was
- * submitted. Drafts and new evaluations always use the campaign's current policy.
+ * submitted. New evaluations use the campaign's current policy.
  */
 export function resolveResponseScoringPolicy(
   response: StoredResponsePolicy,

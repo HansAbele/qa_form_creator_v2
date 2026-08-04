@@ -814,7 +814,7 @@ describe("QA category analytics", () => {
     expect(prismaMock.response.findMany).not.toHaveBeenCalled();
   });
 
-  it("does not expose a draft response through report-only access", async () => {
+  it("does not include pending evaluation drafts in the response-detail authorization scope", async () => {
     prismaMock.userCampaign.findMany.mockResolvedValue([
       {
         campaignId: "campaign-1",
@@ -822,54 +822,28 @@ describe("QA category analytics", () => {
         canEditEvaluations: false,
       },
     ]);
-    prismaMock.response.findUnique.mockResolvedValue({
-      id: "response-draft",
-      evaluatorId: "qa-2",
-      status: "DRAFT",
-      form: {
-        id: "form-1",
-        title: "QA Form",
-        campaignId: "campaign-1",
-        status: "PUBLISHED",
-        campaign: { active: true },
-      },
-      agent: { id: "agent-1", campaignId: "campaign-1" },
-      disposition: null,
-      answers: [],
-    });
-
-    await expect(getResponseDetail("response-draft")).rejects.toThrow("Evaluation unavailable");
+    await expect(getResponseDetail("legacy-draft")).rejects.toThrow("Evaluation unavailable");
     expect(prismaMock.response.findFirst).toHaveBeenCalledTimes(1);
-    expect(prismaMock.response.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: expect.arrayContaining([
-            {
-              status: "DRAFT",
-              form: { campaignId: { in: [] } },
-            },
-            {
-              status: "SUBMITTED",
-              form: { campaignId: { in: ["campaign-1"] } },
-            },
-            {
-              status: "SUBMITTED",
-              evaluatorId: qaUser.id,
-              form: { campaignId: { in: [] } },
-            },
-            {
-              status: "CANCELLED",
-              form: { campaignId: { in: [] } },
-            },
-          ]),
-        }),
-        select: {
-          id: true,
-          formId: true,
-          status: true,
-          form: { select: { campaignId: true } },
+    const authorizationScope = prismaMock.response.findFirst.mock.calls[0]?.[0]?.where?.OR;
+    expect(authorizationScope).toEqual(
+      expect.arrayContaining([
+        {
+          status: "SUBMITTED",
+          form: { campaignId: { in: ["campaign-1"] } },
         },
-      }),
+        {
+          status: "SUBMITTED",
+          evaluatorId: qaUser.id,
+          form: { campaignId: { in: [] } },
+        },
+        {
+          status: "CANCELLED",
+          form: { campaignId: { in: [] } },
+        },
+      ]),
+    );
+    expect(authorizationScope).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: "DRAFT" })]),
     );
     expect(prismaMock.response.findUnique).not.toHaveBeenCalled();
   });

@@ -47,7 +47,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   Cancelled: "Anulada",
   "Cancelled: {reason}": "Anulada: {reason}",
   "Cancelling...": "Anulando...",
-  "Changes waiting to be saved": "Cambios pendientes de guardar",
   "Changes apply to future evaluations only. Historical evaluations remain unchanged.":
     "Los cambios se aplican solo a evaluaciones futuras. Las evaluaciones históricas permanecen sin cambios.",
   "Choice questions require at least 2 options":
@@ -58,7 +57,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Compare calls, agents, and evaluators across the campaigns you manage.":
     "Compara llamadas, agentes y evaluadores en las campañas que administras.",
   "Complete the form to see a preview": "Completa el formulario para ver una vista previa",
-  "Continue draft": "Continuar borrador",
   'Create "{name}"': 'Crear "{name}"',
   "Create anyway": "Crear de todos modos",
   "Create form": "Crear formulario",
@@ -86,10 +84,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Description (optional)": "Descripción (opcional)",
   Disposition: "Disposición",
   Draft: "Borrador",
-  "Draft recovered; confirming current changes":
-    "Borrador recuperado; confirmando los cambios actuales",
-  "Draft saved": "Borrador guardado",
-  "Draft saved at {time}": "Borrador guardado a las {time}",
   Dropdown: "Lista desplegable",
   Edit: "Editar",
   "Edit {title}": "Editar {title}",
@@ -105,7 +99,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Evaluated Agent": "Agente evaluado",
   "Evaluated Calls": "Llamadas evaluadas",
   "Evaluation cancelled": "Evaluación anulada",
-  "Evaluation Drafts": "Borradores de evaluación",
   "Evaluation filters": "Filtros de evaluación",
   "Evaluation submitted": "Evaluación enviada",
   "Evaluation timer": "Cronómetro de evaluación",
@@ -117,9 +110,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "QA evidence package exported for {count} evaluations":
     "Paquete de evidencia QA exportado para {count} evaluaciones",
   Evaluations: "Evaluaciones",
-  "Evaluations from other QA specialists that you can correct or complete.":
-    "Evaluaciones de otros especialistas de QA que puedes corregir o completar.",
-  "Evaluations you started and can continue.": "Evaluaciones que comenzaste y puedes continuar.",
   Evaluator: "Evaluador",
   "Evaluator: {name}": "Evaluador: {name}",
   "Every question must have a QA category": "Todas las preguntas deben tener una categoría QA",
@@ -165,15 +155,12 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
     "Crea un borrador revisable con los 38 criterios y controles oficiales, escala de 100 puntos, umbral de aprobación de 95%, aplicabilidad P&W y fallo automático para cada elemento CF.",
   "The scorecard is created as a draft so QA management can verify it before publishing.":
     "El scorecard se crea como borrador para que la gerencia de QA pueda verificarlo antes de publicarlo.",
-  "Manage draft": "Gestionar borrador",
   Managed: "Administrable",
-  "Managed drafts": "Borradores administrables",
   "Managed scope": "Alcance administrado",
   "Max. score": "Puntuación máx.",
   "Maximum rating": "Calificación máxima",
   "Min. score": "Puntuación mín.",
   Mine: "Propio",
-  "My drafts": "Mis borradores",
   "My evaluations": "Mis evaluaciones",
   "New Evaluation": "Nueva evaluación",
   "New Form": "Nuevo formulario",
@@ -232,15 +219,11 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   Required: "Obligatoria",
   Result: "Resultado",
   Results: "Resultados",
-  "Resume pending evaluations or manage drafts under your responsibility. Up to 50 recent drafts are shown.":
-    "Retoma evaluaciones pendientes o gestiona borradores bajo tu responsabilidad. Se muestran hasta 50 borradores recientes.",
   "Review the calls you evaluated each month and each agent's average score.":
     "Consulta las llamadas que evaluaste cada mes y la puntuación promedio de cada agente.",
   "Review the highlighted fields before submitting.": "Revisa los campos marcados antes de enviar.",
   Risk: "Riesgo",
   "Save changes": "Guardar cambios",
-  "Save draft": "Guardar borrador",
-  "Saving draft...": "Guardando borrador...",
   "Saving...": "Guardando...",
   "Starting secure timer...": "Iniciando cronómetro seguro...",
   "Score / status": "Puntuación / estado",
@@ -260,10 +243,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Select a QA category": "Selecciona una categoría QA",
   "Select a disposition.": "Selecciona una disposición.",
   "Select a disposition...": "Seleccionar disposición...",
-  "Select an agent and disposition before saving a draft":
-    "Selecciona un agente y una disposición antes de guardar un borrador",
-  "Select an agent and disposition to save changes":
-    "Selecciona un agente y una disposición para guardar los cambios",
   "Select an agent.": "Selecciona un agente.",
   "Select all exportable HAPUSA evaluations on this page":
     "Seleccionar todas las evaluaciones HAPUSA exportables de esta página",
@@ -288,10 +267,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   Submitted: "Enviada",
   "Team & campaigns": "Equipo y campañas",
   Text: "Texto",
-  "The draft could not be confirmed before submission":
-    "No se pudo confirmar el borrador antes de enviarlo",
-  "The draft could not be saved before submission":
-    "No se pudo guardar el borrador antes de enviarlo",
   "The evaluation will be submitted as FAIL. Review the flagged questions and add the required comments.":
     "La evaluación se enviará como FAIL. Revisa las preguntas marcadas y agrega los comentarios requeridos.",
   "This evaluation": "Esta evaluación",
@@ -311,21 +286,18 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
   "Unable to delete form": "No se pudo eliminar el formulario",
   "Unable to load dispositions": "No se pudieron cargar las disposiciones",
   "Unable to publish form": "No se pudo publicar el formulario",
-  "Unable to save draft": "No se pudo guardar el borrador",
   "Unable to save form": "No se pudo guardar el formulario",
   "Unable to submit evaluation": "No se pudo enviar la evaluación",
   "Unable to export HAPUSA package": "No se pudo exportar el paquete HAPUSA",
   "Unable to export QA evidence package": "No se pudo exportar el paquete de evidencia QA",
   Unavailable: "No disponible",
   Unclassified: "Sin clasificar",
-  "Unsaved draft: {error}": "Borrador sin guardar: {error}",
   "Untitled form": "Formulario sin título",
   Update: "Actualizar",
   Updated: "Actualizado",
   "Use existing": "Usar existente",
   View: "Vista",
   "View evaluation": "Ver evaluación",
-  "Wait for the draft to finish saving": "Espera a que termine de guardarse el borrador",
   "We couldn't load the evaluation": "No pudimos cargar la evaluación",
   "We couldn't load the evaluations": "No pudimos cargar las evaluaciones",
   "Weight {weight}%": "Peso {weight}%",
@@ -379,6 +351,4 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
     "clientResponseId es obligatorio al crear una evaluación",
   "expectedUpdatedAt is required when updating an evaluation":
     "expectedUpdatedAt es obligatorio al actualizar una evaluación",
-  "Select an agent before saving a draft": "Selecciona un agente antes de guardar el borrador",
-  "Select an agent to save changes": "Selecciona un agente para guardar los cambios",
 } as const;

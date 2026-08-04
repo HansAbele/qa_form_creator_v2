@@ -217,9 +217,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
                       ? t("Cancelled")
                       : data.status === "SUBMITTED"
                         ? t("Submitted")
-                        : data.status === "DRAFT"
-                          ? t("Draft")
-                          : data.status}
+                        : data.status}
                   </Badge>
                   {data.result && (
                     <Badge variant={data.result === "PASS" ? "default" : "destructive"}>

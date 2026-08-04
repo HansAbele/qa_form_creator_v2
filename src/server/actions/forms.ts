@@ -187,23 +187,9 @@ export async function getFormForEvaluation(id: string) {
   });
 }
 
-export async function getFormForEvaluationDraft(id: string) {
-  return getFormByIdWithPermission(id, "canEvaluate", {
-    allowedStatuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
-    requireActiveCampaign: true,
-  });
-}
-
 export async function getFormForEvaluationCorrection(id: string) {
   return getFormByIdWithPermission(id, "canEditEvaluations", {
     allowedStatuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
-  });
-}
-
-export async function getFormForDraftCorrection(id: string) {
-  return getFormByIdWithPermission(id, "canEditEvaluations", {
-    allowedStatuses: [FORM_STATUS.PUBLISHED, FORM_STATUS.ARCHIVED],
-    requireActiveCampaign: true,
   });
 }
 

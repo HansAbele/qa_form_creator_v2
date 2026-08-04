@@ -1,7 +1,7 @@
 "use client";
 
 import type { QuestionType } from "@prisma/client";
-import { AlertTriangle, ClipboardCheck, Clock3, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Clock3, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -46,7 +46,6 @@ import { cn } from "@/lib/utils";
 import { getAgentsForEvaluation } from "@/server/actions/agents";
 import {
   pauseEvaluationActivityAction,
-  saveResponseDraftAction,
   startEvaluationActivityAction,
   submitResponseAction,
 } from "@/server/actions/responses";
@@ -203,14 +202,6 @@ export function FormViewer({
   const [comments, setComments] = useState<Record<string, string>>(initialComments);
   const [notApplicable, setNotApplicableState] =
     useState<Record<string, boolean>>(initialNotApplicable);
-  const [draftId, setDraftId] = useState(
-    initialResponse?.status === "DRAFT" ? initialResponse.id : "",
-  );
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [lastSavedPayload, setLastSavedPayload] = useState("");
-  const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
-  const [savingDraft, setSavingDraft] = useState(false);
-  const [autosaveRevision, setAutosaveRevision] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
   const [contextErrors, setContextErrors] = useState<{
@@ -225,14 +216,17 @@ export function FormViewer({
   } | null>(null);
   const [evaluationTimerError, setEvaluationTimerError] = useState<string | null>(null);
   const [timerNow, setTimerNow] = useState(() => Date.now());
-  const autosaveInitializedRef = useRef(false);
   const activityStartRequestedRef = useRef(false);
-  const draftIdRef = useRef(draftId);
   const responseVersionRef = useRef(initialResponse?.updatedAt ?? null);
   const clientResponseIdRef = useRef(createRuntimeUuid());
-  const draftSavePromiseRef = useRef<Promise<string | null> | null>(null);
-  const autosaveQueuedRef = useRef(false);
-  const mountedRef = useRef(true);
+  const initialEvaluationContentRef = useRef(
+    JSON.stringify({
+      agentId: initialResponse?.agentId ?? linkedInteraction?.agent?.id ?? "",
+      answers: initialAnswers,
+      comments: initialComments,
+      notApplicable: initialNotApplicable,
+    }),
+  );
 
   const isEditingSubmitted = initialResponse?.status === "SUBMITTED";
   const scoringQuestions = useMemo(() => form.questions.map(toScoringQuestion), [form.questions]);
@@ -445,135 +439,15 @@ export function FormViewer({
       Boolean(comments[question.id]?.trim()) ||
       Boolean(notApplicable[question.id]),
   );
-  const hasLocalDraftContent = Boolean(draftId || agentId || hasLocalAnswerContent);
-  const canPersistDraft = Boolean(agentId);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (autosaveInitializedRef.current) return;
-    autosaveInitializedRef.current = true;
-    if (initialResponse) {
-      setLastSavedPayload(JSON.stringify(buildPayload(initialResponse.id)));
-    }
-  }, [buildPayload, initialResponse]);
-
-  const handleSaveDraft = useCallback(
-    ({ silent = false }: { silent?: boolean } = {}): Promise<string | null> => {
-      if (isEditingSubmitted) return Promise.resolve(null);
-      if (!agentId) {
-        if (!silent) toast.error(t("Select an agent before saving a draft"));
-        return Promise.resolve(null);
-      }
-      if (draftSavePromiseRef.current) return draftSavePromiseRef.current;
-
-      setSavingDraft(true);
-      setDraftSaveError(null);
-      const operation = (async () => {
-        try {
-          const currentDraftId = draftIdRef.current || undefined;
-          const result = await saveResponseDraftAction(buildPayload(currentDraftId));
-          if (!result.ok) throw new Error(result.error.message);
-          const response = result.data;
-          const savedDraftId = response.id;
-          draftIdRef.current = savedDraftId;
-          responseVersionRef.current = response.updatedAt;
-          if (mountedRef.current) {
-            if (response.replayed) {
-              // The create reached the database but its response was lost. Recover its
-              // identity/version, then queue a versioned update for the current payload.
-              autosaveQueuedRef.current = true;
-            } else {
-              setLastSavedPayload(JSON.stringify(buildPayload(savedDraftId)));
-            }
-            if (!currentDraftId) {
-              setDraftId(savedDraftId);
-              window.history.replaceState(null, "", `/forms/${form.id}?responseId=${savedDraftId}`);
-            }
-            if (!response.replayed) {
-              setLastSavedAt(
-                formatOperationalTimestamp(
-                  new Date(),
-                  operationalTimeZone,
-                  { timeStyle: "short" },
-                  locale === "es" ? "es-ES" : "en-US",
-                ),
-              );
-            }
-            if (!silent) {
-              toast.success(
-                response.replayed
-                  ? t("Draft recovered; confirming current changes")
-                  : t("Draft saved"),
-              );
-            }
-          }
-          return savedDraftId;
-        } catch (error) {
-          const message = error instanceof Error ? t(error.message) : t("Unable to save draft");
-          if (mountedRef.current) {
-            setDraftSaveError(message);
-            if (!silent) {
-              toast.error(message);
-            }
-          }
-          return null;
-        }
-      })();
-
-      draftSavePromiseRef.current = operation;
-      void operation.finally(() => {
-        if (draftSavePromiseRef.current === operation) {
-          draftSavePromiseRef.current = null;
-        }
-        if (mountedRef.current) setSavingDraft(false);
-        if (autosaveQueuedRef.current) {
-          autosaveQueuedRef.current = false;
-          if (mountedRef.current) setAutosaveRevision((revision) => revision + 1);
-        }
-      });
-
-      return operation;
-    },
-    [agentId, buildPayload, form.id, isEditingSubmitted, locale, operationalTimeZone, t],
-  );
-
-  useEffect(() => {
-    // A queued edit increments this revision to re-arm autosave after the active request settles.
-    void autosaveRevision;
-    if (isEditingSubmitted || submitting || !canPersistDraft) return;
-
-    const payload = JSON.stringify(buildPayload(draftId || undefined));
-    if (payload === lastSavedPayload) return;
-
-    const timeout = window.setTimeout(() => {
-      if (draftSavePromiseRef.current) {
-        autosaveQueuedRef.current = true;
-        return;
-      }
-      void handleSaveDraft({ silent: true });
-    }, 1200);
-
-    return () => window.clearTimeout(timeout);
-  }, [
-    autosaveRevision,
-    buildPayload,
-    canPersistDraft,
-    draftId,
-    handleSaveDraft,
-    isEditingSubmitted,
-    lastSavedPayload,
-    submitting,
-  ]);
-
-  const currentResponseId = draftId || initialResponse?.id || undefined;
-  const currentPayload = JSON.stringify(buildPayload(currentResponseId));
-  const hasUnsavedChanges = hasLocalDraftContent && currentPayload !== lastSavedPayload;
+  const hasLocalEvaluationContent = Boolean(agentId || hasLocalAnswerContent);
+  const currentEvaluationContent = JSON.stringify({
+    agentId,
+    answers,
+    comments,
+    notApplicable,
+  });
+  const hasUnsavedChanges =
+    hasLocalEvaluationContent && currentEvaluationContent !== initialEvaluationContentRef.current;
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -698,33 +572,12 @@ export function FormViewer({
 
     setSubmitting(true);
     try {
-      let responseId = draftIdRef.current || initialResponse?.id;
-      if (!isEditingSubmitted) {
-        const pendingSave = draftSavePromiseRef.current;
-        if (pendingSave) {
-          const pendingDraftId = await pendingSave;
-          if (!pendingDraftId) {
-            throw new Error(t("The draft could not be confirmed before submission"));
-          }
-          responseId = pendingDraftId;
-        }
-
-        if (hasUnsavedChanges || !responseId) {
-          const flushedDraftId = await handleSaveDraft({ silent: true });
-          if (!flushedDraftId) {
-            throw new Error(t("The draft could not be saved before submission"));
-          }
-          responseId = flushedDraftId;
-        }
-      }
-
       const result = await submitResponseAction({
-        ...buildPayload(responseId),
+        ...buildPayload(initialResponse?.id),
       });
       if (!result.ok) throw new Error(result.error.message);
       const response = result.data;
       responseVersionRef.current = response.updatedAt;
-      setLastSavedPayload(JSON.stringify(buildPayload(response.id)));
       toast.success(isEditingSubmitted ? t("Evaluation updated") : t("Evaluation submitted"));
       router.push(
         isEditingSubmitted
@@ -742,10 +595,6 @@ export function FormViewer({
   };
 
   const handleCancel = async () => {
-    if (draftSavePromiseRef.current) {
-      toast.info(t("Wait for the draft to finish saving"));
-      return;
-    }
     if (hasUnsavedChanges && !window.confirm(t("You have unsaved changes. Leave anyway?"))) {
       return;
     }
@@ -1021,40 +870,6 @@ export function FormViewer({
             </section>
           );
         })}
-
-        <div className="flex items-center justify-between pt-1">
-          <span
-            className={cn(
-              "min-h-5 text-xs",
-              draftSaveError ? "text-destructive" : "text-muted-foreground",
-            )}
-            role={draftSaveError ? "alert" : "status"}
-            aria-live="polite"
-          >
-            {!isEditingSubmitted && draftSaveError
-              ? t("Unsaved draft: {error}", { error: draftSaveError })
-              : savingDraft
-                ? t("Saving draft...")
-                : hasUnsavedChanges
-                  ? canPersistDraft
-                    ? t("Changes waiting to be saved")
-                    : t("Select an agent to save changes")
-                  : lastSavedAt
-                    ? t("Draft saved at {time}", { time: lastSavedAt })
-                    : null}
-          </span>
-          {!isEditingSubmitted && (
-            <Button
-              variant="outline"
-              onClick={() => void handleSaveDraft()}
-              disabled={savingDraft || submitting}
-              className="gap-2"
-            >
-              <Save className="h-4 w-4" />
-              {savingDraft ? t("Saving...") : t("Save draft")}
-            </Button>
-          )}
-        </div>
       </fieldset>
 
       {/* Right — sticky summary */}
@@ -1066,7 +881,6 @@ export function FormViewer({
           totalQuestions={form.questions.length}
           answeredQuestions={answeredQuestions}
           submitting={submitting}
-          savingDraft={savingDraft}
           isEditing={isEditingSubmitted}
           onSubmit={handleSubmit}
           onCancel={handleCancel}

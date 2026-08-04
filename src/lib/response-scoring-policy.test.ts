@@ -14,7 +14,7 @@ describe("resolveResponseScoringPolicy", () => {
     ).toEqual({ passThreshold: 70, fatalZeroesScore: false });
   });
 
-  it("uses current policy for drafts and rejects malformed captured thresholds", () => {
+  it("uses the current policy for new evaluations and malformed captured thresholds", () => {
     const current = { passThreshold: 80, fatalZeroesScore: true };
     expect(
       resolveResponseScoringPolicy(
@@ -25,6 +25,6 @@ describe("resolveResponseScoringPolicy", () => {
         current,
       ),
     ).toEqual(current);
-    expect(resolveResponseScoringPolicy({ status: "DRAFT" }, current)).toBe(current);
+    expect(resolveResponseScoringPolicy(null, current)).toBe(current);
   });
 });

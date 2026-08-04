@@ -48,17 +48,11 @@ export function CallDetailClient({ interaction }: { interaction: CallFinderInter
   const [formId, setFormId] = useState(interaction.forms[0]?.id ?? "");
   const linkedResponse = interaction.response;
   const evaluationHref = linkedResponse
-    ? linkedResponse.status === "DRAFT"
-      ? `/forms/${linkedResponse.formId}?responseId=${linkedResponse.id}`
-      : `/evaluations/${linkedResponse.id}`
+    ? `/evaluations/${linkedResponse.id}`
     : formId
       ? `/forms/${formId}?interactionId=${interaction.id}`
       : null;
-  const evaluationLabel = linkedResponse
-    ? linkedResponse.status === "DRAFT"
-      ? t("Continue evaluation")
-      : t("View evaluation")
-    : t("Start evaluation");
+  const evaluationLabel = linkedResponse ? t("View evaluation") : t("Start evaluation");
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

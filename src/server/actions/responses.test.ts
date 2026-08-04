@@ -29,7 +29,6 @@ import {
   cancelResponse,
   cancelResponseAction,
   getResponseById,
-  saveResponseDraft,
   submitResponse,
   submitResponseAction,
 } from "./responses";
@@ -149,7 +148,7 @@ function storedResponse(options: {
     evaluatorId: options.evaluatorId ?? "qa-1",
     dispositionId: null,
     score: 80,
-    result: options.status === "DRAFT" ? null : "PASS",
+    result: "PASS",
     hasFatalFail: false,
     status: options.status ?? "SUBMITTED",
     scoringSnapshot: null,
@@ -157,7 +156,7 @@ function storedResponse(options: {
     formSnapshot: null,
     createdAt: new Date("2026-05-01T00:00:00.000Z"),
     updatedAt: new Date("2026-05-01T01:00:00.000Z"),
-    submittedAt: options.status === "DRAFT" ? null : new Date("2026-05-01T00:00:00.000Z"),
+    submittedAt: new Date("2026-05-01T00:00:00.000Z"),
     cancellationReason: null,
     form: { id: formId, title: "QA Form", campaignId: options.campaignId },
     agent: {
@@ -475,7 +474,7 @@ describe("submitResponse validation and RBAC", () => {
       storedResponse({
         id: "response-corrupt",
         campaignId: "campaign-1",
-        status: "DRAFT",
+        status: "SUBMITTED",
         corruptAnswer: true,
       }),
     );
@@ -571,7 +570,7 @@ describe("submitResponse validation and RBAC", () => {
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it("recovers a draft create by stable identity when its editable context changed", async () => {
+  it("does not replay a submitted create when the agent context changed", async () => {
     prismaMock.response.create.mockRejectedValue(
       Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
     );
@@ -582,32 +581,29 @@ describe("submitResponse validation and RBAC", () => {
       evaluatorId: "qa-1",
       dispositionId: "disp-before-retry",
       score: 60,
-      result: null,
+      result: "PASS",
       hasFatalFail: false,
-      status: "DRAFT",
+      status: "SUBMITTED",
       createdAt: new Date("2026-05-01T01:00:00.000Z"),
       updatedAt: SAVED_UPDATED_AT,
-      submittedAt: null,
+      submittedAt: new Date("2026-05-01T01:00:00.000Z"),
       cancellationReason: null,
       form: { campaignId: "campaign-1" },
       answers: [],
     });
 
     await expect(
-      saveResponseDraft({
+      submitResponse({
         clientResponseId: CLIENT_RESPONSE_ID,
         formId: "form-1",
         agentId: "agent-after-retry",
         dispositionId: "disp-after-retry",
-        answers: [{ questionId: "q-rating", value: "4" }],
+        answers: [
+          { questionId: "q-rating", value: "4" },
+          { questionId: "q-select", value: "Good" },
+        ],
       }),
-    ).resolves.toEqual({
-      id: CLIENT_RESPONSE_ID,
-      updatedAt: SAVED_UPDATED_AT.toISOString(),
-      status: "DRAFT",
-      score: 60,
-      replayed: true,
-    });
+    ).rejects.toThrow("The evaluation identifier was already used in another context");
 
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
@@ -693,11 +689,11 @@ describe("submitResponse validation and RBAC", () => {
     expect(prismaMock.response.create).not.toHaveBeenCalled();
   });
 
-  it("rejects saving a draft evaluation against an archived form", async () => {
+  it("rejects starting an evaluation against an archived form", async () => {
     prismaMock.form.findUnique.mockResolvedValue({ ...validForm(), status: "ARCHIVED" });
 
     await expect(
-      saveResponseDraft({
+      submitResponse({
         clientResponseId: CLIENT_RESPONSE_ID,
         formId: "form-1",
         agentId: "agent-1",
@@ -716,7 +712,7 @@ describe("submitResponse validation and RBAC", () => {
     });
 
     await expect(
-      saveResponseDraft({
+      submitResponse({
         clientResponseId: CLIENT_RESPONSE_ID,
         formId: "form-1",
         agentId: "agent-1",
@@ -769,31 +765,6 @@ describe("submitResponse validation and RBAC", () => {
     );
   });
 
-  it("lets a QA resume only their own draft with evaluate access", async () => {
-    prismaMock.response.findUnique.mockResolvedValue({
-      id: "response-1",
-      formId: "form-1",
-      evaluatorId: "qa-1",
-      status: "DRAFT",
-      score: 80,
-      form: { id: "form-1", title: "QA Form", campaignId: "campaign-1" },
-      agent: { id: "agent-1", name: "Agent", campaignId: "campaign-1" },
-      evaluator: { id: "qa-1", name: "QA User" },
-      disposition: {
-        id: "disp-1",
-        name: "Resolved",
-        code: "RES",
-        campaignId: "campaign-1",
-      },
-      answers: [],
-    });
-
-    await expect(getResponseById("response-1")).resolves.toMatchObject({
-      id: "response-1",
-      score: 80,
-    });
-  });
-
   it("requires edit permission to load a submitted response for correction", async () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
@@ -820,7 +791,7 @@ describe("submitResponse validation and RBAC", () => {
       id: "response-2",
       formId: "form-1",
       evaluatorId: "qa-1",
-      status: "DRAFT",
+      status: "SUBMITTED",
       score: 80,
       form: { id: "form-1", title: "QA Form", campaignId: "campaign-1" },
       agent: { id: "agent-1", name: "Agent", campaignId: "campaign-1" },
@@ -1023,24 +994,18 @@ describe("submitResponse validation and RBAC", () => {
     );
   });
 
-  it("saves incomplete evaluations as drafts without publishing to KPIs", async () => {
-    await saveResponseDraft({
-      clientResponseId: CLIENT_RESPONSE_ID,
-      formId: "form-1",
-      agentId: "agent-1",
-      dispositionId: "disp-1",
-      answers: [{ questionId: "q-rating", value: "4" }],
-    });
-
-    expect(prismaMock.response.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: "DRAFT",
-          result: null,
-          submittedAt: null,
-        }),
+  it("rejects incomplete evaluations instead of persisting pending work", async () => {
+    await expect(
+      submitResponse({
+        clientResponseId: CLIENT_RESPONSE_ID,
+        formId: "form-1",
+        agentId: "agent-1",
+        dispositionId: "disp-1",
+        answers: [{ questionId: "q-rating", value: "4" }],
       }),
-    );
+    ).rejects.toThrow("Some required questions are unanswered");
+
+    expect(prismaMock.response.create).not.toHaveBeenCalled();
   });
 
   it("rejects an update without the client concurrency token", async () => {

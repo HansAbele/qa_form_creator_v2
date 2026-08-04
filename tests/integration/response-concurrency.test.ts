@@ -129,6 +129,7 @@ async function createFixture(admin: PrismaClient) {
         campaignId: fixtureIds.campaign,
         roleInCampaign: "EVALUATOR",
         canEvaluate: true,
+        canEditEvaluations: true,
       },
     });
     await tx.agent.create({
@@ -182,9 +183,10 @@ async function createFixture(admin: PrismaClient) {
         evaluatorId: fixtureIds.user,
         dispositionId: fixtureIds.disposition,
         score: 20,
-        result: null,
+        result: "FAIL",
         hasFatalFail: false,
-        status: "DRAFT",
+        status: "SUBMITTED",
+        submittedAt: new Date(),
         answers: {
           create: {
             questionId: fixtureIds.question,
@@ -272,7 +274,7 @@ integrationDescribe("response concurrency with PostgreSQL 16", () => {
     await createFixture(adminPrisma);
 
     try {
-      const draft = await adminPrisma.response.findUniqueOrThrow({
+      const existing = await adminPrisma.response.findUniqueOrThrow({
         where: { id: fixtureIds.response },
         select: { updatedAt: true },
       });
@@ -307,7 +309,7 @@ integrationDescribe("response concurrency with PostgreSQL 16", () => {
       const attempts = candidates.map((candidate) =>
         responseActions.submitResponseAction({
           responseId: fixtureIds.response,
-          expectedUpdatedAt: draft.updatedAt.toISOString(),
+          expectedUpdatedAt: existing.updatedAt.toISOString(),
           formId: fixtureIds.form,
           agentId: fixtureIds.agent,
           dispositionId: fixtureIds.disposition,
@@ -382,7 +384,7 @@ integrationDescribe("response concurrency with PostgreSQL 16", () => {
       expect(auditRows).toHaveLength(1);
       expect(auditRows[0]).toMatchObject({
         module: "evaluations",
-        action: "submitted",
+        action: "updated",
         entityType: "response",
         entityId: fixtureIds.response,
       });

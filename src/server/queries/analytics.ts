@@ -2544,7 +2544,6 @@ export async function getResponseDetail(responseId: string) {
     ]);
   const authorizationScope = {
     OR: [
-      { status: RESPONSE_STATUS.DRAFT, form: editFilter },
       { status: RESPONSE_STATUS.SUBMITTED, form: evaluationFilter },
       { status: RESPONSE_STATUS.SUBMITTED, form: reportFilter },
       { status: RESPONSE_STATUS.SUBMITTED, form: editFilter },
@@ -2707,26 +2706,20 @@ export async function getResponseDetail(responseId: string) {
   if (!response) throw new Error("Evaluation unavailable");
 
   const canEditContext =
-    response.status === RESPONSE_STATUS.SUBMITTED
-      ? response.form.status === "PUBLISHED" || response.form.status === "ARCHIVED"
-      : response.status === RESPONSE_STATUS.DRAFT &&
-        response.form.status === "PUBLISHED" &&
-        response.form.campaign.active;
+    response.status === RESPONSE_STATUS.SUBMITTED &&
+    (response.form.status === "PUBLISHED" || response.form.status === "ARCHIVED");
   const canEditCampaign = campaignFilterAllows(editFilter, response.form.campaignId);
   const canEdit = canEditContext && canEditCampaign;
   const canOpenAnalytics = campaignFilterAllows(kpiFilter, response.form.campaignId);
   const passThreshold = await getPassThresholdForCampaign(response.form.campaignId);
-  const effectiveResult =
-    response.status === RESPONSE_STATUS.DRAFT
-      ? response.result
-      : isPassingResponse(
-            Number(response.score),
-            response.result,
-            response.hasFatalFail,
-            passThreshold,
-          )
-        ? "PASS"
-        : "FAIL";
+  const effectiveResult = isPassingResponse(
+    Number(response.score),
+    response.result,
+    response.hasFatalFail,
+    passThreshold,
+  )
+    ? "PASS"
+    : "FAIL";
 
   return {
     id: response.id,

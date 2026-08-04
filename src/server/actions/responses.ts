@@ -258,19 +258,7 @@ function responsePermissionScope(
     };
   }
 
-  return {
-    OR: [
-      {
-        status: RESPONSE_STATUS.DRAFT,
-        evaluatorId: user.id,
-        form: formPermissionScope(user, "canEvaluate"),
-      },
-      {
-        NOT: { status: RESPONSE_STATUS.DRAFT, evaluatorId: user.id },
-        form: formPermissionScope(user, "canEditEvaluations"),
-      },
-    ],
-  };
+  return { form: formPermissionScope(user, "canEditEvaluations") };
 }
 
 async function assertResponsePermissionOrUnavailable(
@@ -282,13 +270,7 @@ async function assertResponsePermissionOrUnavailable(
     failResponseUnavailable();
   }
 
-  const permission =
-    mode === "CANCEL"
-      ? "canEditEvaluations"
-      : mode === "CREATE_REPLAY" ||
-          (response.status === RESPONSE_STATUS.DRAFT && response.evaluatorId === user.id)
-        ? "canEvaluate"
-        : "canEditEvaluations";
+  const permission = mode === "CREATE_REPLAY" ? "canEvaluate" : "canEditEvaluations";
   const allowed = await hasCampaignPermissionForUser(user, response.form.campaignId, permission);
   if (!allowed) failResponseUnavailable();
 }
@@ -740,21 +722,6 @@ async function loadExistingResponse(
   }) as Promise<ExistingResponseForMutation | null>;
 }
 
-function mutationPermissionForResponse(
-  user: Session["user"],
-  existing: ExistingResponseForMutation,
-): EvaluationPermission {
-  if (existing.status !== RESPONSE_STATUS.DRAFT) {
-    return "canEditEvaluations";
-  }
-
-  if (existing.evaluatorId === user.id) {
-    return "canEvaluate";
-  }
-
-  return "canEditEvaluations";
-}
-
 async function loadMutationForm(
   formId: string,
   user: Session["user"],
@@ -829,9 +796,7 @@ export async function startEvaluationActivityAction(data: unknown) {
   const form = await loadMutationForm(
     existingResponse?.formId ?? input.formId,
     session.user,
-    existingResponse
-      ? mutationPermissionForResponse(session.user, existingResponse)
-      : "canEvaluate",
+    existingResponse ? "canEditEvaluations" : "canEvaluate",
   );
   if (!form) failFormUnavailable();
 
@@ -1033,25 +998,17 @@ function isSameCreateContext(
   response: ExistingResponseForMutation,
   input: ResponseMutationInput,
   evaluatorId: string,
-  status: typeof RESPONSE_STATUS.DRAFT | typeof RESPONSE_STATUS.SUBMITTED,
 ) {
-  const sameStableIdentity =
+  return (
     response.evaluatorId === evaluatorId &&
     response.formId === input.formId &&
     (response.interactionId ?? null) === (input.interactionId ?? null) &&
-    response.status === status;
-
-  if (!sameStableIdentity || status === RESPONSE_STATUS.DRAFT) {
-    return sameStableIdentity;
-  }
-
-  return response.agentId === input.agentId;
+    response.status === RESPONSE_STATUS.SUBMITTED &&
+    response.agentId === input.agentId
+  );
 }
 
-async function saveEvaluation(
-  data: unknown,
-  status: typeof RESPONSE_STATUS.DRAFT | typeof RESPONSE_STATUS.SUBMITTED,
-) {
+async function saveEvaluation(data: unknown) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
   const input = parseResponseMutationInput(data);
@@ -1077,15 +1034,15 @@ async function saveEvaluation(
   const form = await loadMutationForm(
     existing?.formId ?? input.formId,
     session.user,
-    existing ? mutationPermissionForResponse(session.user, existing) : "canEvaluate",
+    existing ? "canEditEvaluations" : "canEvaluate",
   );
   if (!form) failFormUnavailable();
 
   if (existing?.status === RESPONSE_STATUS.CANCELLED) {
     failResponseAction("INVALID_STATE", "A cancelled evaluation cannot be modified");
   }
-  if (existing && status === RESPONSE_STATUS.DRAFT && existing.status !== RESPONSE_STATUS.DRAFT) {
-    failResponseAction("INVALID_STATE", "Draft changes can only be saved for draft evaluations");
+  if (existing && existing.status !== RESPONSE_STATUS.SUBMITTED) {
+    failResponseAction("INVALID_STATE", "Only submitted evaluations can be corrected");
   }
 
   if (
@@ -1095,8 +1052,7 @@ async function saveEvaluation(
     failResponseAction("CONFLICT", CONCURRENT_RESPONSE_CHANGE_ERROR);
   }
 
-  const isHistoricalCorrection =
-    status === RESPONSE_STATUS.SUBMITTED && existing?.status === RESPONSE_STATUS.SUBMITTED;
+  const isHistoricalCorrection = existing?.status === RESPONSE_STATUS.SUBMITTED;
 
   if (form.status !== "PUBLISHED" && !(isHistoricalCorrection && form.status === "ARCHIVED")) {
     failResponseAction("INVALID_STATE", "Only a published form can be evaluated");
@@ -1165,9 +1121,8 @@ async function saveEvaluation(
     passThreshold: form.passThresholdOverride ?? scoringSettings.passThreshold,
   });
 
-  const requireComplete = status === RESPONSE_STATUS.SUBMITTED;
   const sanitizedAnswers = sanitizeAnswers(form.questions, input.answers, {
-    requireComplete,
+    requireComplete: true,
   });
 
   const scoreResult = computeScore(
@@ -1188,7 +1143,7 @@ async function saveEvaluation(
     },
   );
 
-  if (requireComplete && scoreResult.blockers > 0) {
+  if (scoreResult.blockers > 0) {
     failResponseAction("VALIDATION", "Some failed questions require a comment");
   }
 
@@ -1203,14 +1158,14 @@ async function saveEvaluation(
   const ratingQuestions = form.questions.filter((question) => question.type === "RATING");
   const score = scoreResult.score;
   const hasFatalFail = scoreResult.hasFatalFail;
-  const result = requireComplete ? scoreResult.result : null;
+  const result = scoreResult.result;
 
   const formSnapshot =
     isHistoricalCorrection && existing?.formSnapshot
       ? existing.formSnapshot
       : buildFormSnapshot(form);
   const scoringSnapshot = buildScoringSnapshot({
-    status,
+    status: RESPONSE_STATUS.SUBMITTED,
     score,
     result,
     hasFatalFail,
@@ -1230,16 +1185,7 @@ async function saveEvaluation(
         };
 
   const isNew = !existing;
-  const action =
-    status === RESPONSE_STATUS.DRAFT
-      ? isNew
-        ? "draft_created"
-        : "draft_updated"
-      : existing?.status === RESPONSE_STATUS.SUBMITTED
-        ? "updated"
-        : existing?.status === RESPONSE_STATUS.DRAFT
-          ? "submitted"
-          : "created";
+  const action = isNew ? "created" : "updated";
 
   const persistence = await (async () => {
     try {
@@ -1255,13 +1201,8 @@ async function saveEvaluation(
             isHistoricalCorrection && existing?.formVersion ? existing.formVersion : form.version,
           result,
           hasFatalFail,
-          status,
-          submittedAt:
-            status === RESPONSE_STATUS.SUBMITTED
-              ? existing?.status === RESPONSE_STATUS.SUBMITTED
-                ? (existing.submittedAt ?? existing.createdAt)
-                : new Date()
-              : null,
+          status: RESPONSE_STATUS.SUBMITTED,
+          submittedAt: existing ? (existing.submittedAt ?? existing.createdAt) : new Date(),
           scoringSnapshot: scoringSnapshot as Prisma.InputJsonValue,
           settingsSnapshot: settingsSnapshot as Prisma.InputJsonValue,
           formSnapshot: formSnapshot as Prisma.InputJsonValue,
@@ -1318,7 +1259,7 @@ async function saveEvaluation(
               score,
               result,
               hasFatalFail,
-              status,
+              status: RESPONSE_STATUS.SUBMITTED,
               formVersion:
                 isHistoricalCorrection && existing?.formVersion
                   ? existing.formVersion
@@ -1331,10 +1272,7 @@ async function saveEvaluation(
               settingsSnapshot,
               formSnapshot,
             },
-            impact:
-              status === RESPONSE_STATUS.DRAFT
-                ? "Borrador guardado; no impacta Dashboard, KPIs, reportes ni exportaciones."
-                : "Evaluation included or updated in Dashboard, KPIs, reports, and exports.",
+            impact: "Evaluation included or updated in Dashboard, KPIs, reports, and exports.",
           },
           tx,
         );
@@ -1353,7 +1291,7 @@ async function saveEvaluation(
 
           const completedAt = new Date();
           const addedSeconds =
-            status === RESPONSE_STATUS.SUBMITTED && activity.status === "ACTIVE"
+            activity.status === "ACTIVE"
               ? await closeEvaluationActivityInterval(
                   tx,
                   activity.id,
@@ -1375,16 +1313,12 @@ async function saveEvaluation(
               responseId: savedResponse.id,
               label: activityLabel,
               notes: "Automatically measured from evaluation form open to submission.",
-              ...(status === RESPONSE_STATUS.SUBMITTED
-                ? {
-                    status: "COMPLETED",
-                    endedAt: completedAt,
-                    totalSeconds: { increment: addedSeconds },
-                  }
-                : {}),
+              status: "COMPLETED",
+              endedAt: completedAt,
+              totalSeconds: { increment: addedSeconds },
             },
           });
-          if (status === RESPONSE_STATUS.SUBMITTED && activity.status !== "COMPLETED") {
+          if (activity.status !== "COMPLETED") {
             await writeAuditLog(
               {
                 userId: session.user.id,
@@ -1433,7 +1367,7 @@ async function saveEvaluation(
           "CREATE_REPLAY",
         );
         if (!hasMutationResponseIntegrity(replayedResponse)) failResponseUnavailable();
-        if (!isSameCreateContext(replayedResponse, input, session.user.id, status)) {
+        if (!isSameCreateContext(replayedResponse, input, session.user.id)) {
           failResponseAction(
             "INVALID_STATE",
             "The evaluation identifier was already used in another context",
@@ -1450,20 +1384,12 @@ async function saveEvaluation(
   return normalizeResponseMutationResult(response, replayed);
 }
 
-export async function saveResponseDraft(data: unknown) {
-  return saveEvaluation(data, RESPONSE_STATUS.DRAFT);
-}
-
 export async function submitResponse(data: unknown) {
-  return saveEvaluation(data, RESPONSE_STATUS.SUBMITTED);
-}
-
-export async function saveResponseDraftAction(data: unknown) {
-  return toResponseActionResult(() => saveEvaluation(data, RESPONSE_STATUS.DRAFT));
+  return saveEvaluation(data);
 }
 
 export async function submitResponseAction(data: unknown) {
-  return toResponseActionResult(() => saveEvaluation(data, RESPONSE_STATUS.SUBMITTED));
+  return toResponseActionResult(() => saveEvaluation(data));
 }
 
 export async function cancelResponse(data: unknown) {

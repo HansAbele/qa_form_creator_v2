@@ -26,10 +26,8 @@ import {
   createParkerDavisScorecard,
   deleteForm,
   getFormById,
-  getFormForDraftCorrection,
   getFormForEvaluation,
   getFormForEvaluationCorrection,
-  getFormForEvaluationDraft,
   getForms,
   getFormsForExport,
   getFormsForReports,
@@ -371,7 +369,7 @@ describe("form lifecycle", () => {
     );
   });
 
-  it("loads an archived form for historical correction but blocks draft work in an inactive campaign", async () => {
+  it("loads an archived form for historical correction", async () => {
     prismaMock.userCampaign.findUnique.mockResolvedValue({
       campaignId: "campaign-1",
       canEditEvaluations: true,
@@ -387,24 +385,6 @@ describe("form lifecycle", () => {
     });
 
     await expect(getFormForEvaluationCorrection("form-archived")).resolves.toMatchObject({
-      id: "form-archived",
-      status: "ARCHIVED",
-    });
-    await expect(getFormForDraftCorrection("form-archived")).rejects.toThrow(
-      "The form campaign is inactive",
-    );
-  });
-
-  it("loads an archived form for an existing evaluation draft in an active campaign", async () => {
-    prismaMock.form.findUnique.mockResolvedValue({
-      id: "form-archived",
-      campaignId: "campaign-1",
-      status: "ARCHIVED",
-      campaign: { id: "campaign-1", name: "Campaign 1", active: true },
-      questions: [],
-    });
-
-    await expect(getFormForEvaluationDraft("form-archived")).resolves.toMatchObject({
       id: "form-archived",
       status: "ARCHIVED",
     });
@@ -942,8 +922,8 @@ describe("form lifecycle", () => {
         }),
       ]),
     );
-    expect(
-      questionCreate?.data.every((question: { weight: number }) => question.weight > 0),
-    ).toBe(true);
+    expect(questionCreate?.data.every((question: { weight: number }) => question.weight > 0)).toBe(
+      true,
+    );
   });
 });

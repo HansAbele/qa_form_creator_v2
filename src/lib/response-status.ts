@@ -1,5 +1,4 @@
 export const RESPONSE_STATUS = {
-  DRAFT: "DRAFT",
   SUBMITTED: "SUBMITTED",
   CANCELLED: "CANCELLED",
 } as const;

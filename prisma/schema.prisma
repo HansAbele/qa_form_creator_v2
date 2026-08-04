@@ -516,7 +516,7 @@ model Response {
   score              Decimal   @db.Decimal(5, 2)
   result             String?
   hasFatalFail       Boolean   @default(false)
-  status             String    @default("DRAFT")
+  status             String    @default("SUBMITTED")
   scoringSnapshot    Json?
   settingsSnapshot   Json?
   formSnapshot       Json?

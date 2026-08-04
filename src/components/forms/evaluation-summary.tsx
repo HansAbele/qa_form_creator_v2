@@ -20,7 +20,6 @@ interface EvaluationSummaryProps {
   totalQuestions: number;
   answeredQuestions: number;
   submitting: boolean;
-  savingDraft: boolean;
   isEditing: boolean;
   onSubmit: () => void;
   onCancel: () => void;
@@ -36,7 +35,6 @@ export function EvaluationSummary({
   totalQuestions,
   answeredQuestions,
   submitting,
-  savingDraft,
   isEditing,
   onSubmit,
   onCancel,
@@ -231,26 +229,19 @@ export function EvaluationSummary({
       <div className="space-y-2">
         <Button
           onClick={onSubmit}
-          disabled={submitting || savingDraft || blockers > 0}
+          disabled={submitting || blockers > 0}
           className={cn("w-full gap-2", !pass && "bg-destructive hover:bg-destructive/90")}
         >
           <Send className="h-4 w-4" />
-          {savingDraft
-            ? t("Saving draft...")
-            : submitting
-              ? t("Saving...")
-              : isEditing
-                ? t("Save changes")
-                : pass
-                  ? t("Submit evaluation")
-                  : t("Submit as FAIL")}
+          {submitting
+            ? t("Saving...")
+            : isEditing
+              ? t("Save changes")
+              : pass
+                ? t("Submit evaluation")
+                : t("Submit as FAIL")}
         </Button>
-        <Button
-          variant="outline"
-          onClick={onCancel}
-          className="w-full"
-          disabled={submitting || savingDraft}
-        >
+        <Button variant="outline" onClick={onCancel} className="w-full" disabled={submitting}>
           {t("Cancel")}
         </Button>
       </div>

@@ -4,12 +4,7 @@ import { auth } from "@/lib/auth";
 import { getServerI18n } from "@/lib/i18n-server";
 import { resolveResponseScoringPolicy } from "@/lib/response-scoring-policy";
 import { getCampaignScoringSettings } from "@/lib/settings";
-import {
-  getFormForDraftCorrection,
-  getFormForEvaluation,
-  getFormForEvaluationCorrection,
-  getFormForEvaluationDraft,
-} from "@/server/actions/forms";
+import { getFormForEvaluation, getFormForEvaluationCorrection } from "@/server/actions/forms";
 import { getResponseById } from "@/server/actions/responses";
 import {
   getInteractionForEvaluation,
@@ -40,18 +35,9 @@ export default async function FormEvaluatePage({
     redirect(`/evaluations/${initialResponse.id}`);
   }
 
-  const requiresCorrection = Boolean(
-    initialResponse &&
-      (initialResponse.status === "SUBMITTED" || initialResponse.evaluatorId !== session.user.id),
-  );
-  const form =
-    initialResponse?.status === "SUBMITTED"
-      ? await getFormForEvaluationCorrection(id)
-      : requiresCorrection
-        ? await getFormForDraftCorrection(id)
-        : initialResponse
-          ? await getFormForEvaluationDraft(id)
-          : await getFormForEvaluation(id);
+  const form = initialResponse
+    ? await getFormForEvaluationCorrection(id)
+    : await getFormForEvaluation(id);
   const linkedInteraction = initialResponse?.interactionId
     ? await getInteractionForResponse(initialResponse.interactionId, id, initialResponse.id)
     : sp.interactionId
@@ -62,11 +48,7 @@ export default async function FormEvaluatePage({
     redirect("/call-finder");
   }
   if (!initialResponse && linkedInteraction?.response) {
-    redirect(
-      linkedInteraction.response.status === "DRAFT"
-        ? `/forms/${linkedInteraction.response.formId}?responseId=${linkedInteraction.response.id}`
-        : `/evaluations/${linkedInteraction.response.id}`,
-    );
+    redirect(`/evaluations/${linkedInteraction.response.id}`);
   }
 
   const scoringSettings = await getCampaignScoringSettings(form.campaignId);
