@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { requestAppNavigation } from "@/lib/navigation-guard";
+import { createRuntimeUuid } from "@/lib/runtime-uuid";
 
 const HISTORY_INDEX_KEY = "__qoreHistoryIndex";
 
@@ -52,7 +53,7 @@ export function installNavigationGuardRuntime() {
   const originalPushState = window.history.pushState;
   const originalReplaceState = window.history.replaceState;
   const navigationApi = (window as Window & { navigation?: NavigationApi }).navigation;
-  const historyEpoch = crypto.randomUUID();
+  const historyEpoch = createRuntimeUuid();
   let currentMarker: HistoryMarker = { epoch: historyEpoch, index: 0 };
   let currentNativeIndex = navigationApi?.currentEntry?.index ?? null;
   let currentEntryState = window.history.state;

@@ -35,6 +35,7 @@ import {
   PARKER_DAVIS_SCORECARD_KEY,
   parseOfficialQuestionLabel,
 } from "@/lib/official-form-templates";
+import { createRuntimeUuid } from "@/lib/runtime-uuid";
 import {
   computeScore,
   type ScoringAnswer,
@@ -228,7 +229,7 @@ export function FormViewer({
   const activityStartRequestedRef = useRef(false);
   const draftIdRef = useRef(draftId);
   const responseVersionRef = useRef(initialResponse?.updatedAt ?? null);
-  const clientResponseIdRef = useRef(crypto.randomUUID());
+  const clientResponseIdRef = useRef(createRuntimeUuid());
   const draftSavePromiseRef = useRef<Promise<string | null> | null>(null);
   const autosaveQueuedRef = useRef(false);
   const mountedRef = useRef(true);
