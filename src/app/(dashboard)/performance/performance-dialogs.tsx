@@ -124,6 +124,8 @@ function CampaignSelector({
 
 export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSaved: () => void }) {
   const { t } = useI18n();
+  const timeZone = useOperationalTimeZone();
+  const today = formatOperationalDate(new Date(), timeZone);
   const campaigns = data.campaigns.filter((campaign) => campaign.canManageCoaching);
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -142,6 +144,7 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
   const responseId = selectedEvidence[0]?.id ?? "";
 
   function submit(formData: FormData) {
+    const startNow = formData.get("mode") === "now";
     startTransition(async () => {
       try {
         await createCoachingSession({
@@ -154,6 +157,7 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           scheduledAt: optionalIso(scheduledAt),
           acknowledgementDueAt: optionalIso(acknowledgementDueAt),
           followUpAt: optionalIso(followUpAt),
+          startNow,
         });
         toast.success(t("Coaching session created"));
         setOpen(false);
@@ -252,12 +256,13 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
-              <Label htmlFor="coaching-scheduled">{t("Schedule date")}</Label>
+              <Label htmlFor="coaching-scheduled">{t("Coaching time today")}</Label>
               <DateTimePicker
                 id="coaching-scheduled"
                 value={scheduledAt}
                 onChange={setScheduledAt}
-                placeholder={t("Select date and time")}
+                fixedDate={today}
+                placeholder={t("Select today's time")}
               />
             </div>
             <div className="space-y-1.5">
@@ -281,11 +286,26 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
           </div>
 
           <DialogFooter>
+            {selectedCampaign?.canTrackQaActivity ? (
+              <Button
+                type="submit"
+                name="mode"
+                value="now"
+                variant="outline"
+                disabled={pending || !campaignId || !agentId || !responseId || !focusArea}
+              >
+                {pending ? t("Saving…") : t("Coaching now")}
+              </Button>
+            ) : null}
             <Button
               type="submit"
-              disabled={pending || !campaignId || !agentId || !responseId || !focusArea}
+              name="mode"
+              value="today"
+              disabled={
+                pending || !campaignId || !agentId || !responseId || !focusArea || !scheduledAt
+              }
             >
-              {pending ? t("Saving…") : t("Create coaching session")}
+              {pending ? t("Saving…") : t("Create coaching for today")}
             </Button>
           </DialogFooter>
         </form>

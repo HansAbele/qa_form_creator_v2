@@ -31,7 +31,6 @@ export default async function EvaluationsPage({
     agentId?: string;
     evaluatorId?: string;
     formId?: string;
-    dispositionId?: string;
     fatalOnly?: string;
     page?: string;
   }>;
@@ -106,11 +105,6 @@ export default async function EvaluationsPage({
   )
     ? query.formId
     : undefined;
-  const initialDispositionId = initialFilterOptions.dispositions.some(
-    (option) => option.id === query.dispositionId && belongsToInitialCampaign(option.campaignId),
-  )
-    ? query.dispositionId
-    : undefined;
   const parsedPage = Number(query.page);
   const initialPage =
     Number.isInteger(parsedPage) && parsedPage > 0 && parsedPage <= 10_000 ? parsedPage : 1;
@@ -144,7 +138,6 @@ export default async function EvaluationsPage({
       agentId: initialAgentId,
       evaluatorId: initialEvaluatorId,
       formId: initialFormId,
-      dispositionId: initialDispositionId,
       fatalOnly: initialFatalOnly,
       pageSize: 25,
     } satisfies Omit<Parameters<typeof getEvaluationHistory>[0], "page">;
@@ -190,7 +183,6 @@ export default async function EvaluationsPage({
       initialAgentId={initialAgentId}
       initialEvaluatorId={initialEvaluatorId}
       initialFormId={initialFormId}
-      initialDispositionId={initialDispositionId}
       initialFatalOnly={initialFatalOnly}
       initialPage={resolvedInitialPage}
     />

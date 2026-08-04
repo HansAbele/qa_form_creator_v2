@@ -60,10 +60,13 @@ describe("campaign access presets", () => {
     expect(getDefaultCampaignAccessForUserRole(undefined).roleInCampaign).toBe("EVALUATOR");
   });
 
-  it("shows every campaign permission exactly once in the manager editor", () => {
+  it("shows every current campaign permission exactly once in the manager editor", () => {
     const editableKeys = CAMPAIGN_PERMISSION_GROUPS.flatMap((group) => [...group.keys]);
+    const visibleKeys = CAMPAIGN_PERMISSION_KEYS.filter(
+      (permission) => permission !== "canManageDispositions",
+    );
 
-    expect(editableKeys).toHaveLength(CAMPAIGN_PERMISSION_KEYS.length);
-    expect(new Set(editableKeys)).toEqual(new Set(CAMPAIGN_PERMISSION_KEYS));
+    expect(editableKeys).toHaveLength(visibleKeys.length);
+    expect(new Set(editableKeys)).toEqual(new Set(visibleKeys));
   });
 });

@@ -49,7 +49,7 @@ export const CAMPAIGN_PERMISSION_LABELS: Record<CampaignPermissionKey, string> =
   canViewReports: "View reports",
   canExport: "Export reports",
   canManageAgents: "Manage agents and teams",
-  canManageDispositions: "Manage dispositions",
+  canManageDispositions: "Legacy provider disposition metadata",
   canManageCampaignScoring: "Manage campaign scoring",
   canViewAudit: "View operational audit",
   canViewCoaching: "View coaching",
@@ -83,7 +83,6 @@ export const CAMPAIGN_PERMISSION_GROUPS = [
     keys: [
       "canExport",
       "canManageAgents",
-      "canManageDispositions",
       "canManageCampaignScoring",
       "canTrackQaActivity",
       "canViewQaActivity",

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, BarChart3, ClipboardCheck, Hash, TrendingUp, User, Users } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Hash, TrendingUp, User, Users } from "lucide-react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,12 +52,6 @@ interface QuestionScore {
   avgScore: number;
 }
 
-interface DispositionBreakdown {
-  name: string;
-  count: number;
-  avgScore: number;
-}
-
 interface EvaluatorEntry {
   id: string;
   name: string;
@@ -69,7 +63,6 @@ interface RecentResponse {
   id: string;
   formTitle: string;
   evaluatorName: string;
-  dispositionName: string | null;
   score: number;
   result: "PASS" | "FAIL";
   submittedAt: string;
@@ -85,7 +78,6 @@ interface AgentDetailData {
   passThreshold: number;
   scoreTrend: ScoreTrendPoint[];
   scoreByQuestion: QuestionScore[];
-  dispositionBreakdown: DispositionBreakdown[];
   evaluators: EvaluatorEntry[];
   recentResponses: RecentResponse[];
 }
@@ -98,10 +90,6 @@ const trendConfig = {
 
 const questionConfig = {
   avgScore: { label: "Average Score", color: "#ff6600" },
-} satisfies ChartConfig;
-
-const dispositionConfig = {
-  count: { label: "Evaluations", color: "#06b6d4" },
 } satisfies ChartConfig;
 
 const evaluatorConfig = {
@@ -167,10 +155,6 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
   const localizedQuestionConfig = {
     ...questionConfig,
     avgScore: { ...questionConfig.avgScore, label: t("Average Score") },
-  } satisfies ChartConfig;
-  const localizedDispositionConfig = {
-    ...dispositionConfig,
-    count: { ...dispositionConfig.count, label: t("Evaluations") },
   } satisfies ChartConfig;
   const localizedEvaluatorConfig = {
     ...evaluatorConfig,
@@ -504,97 +488,13 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
         </div>
       </motion.div>
 
-      {/* ─── Dispositions + Evaluators ────────────────────────────────── */}
+      {/* ─── Evaluators ───────────────────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 2 * 0.08 }}
       >
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Dispositions (horizontal bar) */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <BarChart3 className="h-4 w-4 text-cyan-500" />
-                {t("Dispositions")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.dispositionBreakdown.length > 0 ? (
-                <ChartContainer
-                  config={localizedDispositionConfig}
-                  accessibilityLabel={t("Agent evaluations by Disposition")}
-                  accessibilityDescription={summarizeChartData(
-                    data.dispositionBreakdown.map((disposition) =>
-                      t("{name}: {count} evaluations, Average Score {score}%", {
-                        name: disposition.name,
-                        count: disposition.count,
-                        score: disposition.avgScore.toFixed(1),
-                      }),
-                    ),
-                    10,
-                    locale,
-                  )}
-                  className="h-[280px] w-full"
-                >
-                  <BarChart
-                    data={data.dispositionBreakdown}
-                    layout="vertical"
-                    margin={{ left: 20, right: 12 }}
-                  >
-                    <CartesianGrid
-                      horizontal={false}
-                      strokeDasharray="3 3"
-                      className="stroke-border"
-                    />
-                    <XAxis
-                      type="number"
-                      allowDecimals={false}
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      tickLine={false}
-                      axisLine={false}
-                      width={100}
-                      className="text-xs"
-                      tickFormatter={(v) =>
-                        String(v).length > 15 ? `${String(v).slice(0, 15)}...` : String(v)
-                      }
-                    />
-                    <ChartTooltip
-                      cursor={{ fill: "rgba(6,182,212,0.08)" }}
-                      content={
-                        <ChartTooltipContent
-                          formatter={(value, _name, item) => {
-                            const payload = item?.payload as { avgScore?: number } | undefined;
-                            const avg = payload?.avgScore;
-                            return [
-                              `${value} evals${avg !== undefined ? ` | Avg: ${avg.toFixed(1)}%` : ""}`,
-                              t("Disposition"),
-                            ];
-                          }}
-                        />
-                      }
-                    />
-                    <Bar
-                      dataKey="count"
-                      fill="#06b6d4"
-                      radius={[0, 6, 6, 0]}
-                      animationDuration={900}
-                      isAnimationActive={chartAnimation}
-                    />
-                  </BarChart>
-                </ChartContainer>
-              ) : (
-                <EmptyState label={t("No Dispositions recorded")} />
-              )}
-            </CardContent>
-          </Card>
-
+        <div>
           {/* Evaluators (horizontal bar) */}
           <Card>
             <CardHeader>
@@ -697,7 +597,6 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                       <TableHead className="text-center">{t("Score")}</TableHead>
                       <TableHead>{t("Form")}</TableHead>
                       <TableHead>{t("Evaluator")}</TableHead>
-                      <TableHead>{t("Disposition")}</TableHead>
                       <TableHead className="text-right">{t("Date")}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -713,13 +612,6 @@ export function AgentDetailClient({ agentId }: { agentId: string }) {
                           {formDisplayName(r.formTitle)}
                         </TableCell>
                         <TableCell>{r.evaluatorName}</TableCell>
-                        <TableCell>
-                          {r.dispositionName ? (
-                            <Badge variant="outline">{r.dispositionName}</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">--</span>
-                          )}
-                        </TableCell>
                         <TableCell className="text-right text-sm text-muted-foreground">
                           {formatOperationalTimestamp(
                             r.submittedAt,

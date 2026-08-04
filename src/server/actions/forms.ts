@@ -253,9 +253,6 @@ async function getFormByIdWithPermission(
   if (!form) throw new Error("Form not found");
 
   await assertCampaignPermissionForUser(session.user, form.campaignId, permission);
-  if (permission === "canEditForms") {
-    assertQaOwnsForm(session.user, form);
-  }
   if (options.requirePublished && form.status !== FORM_STATUS.PUBLISHED) {
     throw new Error("Form is not published");
   }
@@ -441,7 +438,6 @@ export async function updateForm(id: string, data: FormMutationInput) {
   if (!existing) throw new Error("Form not found");
   await assertCampaignPermissionForUser(session.user, existing.campaignId, "canEditForms");
   await assertCampaignPermissionForUser(session.user, input.campaignId, "canEditForms");
-  assertQaOwnsForm(session.user, existing);
 
   if (existing.status === FORM_STATUS.ARCHIVED) {
     throw new Error("An archived form cannot be edited");
@@ -467,7 +463,6 @@ export async function updateForm(id: string, data: FormMutationInput) {
     });
     if (!current) throw new Error("Form not found");
     assertUnchangedFormSnapshot(existing, current);
-    assertQaOwnsForm(session.user, current);
 
     if (current.status === FORM_STATUS.ARCHIVED) {
       throw new Error("An archived form cannot be edited");

@@ -513,7 +513,7 @@ describe("form lifecycle", () => {
     );
   });
 
-  it("rejects editing another QA's form in the same campaign", async () => {
+  it("allows a QA to edit a scorecard assigned through the campaign", async () => {
     prismaMock.form.findUnique.mockResolvedValue({
       id: "foreign-draft",
       title: "Other QA Form",
@@ -526,13 +526,27 @@ describe("form lifecycle", () => {
       version: "1.0.0",
       questions: [],
     });
+    prismaMock.form.findUniqueOrThrow.mockResolvedValue({
+      id: "foreign-draft",
+      title: "QA Form",
+      description: "Updated",
+      campaignId: "campaign-1",
+      createdById: "qa-2",
+      parentFormId: null,
+      status: "DRAFT",
+      version: "1.0.0",
+      questions: [{ id: "q-1" }],
+      categories: [{ id: "form-category-1" }],
+    });
 
-    await expect(updateForm("foreign-draft", formInput)).rejects.toThrow(
-      "You can only modify forms you created",
+    await expect(updateForm("foreign-draft", formInput)).resolves.toMatchObject({
+      id: "foreign-draft",
+      status: "DRAFT",
+    });
+
+    expect(prismaMock.form.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "foreign-draft" } }),
     );
-
-    expect(prismaMock.form.update).not.toHaveBeenCalled();
-    expect(prismaMock.question.deleteMany).not.toHaveBeenCalled();
   });
 
   it("rejects deleting another QA's draft in the same campaign", async () => {
@@ -907,14 +921,16 @@ describe("form lifecycle", () => {
       data: expect.objectContaining({
         campaignId: "campaign-1",
         templateKey: "PARKER_DAVIS_QA_SCORECARD",
-        templateVersion: "PD-QA-SCORECARD-2026-07-R2",
+        templateVersion: "PD-QA-SCORECARD-2026-08-R3",
         passThresholdOverride: 95,
         status: "DRAFT",
       }),
       select: { id: true, status: true },
     });
-    expect(prismaMock.question.createMany).toHaveBeenCalledWith({
-      data: expect.arrayContaining([
+    const questionCreate = prismaMock.question.createMany.mock.calls[0]?.[0];
+    expect(questionCreate?.data).toHaveLength(13);
+    expect(questionCreate?.data).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           label: expect.stringContaining("1. Properly opened the call"),
           weight: 5,
@@ -924,12 +940,10 @@ describe("form lifecycle", () => {
             { value: "5 / 5 points", points: 5 },
           ],
         }),
-        expect.objectContaining({
-          fatal: true,
-          fatalOptions: ["No"],
-          weight: 0,
-        }),
       ]),
-    });
+    );
+    expect(
+      questionCreate?.data.every((question: { weight: number }) => question.weight > 0),
+    ).toBe(true);
   });
 });

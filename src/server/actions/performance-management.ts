@@ -17,6 +17,7 @@ import {
   QA_ACTIVITY_TYPES,
 } from "@/lib/performance-management";
 import { prisma } from "@/lib/prisma";
+import { toOperationalDateKey } from "@/lib/operational-time";
 import { writeAuditLog } from "@/server/audit-log";
 import { assertCampaignPermissionForUser } from "@/server/queries/campaign-filter";
 
@@ -33,6 +34,7 @@ const createCoachingSchema = z.object({
   scheduledAt: optionalIsoDate,
   acknowledgementDueAt: optionalIsoDate,
   followUpAt: optionalIsoDate,
+  startNow: z.boolean().default(false),
 });
 
 const startActivitySchema = z.object({
@@ -310,6 +312,18 @@ export async function createCoachingSession(data: unknown) {
 
   const input = parseInput(createCoachingSchema, data);
   await assertCampaignPermissionForUser(session.user, input.campaignId, "canManageCoaching");
+  if (input.startNow) {
+    await assertCampaignPermissionForUser(session.user, input.campaignId, "canTrackQaActivity");
+  }
+
+  const now = new Date();
+  const selectedSchedule = input.startNow ? now : toDate(input.scheduledAt);
+  if (!selectedSchedule) {
+    throw new Error("Choose a time for today's coaching");
+  }
+  if (toOperationalDateKey(selectedSchedule) !== toOperationalDateKey(now)) {
+    throw new Error("Coaching can only be created for today");
+  }
 
   const [agent, response, pipPlan] = await Promise.all([
     prisma.agent.findFirst({
@@ -344,6 +358,16 @@ export async function createCoachingSession(data: unknown) {
   if (input.pipPlanId && !pipPlan) throw new Error("PIP unavailable for this agent");
 
   const coaching = await prisma.$transaction(async (tx) => {
+    if (input.startNow) {
+      const currentActivity = await tx.qaActivitySession.findFirst({
+        where: { userId: session.user.id, status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (currentActivity) {
+        throw new Error("Finish or pause the current timer before starting coaching now");
+      }
+    }
+
     const created = await tx.coachingSession.create({
       data: {
         campaignId: input.campaignId,
@@ -358,8 +382,9 @@ export async function createCoachingSession(data: unknown) {
         behavior: null,
         objective: input.objective,
         source: response.hasFatalFail ? "CRITICAL_FAILURE" : "EVALUATION",
-        status: input.scheduledAt ? "SCHEDULED" : "DRAFT",
-        scheduledAt: toDate(input.scheduledAt),
+        status: input.startNow ? "IN_PROGRESS" : "SCHEDULED",
+        scheduledAt: selectedSchedule,
+        startedAt: input.startNow ? now : null,
         acknowledgementDueAt: toDate(input.acknowledgementDueAt),
         followUpAt: toDate(input.followUpAt),
         acknowledgement: {
@@ -383,6 +408,22 @@ export async function createCoachingSession(data: unknown) {
       select: { id: true, status: true, campaignId: true },
     });
 
+    if (input.startNow) {
+      await tx.qaActivitySession.create({
+        data: {
+          userId: session.user.id,
+          campaignId: input.campaignId,
+          activityType: "COACHING_LIVE",
+          label: `Coaching — ${input.focusArea}`,
+          responseId: response.id,
+          coachingSessionId: created.id,
+          pipPlanId: pipPlan?.id ?? null,
+          startedAt: now,
+          intervals: { create: { startedAt: now } },
+        },
+      });
+    }
+
     await writeAuditLog(
       {
         userId: session.user.id,
@@ -397,6 +438,7 @@ export async function createCoachingSession(data: unknown) {
           pipPlanId: pipPlan?.id ?? null,
           source: response.hasFatalFail ? "CRITICAL_FAILURE" : "EVALUATION",
           status: created.status,
+          startNow: input.startNow,
           evidenceType: "EVALUATION",
           actionItemCount: 0,
         },

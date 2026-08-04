@@ -53,11 +53,6 @@ interface AgentEvaluated {
   avgScore: number;
 }
 
-interface DispositionFreq {
-  name: string;
-  count: number;
-}
-
 interface EvaluatorDetailData {
   name: string;
   email: string | null;
@@ -68,7 +63,6 @@ interface EvaluatorDetailData {
   calibrationDelta: number;
   activityByDay: ActivityDay[];
   agentsEvaluated: AgentEvaluated[];
-  dispositionFrequency: DispositionFreq[];
 }
 
 // ─── Chart configs ───────────────────────────────────────────────────────────
@@ -79,10 +73,6 @@ const activityConfig = {
 
 const agentConfig = {
   count: { label: "Evaluations", color: "#8b5cf6" },
-} satisfies ChartConfig;
-
-const dispositionConfig = {
-  count: { label: "Evaluations", color: "#06b6d4" },
 } satisfies ChartConfig;
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -128,10 +118,6 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
   const localizedAgentConfig = {
     ...agentConfig,
     count: { ...agentConfig.count, label: t("Evaluations") },
-  } satisfies ChartConfig;
-  const localizedDispositionConfig = {
-    ...dispositionConfig,
-    count: { ...dispositionConfig.count, label: t("Evaluations") },
   } satisfies ChartConfig;
   const displayLocale = locale === "es" ? "es" : "en";
   const chartAnimation = useChartAnimation();
@@ -390,13 +376,13 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
         </Card>
       </motion.div>
 
-      {/* ─── Agents Evaluated + Disposition Frequency ──────────────────── */}
+      {/* ─── Agents Evaluated ──────────────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 2 * 0.08 }}
       >
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div>
           {/* Agents Evaluated (horizontal bar, clickable, top 10) */}
           <Card>
             <CardHeader>
@@ -482,85 +468,6 @@ export function EvaluatorDetailClient({ userId }: { userId: string }) {
                 </ChartContainer>
               ) : (
                 <EmptyState label={t("No evaluated agents")} />
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Disposition Frequency (horizontal bar) */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <BarChart3 className="h-4 w-4 text-cyan-500" />
-                {t("Frequent Dispositions")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.dispositionFrequency.length > 0 ? (
-                <ChartContainer
-                  config={localizedDispositionConfig}
-                  accessibilityLabel={t("Evaluations by Disposition")}
-                  accessibilityDescription={summarizeChartData(
-                    data.dispositionFrequency.map((disposition) =>
-                      t("{name}: {count} evaluations", {
-                        name: disposition.name,
-                        count: disposition.count,
-                      }),
-                    ),
-                    10,
-                    locale,
-                  )}
-                  className="h-[280px] w-full"
-                >
-                  <BarChart
-                    data={data.dispositionFrequency}
-                    layout="vertical"
-                    margin={{ left: 20, right: 12 }}
-                  >
-                    <CartesianGrid
-                      horizontal={false}
-                      strokeDasharray="3 3"
-                      className="stroke-border"
-                    />
-                    <XAxis
-                      type="number"
-                      allowDecimals={false}
-                      tickLine={false}
-                      axisLine={false}
-                      className="text-xs"
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      tickLine={false}
-                      axisLine={false}
-                      width={100}
-                      className="text-xs"
-                      tickFormatter={(v) =>
-                        String(v).length > 15 ? `${String(v).slice(0, 15)}...` : String(v)
-                      }
-                    />
-                    <ChartTooltip
-                      cursor={{ fill: "rgba(6,182,212,0.08)" }}
-                      content={
-                        <ChartTooltipContent
-                          formatter={(value) => [
-                            t("{count} evaluations", { count: Number(value) }),
-                            t("Count"),
-                          ]}
-                        />
-                      }
-                    />
-                    <Bar
-                      dataKey="count"
-                      fill="#06b6d4"
-                      radius={[0, 6, 6, 0]}
-                      animationDuration={900}
-                      isAnimationActive={chartAnimation}
-                    />
-                  </BarChart>
-                </ChartContainer>
-              ) : (
-                <EmptyState label={t("No Dispositions recorded")} />
               )}
             </CardContent>
           </Card>

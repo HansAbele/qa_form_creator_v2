@@ -9,20 +9,16 @@ import {
   parseOfficialQuestionLabel,
   resolveScorecardBand,
 } from "./official-form-templates";
-import { computeScore, type ScoringQuestion } from "./scoring";
 
 describe("Parker Davis official QA scorecard", () => {
-  it("matches the official 100-point structure and critical rules", () => {
+  it("contains only the 13 scored questions in the official 100-point structure", () => {
     const scoredQuestions = PARKER_DAVIS_SCORECARD.questions.filter(
       (question) => question.weight > 0,
     );
-    const fatalQuestions = PARKER_DAVIS_SCORECARD.questions.filter((question) => question.fatal);
-
     expect(scoredQuestions).toHaveLength(13);
     expect(scoredQuestions.reduce((total, question) => total + question.weight, 0)).toBe(100);
-    expect(PARKER_DAVIS_SCORECARD.questions).toHaveLength(37);
-    expect(fatalQuestions).toHaveLength(9);
-    expect(fatalQuestions.every((question) => question.fatalOptions?.includes("No"))).toBe(true);
+    expect(PARKER_DAVIS_SCORECARD.questions).toHaveLength(13);
+    expect(PARKER_DAVIS_SCORECARD.questions.every((question) => question.weight > 0)).toBe(true);
   });
 
   it("preserves half-point choices, including decimal values", () => {
@@ -71,45 +67,6 @@ describe("Parker Davis official QA scorecard", () => {
       checkpoint: true,
       partsWarranty: true,
     });
-  });
-
-  it("keeps a perfect numeric score but forces FAIL when one CF check is No", () => {
-    const questions: ScoringQuestion[] = PARKER_DAVIS_SCORECARD.questions.map(
-      (question, index) => ({
-        id: `question-${index}`,
-        type: question.type,
-        weight: question.weight,
-        fatal: question.fatal,
-        fatalOptions: question.fatalOptions ? [...question.fatalOptions] : [],
-        requiresCommentOnFail: question.requiresCommentOnFail,
-        categoryId: question.qaCategoryId,
-        ratingFailThreshold: null,
-        ratingMax: null,
-        weightedOptions: question.options.map((value, optionIndex) => ({
-          value,
-          points: question.optionPoints[optionIndex] ?? 0,
-        })),
-      }),
-    );
-    const firstFatalIndex = PARKER_DAVIS_SCORECARD.questions.findIndex(
-      (question) => question.fatal,
-    );
-    const answers = new Map(
-      PARKER_DAVIS_SCORECARD.questions.map((question, index) => [
-        `question-${index}`,
-        {
-          value: index === firstFatalIndex ? "No" : question.options[question.options.length - 1],
-          notApplicable: false,
-          comment: index === firstFatalIndex ? "Critical procedure was missed." : "",
-        },
-      ]),
-    );
-
-    const result = computeScore(questions, answers, { passThreshold: 95 });
-
-    expect(result.score).toBe(100);
-    expect(result.hasFatalFail).toBe(true);
-    expect(result.result).toBe("FAIL");
   });
 });
 

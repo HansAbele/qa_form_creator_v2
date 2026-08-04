@@ -3239,8 +3239,6 @@ export async function getDashboardManagerBundle(
     coachingInsights,
     evaluatorActivity,
     campaignKpis,
-    dispositionAnalytics,
-    outcomeKpis,
   ] = await Promise.all([
     getDashboardStats(campaignId, dateFrom, dateTo),
     getResponseTrends(campaignId, dateFrom, dateTo),
@@ -3249,8 +3247,6 @@ export async function getDashboardManagerBundle(
     getDashboardCoachingInsightsInternal(campaignId, dateFrom, dateTo, campaignKpisPromise),
     getDashboardEvaluatorActivity(campaignId, dateFrom, dateTo),
     campaignKpisPromise,
-    getDashboardDispositionAnalytics(campaignId, dateFrom, dateTo),
-    getDashboardOutcomeKpis(campaignId, dateFrom, dateTo),
   ]);
 
   return {
@@ -3261,8 +3257,6 @@ export async function getDashboardManagerBundle(
     coachingInsights,
     evaluatorActivity,
     campaignKpis,
-    dispositionAnalytics,
-    outcomeKpis,
   };
 }
 

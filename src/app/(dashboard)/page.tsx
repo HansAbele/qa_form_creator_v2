@@ -24,10 +24,11 @@ export default async function DashboardPage() {
   ]);
   const initialCampaignId = resolvePreferredCampaignId(workspace.preferences, campaigns);
   const initialDates = resolveWorkspaceDateRange(workspace.preferences.defaultDateRange);
+  const firstName = session.user.name?.trim().split(/\s+/)[0] || t("User");
 
   return (
     <DashboardClient
-      userName={session.user.name ?? t("User")}
+      userName={firstName}
       access={access}
       campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
       viewMode={isManager ? "manager" : "evaluator"}

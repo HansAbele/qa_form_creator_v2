@@ -28,6 +28,7 @@ interface DateTimePickerProps {
   disabled?: boolean;
   required?: boolean;
   className?: string;
+  fixedDate?: string;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, "0"));
@@ -60,6 +61,7 @@ export function DateTimePicker({
   disabled = false,
   required = false,
   className,
+  fixedDate,
 }: DateTimePickerProps) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -74,8 +76,9 @@ export function DateTimePicker({
     if (nextOpen) {
       const committedDate = parsePickerDate(value);
       const committedTime = timeParts(value);
-      setDraftDate(committedDate);
-      setMonth(committedDate ?? new Date());
+      const fixed = fixedDate ? parseISO(fixedDate) : null;
+      setDraftDate(committedDate ?? fixed);
+      setMonth(committedDate ?? fixed ?? new Date());
       setHour(committedTime.hour);
       setMinute(committedTime.minute);
     }
@@ -84,7 +87,7 @@ export function DateTimePicker({
 
   const apply = () => {
     if (!draftDate) return;
-    const day = datePart(draftDate);
+    const day = fixedDate ?? datePart(draftDate);
     onChange(mode === "datetime" ? `${day}T${hour}:${minute}` : day);
     setOpen(false);
   };
@@ -128,16 +131,25 @@ export function DateTimePicker({
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[calc(100vw-2rem)] max-w-[320px] p-3">
-          <Calendar
-            month={month}
-            from={draftDate}
-            to={draftDate}
-            onMonthChange={setMonth}
-            onSelectDay={(day) => {
-              setDraftDate(day);
-              setMonth(day);
-            }}
-          />
+          {fixedDate ? (
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm font-medium">
+              <CalendarDays className="size-4 text-primary" />
+              {format(parseISO(fixedDate), locale === "es" ? "d MMM yyyy" : "MMM d, yyyy", {
+                locale: locale === "es" ? es : enUS,
+              })}
+            </div>
+          ) : (
+            <Calendar
+              month={month}
+              from={draftDate}
+              to={draftDate}
+              onMonthChange={setMonth}
+              onSelectDay={(day) => {
+                setDraftDate(day);
+                setMonth(day);
+              }}
+            />
+          )}
           {mode === "datetime" ? (
             <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3">
               <Select value={hour} onValueChange={(next) => next && setHour(next)}>

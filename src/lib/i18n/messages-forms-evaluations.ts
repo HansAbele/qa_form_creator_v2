@@ -379,4 +379,6 @@ export const FORMS_EVALUATIONS_ES_MESSAGES = {
     "clientResponseId es obligatorio al crear una evaluación",
   "expectedUpdatedAt is required when updating an evaluation":
     "expectedUpdatedAt es obligatorio al actualizar una evaluación",
+  "Select an agent before saving a draft": "Selecciona un agente antes de guardar el borrador",
+  "Select an agent to save changes": "Selecciona un agente para guardar los cambios",
 } as const;

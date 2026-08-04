@@ -11,7 +11,7 @@ const CORPORATE_EMAIL_DOMAIN = "@tnoutsourcing.com";
 const KEEP_FORM_IDS = [
   "cmqzop4gy001wvsc0x75z88jz", // Customer Service QA Form (published test form)
   "cmruzfd9i000gvs9kfk0xmpnc", // HAPUSA official scorecard
-  "official_pd_r2_65f98eebf7e485304cdb1419", // Parker Davis official scorecard
+  "official_pd_r3_a36f6d8ce48403bca1c9c351", // Parker Davis scored-only official scorecard
 ] as const;
 
 type Credential = {

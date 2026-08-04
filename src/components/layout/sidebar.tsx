@@ -12,7 +12,6 @@ import {
   Menu,
   PhoneCall,
   Settings,
-  Tags,
   Target,
   UserCog,
   Users,
@@ -105,12 +104,6 @@ const analyticsItems: NavigationItem[] = [
     icon: Building2,
     isVisible: (access: UiAccess) => access.canViewKPIs,
   },
-  {
-    href: "/analytics/dispositions",
-    label: "Dispositions",
-    icon: Tags,
-    isVisible: (access: UiAccess) => access.canViewKPIs,
-  },
 ];
 
 const configurationItems: NavigationItem[] = [
@@ -149,12 +142,6 @@ const operationsItems: NavigationItem[] = [
     label: "Manage teams",
     icon: Building2,
     isVisible: (access: UiAccess) => access.canManageAgents,
-  },
-  {
-    href: "/operations/dispositions",
-    label: "Manage dispositions",
-    icon: Tags,
-    isVisible: (access: UiAccess) => access.canManageDispositions,
   },
 ];
 

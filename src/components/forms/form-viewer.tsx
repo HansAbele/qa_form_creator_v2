@@ -50,7 +50,6 @@ import {
   submitResponseAction,
 } from "@/server/actions/responses";
 import type { RatingStyleValue } from "@/types/form-builder";
-import { DispositionCombobox } from "./disposition-combobox";
 import { EvaluationSummary } from "./evaluation-summary";
 import { QuestionRenderer } from "./question-renderer";
 
@@ -94,20 +93,12 @@ interface FormViewerProps {
   };
   passThreshold: number;
   fatalZeroesScore: boolean;
-  canManageDispositions: boolean;
   initialResponse?: {
     id: string;
     updatedAt: string;
     status: string;
     agentId: string;
-    dispositionId: string | null;
     agent: AgentOption;
-    disposition: {
-      id: string;
-      name: string;
-      code: string | null;
-      category: null;
-    } | null;
     answers: {
       questionId: string;
       value: string;
@@ -187,7 +178,6 @@ export function FormViewer({
   form,
   passThreshold,
   fatalZeroesScore,
-  canManageDispositions,
   initialResponse = null,
   linkedInteraction = null,
 }: FormViewerProps) {
@@ -204,13 +194,9 @@ export function FormViewer({
     (initialResponse?.answers ?? []).map((answer) => [answer.questionId, answer.notApplicable]),
   );
   const initialAgent = initialResponse?.agent ?? linkedInteraction?.agent ?? null;
-  const initialDisposition = initialResponse?.disposition ?? linkedInteraction?.disposition ?? null;
   const [agents, setAgents] = useState<AgentOption[]>(initialAgent ? [initialAgent] : []);
   const [agentId, setAgentId] = useState(
     initialResponse?.agentId ?? linkedInteraction?.agent?.id ?? "",
-  );
-  const [dispositionId, setDispositionId] = useState(
-    initialResponse?.dispositionId ?? linkedInteraction?.disposition?.id ?? "",
   );
   const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [comments, setComments] = useState<Record<string, string>>(initialComments);
@@ -228,7 +214,6 @@ export function FormViewer({
   const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
   const [contextErrors, setContextErrors] = useState<{
     agent?: string;
-    disposition?: string;
   }>({});
   const [submitting, setSubmitting] = useState(false);
   const [evaluationActivity, setEvaluationActivity] = useState<{
@@ -249,9 +234,6 @@ export function FormViewer({
   const mountedRef = useRef(true);
 
   const isEditingSubmitted = initialResponse?.status === "SUBMITTED";
-  const preservesMissingHistoricalDisposition =
-    isEditingSubmitted && initialResponse?.dispositionId === null && !dispositionId;
-
   const scoringQuestions = useMemo(() => form.questions.map(toScoringQuestion), [form.questions]);
   const isParkerDavisScorecard = form.templateKey === PARKER_DAVIS_SCORECARD_KEY;
   const isHapusaScorecard = form.templateKey === HAPUSA_SCORECARD_KEY;
@@ -435,7 +417,6 @@ export function FormViewer({
       ...(!responseId ? { clientResponseId: clientResponseIdRef.current } : {}),
       formId: form.id,
       agentId,
-      dispositionId: dispositionId || null,
       interactionId: linkedInteraction?.id ?? null,
       ...(evaluationActivity ? { evaluationActivityId: evaluationActivity.id } : {}),
       answers: form.questions.map((question) => ({
@@ -449,7 +430,6 @@ export function FormViewer({
       agentId,
       answers,
       comments,
-      dispositionId,
       form.id,
       form.questions,
       evaluationActivity,
@@ -464,10 +444,8 @@ export function FormViewer({
       Boolean(comments[question.id]?.trim()) ||
       Boolean(notApplicable[question.id]),
   );
-  const hasLocalDraftContent = Boolean(
-    draftId || agentId || dispositionId || hasLocalAnswerContent,
-  );
-  const canPersistDraft = Boolean(agentId && dispositionId);
+  const hasLocalDraftContent = Boolean(draftId || agentId || hasLocalAnswerContent);
+  const canPersistDraft = Boolean(agentId);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -487,8 +465,8 @@ export function FormViewer({
   const handleSaveDraft = useCallback(
     ({ silent = false }: { silent?: boolean } = {}): Promise<string | null> => {
       if (isEditingSubmitted) return Promise.resolve(null);
-      if (!agentId || !dispositionId) {
-        if (!silent) toast.error(t("Select an agent and disposition before saving a draft"));
+      if (!agentId) {
+        if (!silent) toast.error(t("Select an agent before saving a draft"));
         return Promise.resolve(null);
       }
       if (draftSavePromiseRef.current) return draftSavePromiseRef.current;
@@ -561,16 +539,7 @@ export function FormViewer({
 
       return operation;
     },
-    [
-      agentId,
-      buildPayload,
-      dispositionId,
-      form.id,
-      isEditingSubmitted,
-      locale,
-      operationalTimeZone,
-      t,
-    ],
+    [agentId, buildPayload, form.id, isEditingSubmitted, locale, operationalTimeZone, t],
   );
 
   useEffect(() => {
@@ -672,14 +641,10 @@ export function FormViewer({
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
     const newCommentErrors: Record<string, string> = {};
-    const newContextErrors: { agent?: string; disposition?: string } = {};
+    const newContextErrors: { agent?: string } = {};
 
     if (!agentId) {
       newContextErrors.agent = t("Select an agent.");
-    }
-
-    if (!dispositionId && !preservesMissingHistoricalDisposition) {
-      newContextErrors.disposition = t("Select a disposition.");
     }
 
     for (const question of form.questions) {
@@ -708,13 +673,11 @@ export function FormViewer({
       toast.error(t("Review the highlighted fields before submitting."));
       const firstInvalidId = newContextErrors.agent
         ? "evaluation-agent"
-        : newContextErrors.disposition
-          ? "evaluation-disposition"
-          : Object.keys(newErrors)[0]
-            ? `${Object.keys(newErrors)[0]}-answer`
-            : Object.keys(newCommentErrors)[0]
-              ? `${Object.keys(newCommentErrors)[0]}-comment`
-              : null;
+        : Object.keys(newErrors)[0]
+          ? `${Object.keys(newErrors)[0]}-answer`
+          : Object.keys(newCommentErrors)[0]
+            ? `${Object.keys(newCommentErrors)[0]}-comment`
+            : null;
       requestAnimationFrame(() => {
         if (!firstInvalidId) return;
         const control = document.getElementById(firstInvalidId);
@@ -925,7 +888,7 @@ export function FormViewer({
           </Badge>
         </div>
         {/* Context bar */}
-        <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2">
+        <div className="grid gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-3">
           <div className="space-y-1">
             <Label htmlFor="evaluation-agent" className="text-xs text-muted-foreground">
               {t("Evaluated Agent")}
@@ -969,22 +932,6 @@ export function FormViewer({
                 {contextErrors.agent}
               </p>
             ) : null}
-          </div>
-          <div className="space-y-1">
-            <DispositionCombobox
-              id="evaluation-disposition"
-              key={form.campaignId}
-              campaignId={form.campaignId}
-              value={dispositionId}
-              onChange={(value) => {
-                setDispositionId(value);
-                setContextErrors((current) => ({ ...current, disposition: undefined }));
-              }}
-              canManageDispositions={canManageDispositions}
-              initialDisposition={initialDisposition}
-              error={contextErrors.disposition}
-              disabled={Boolean(linkedInteraction?.disposition)}
-            />
           </div>
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">{t("Campaign")}</p>
@@ -1090,7 +1037,7 @@ export function FormViewer({
                 : hasUnsavedChanges
                   ? canPersistDraft
                     ? t("Changes waiting to be saved")
-                    : t("Select an agent and disposition to save changes")
+                    : t("Select an agent to save changes")
                   : lastSavedAt
                     ? t("Draft saved at {time}", { time: lastSavedAt })
                     : null}

@@ -1,6 +1,5 @@
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { OUTCOME_LABELS_EN } from "@/lib/disposition-outcome";
 import {
   EXPORT_FIELD_LABELS,
   type ExportFieldKey,
@@ -413,14 +412,6 @@ function getFieldValue(
       return response.agent.team?.name ?? "";
     case "evaluator":
       return response.evaluator.name;
-    case "disposition":
-      return response.disposition?.name ?? "";
-    case "dispositionCategory":
-      return response.disposition?.category?.name ?? "";
-    case "outcome":
-      return response.disposition?.outcomeType
-        ? (OUTCOME_LABELS_EN[response.disposition.outcomeType] ?? response.disposition.outcomeType)
-        : "";
     case "score":
       return score;
     case "result":

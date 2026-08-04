@@ -206,10 +206,7 @@ describe("exports RBAC", () => {
       fields: ["responseId", "agent", "team", "disposition"],
     });
 
-    expect(csv.split("\n")).toEqual([
-      "Evaluation ID,Agent,Team,Disposition",
-      "response-1,Ana Perez,Equipo A,Venta efectiva",
-    ]);
+    expect(csv.split("\n")).toEqual(["Evaluation ID,Agent,Team", "response-1,Ana Perez,Equipo A"]);
     expect(csv).not.toContain("ajeno");
     expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -273,14 +270,14 @@ describe("exports RBAC", () => {
     dangerous.agent.name = '=HYPERLINK("https://example.invalid")';
     dangerous.form.title = "+cmd";
     dangerous.evaluator.name = "-2+3";
-    dangerous.disposition.name = "\tformula";
+    if (dangerous.agent.team) dangerous.agent.team.name = "\tformula";
     dangerous.answers[0].question.label = "  @SUM(A1:A2)";
     dangerous.answers[0].value = "  =1+1";
     mockExportResponses([dangerous]);
 
     const csv = await exportToCsv({
       campaignId: "campaign-1",
-      fields: ["agent", "form", "evaluator", "disposition", "answers"],
+      fields: ["agent", "form", "evaluator", "team", "answers"],
     });
 
     expect(csv).toContain("S01-P02 · Apertura ·   @SUM(A1:A2) [question-1]");

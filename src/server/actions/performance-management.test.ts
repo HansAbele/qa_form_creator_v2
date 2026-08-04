@@ -64,7 +64,7 @@ describe("performance management actions", () => {
     } as never);
     prismaMock.coachingSession.create.mockResolvedValue({
       id: "coaching-1",
-      status: "DRAFT",
+      status: "SCHEDULED",
       campaignId: "campaign-1",
     });
 
@@ -75,7 +75,7 @@ describe("performance management actions", () => {
       pipPlanId: null,
       focusArea: "Documentation",
       objective: "Improve documentation accuracy in every evaluated interaction.",
-      scheduledAt: null,
+      scheduledAt: new Date().toISOString(),
       acknowledgementDueAt: null,
       followUpAt: null,
     });
@@ -91,6 +91,8 @@ describe("performance management actions", () => {
           title: "Coaching — Documentation",
           behavior: null,
           source: "EVALUATION",
+          status: "SCHEDULED",
+          scheduledAt: expect.any(Date),
           acknowledgement: {
             create: {
               status: "PENDING",
@@ -108,6 +110,73 @@ describe("performance management actions", () => {
         }),
       }),
     );
+  });
+
+  it("starts coaching now and its linked QA timer in the same transaction", async () => {
+    prismaMock.agent.findFirst.mockResolvedValue({ id: "agent-1", name: "Agent One" });
+    prismaMock.response.findFirst.mockResolvedValue({
+      id: "response-1",
+      interactionId: "interaction-1",
+      score: 92,
+      hasFatalFail: false,
+      form: { title: "Official scorecard" },
+    } as never);
+    prismaMock.qaActivitySession.findFirst.mockResolvedValue(null);
+    prismaMock.coachingSession.create.mockResolvedValue({
+      id: "coaching-now-1",
+      status: "IN_PROGRESS",
+      campaignId: "campaign-1",
+    });
+
+    await createCoachingSession({
+      campaignId: "campaign-1",
+      agentId: "agent-1",
+      responseId: "response-1",
+      pipPlanId: null,
+      focusArea: "Call control",
+      objective: "Review the evaluated call and practice the expected call-control behavior.",
+      scheduledAt: null,
+      acknowledgementDueAt: null,
+      followUpAt: null,
+      startNow: true,
+    });
+
+    expect(prismaMock.coachingSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "IN_PROGRESS",
+          scheduledAt: expect.any(Date),
+          startedAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(prismaMock.qaActivitySession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          activityType: "COACHING_LIVE",
+          coachingSessionId: "coaching-now-1",
+          responseId: "response-1",
+          intervals: { create: { startedAt: expect.any(Date) } },
+        }),
+      }),
+    );
+  });
+
+  it("rejects coaching scheduled outside the current operational day", async () => {
+    const future = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+    await expect(
+      createCoachingSession({
+        campaignId: "campaign-1",
+        agentId: "agent-1",
+        responseId: "response-1",
+        focusArea: "Quality",
+        objective: "This coaching must remain within the current operational day.",
+        scheduledAt: future,
+      }),
+    ).rejects.toThrow("Coaching can only be created for today");
+
+    expect(prismaMock.agent.findFirst).not.toHaveBeenCalled();
   });
 
   it("rejects coaching creation outside the QA campaign scope before data access", async () => {

@@ -486,7 +486,7 @@ describe("submitResponse validation and RBAC", () => {
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it("creates a response only when form, agent and disposition share the campaign", async () => {
+  it("creates a response without assigning an evaluation disposition", async () => {
     await expect(
       submitResponse({
         clientResponseId: CLIENT_RESPONSE_ID,
@@ -513,7 +513,7 @@ describe("submitResponse validation and RBAC", () => {
           formId: "form-1",
           agentId: "agent-1",
           evaluatorId: "qa-1",
-          dispositionId: "disp-1",
+          dispositionId: null,
           formVersion: "1.0.0",
           hasFatalFail: false,
           result: "PASS",

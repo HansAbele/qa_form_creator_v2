@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { resolvePreferredCampaignId, resolveWorkspaceDateRange } from "@/lib/workspace-preferences";
 import { getReportCampaigns } from "@/server/actions/campaigns";
-import { getDispositionsForReports } from "@/server/actions/dispositions";
 import { getFormsForReports } from "@/server/actions/forms";
 import { readMyWorkspacePreferences } from "@/server/actions/workspace-preferences";
 import { getCurrentUserUiAccess, hasAnyCampaignPermissions } from "@/server/queries/ui-access";
@@ -15,10 +14,9 @@ export default async function ReportsPage() {
   if (!access.canViewReports) redirect("/settings");
   const canExport = await hasAnyCampaignPermissions(["canExport", "canViewReports"]);
 
-  const [campaigns, forms, dispositions, workspace] = await Promise.all([
+  const [campaigns, forms, workspace] = await Promise.all([
     getReportCampaigns(),
     getFormsForReports(),
-    getDispositionsForReports(),
     readMyWorkspacePreferences(),
   ]);
   const initialCampaignId = resolvePreferredCampaignId(workspace.preferences, campaigns);
@@ -28,12 +26,6 @@ export default async function ReportsPage() {
     <ReportsClient
       campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
       forms={forms.map((f) => ({ id: f.id, title: f.title, campaignId: f.campaignId }))}
-      dispositions={dispositions.map((disposition) => ({
-        id: disposition.id,
-        name: disposition.name,
-        campaignId: disposition.campaignId,
-        campaignName: disposition.campaign.name,
-      }))}
       canExport={canExport}
       initialCampaignId={initialCampaignId}
       initialDateFrom={initialDates.dateFrom}

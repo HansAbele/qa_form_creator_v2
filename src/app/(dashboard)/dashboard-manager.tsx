@@ -1,20 +1,11 @@
 "use client";
 
-import {
-  Award,
-  Calendar,
-  ClipboardCheck,
-  ShieldAlert,
-  Tag,
-  TrendingUp,
-  UsersRound,
-} from "lucide-react";
+import { Award, Calendar, ClipboardCheck, ShieldAlert, TrendingUp, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentsToCoach } from "@/components/dashboard/agents-to-coach";
 import { type CeaFamily, CeaGauges } from "@/components/dashboard/cea-gauges";
 import {
-  BAR_COLORS,
   ContextBar,
   DashboardSpinner,
   DistributionCard,
@@ -45,8 +36,6 @@ type DashboardBundle = Awaited<ReturnType<typeof getDashboardManagerBundle>>;
 type Stats = DashboardBundle["stats"];
 type Insights = DashboardBundle["coachingInsights"];
 type CampaignPerf = DashboardBundle["campaignKpis"];
-type DispAnalytics = DashboardBundle["dispositionAnalytics"];
-type OutcomeKpis = DashboardBundle["outcomeKpis"];
 
 export function DashboardManager({
   userName,
@@ -80,14 +69,6 @@ export function DashboardManager({
   const [insights, setInsights] = useState<Insights | null>(null);
   const [evaluators, setEvaluators] = useState<EvaluatorRow[]>([]);
   const [campaignPerf, setCampaignPerf] = useState<CampaignPerf>([]);
-  const [dispAnalytics, setDispAnalytics] = useState<DispAnalytics>([]);
-  const [outcomeKpis, setOutcomeKpis] = useState<OutcomeKpis>({
-    classifiedTotal: 0,
-    resolved: 0,
-    escalated: 0,
-    resolutionRate: 0,
-    escalationRate: 0,
-  });
 
   const loadData = useCallback(async () => {
     const requestId = ++requestGeneration.current;
@@ -105,8 +86,6 @@ export function DashboardManager({
       setInsights(data.coachingInsights);
       setEvaluators(data.evaluatorActivity);
       setCampaignPerf(data.campaignKpis);
-      setDispAnalytics(data.dispositionAnalytics);
-      setOutcomeKpis(data.outcomeKpis);
       setLoadStatus(data.stats.responseCount === 0 ? "empty" : "success");
     } catch (e) {
       if (requestId !== requestGeneration.current) return;
@@ -178,9 +157,6 @@ export function DashboardManager({
     return b.avgScore - a.avgScore;
   });
   const activeCampaignCount = sortedCampaignPerf.filter((e) => e.totalEvaluations > 0).length;
-  const topDispositions = dispAnalytics.slice(0, 8);
-  const maxDispositionTotal = Math.max(1, ...topDispositions.map((e) => e.totalEvaluations));
-  const totalDispositionEvaluations = dispAnalytics.reduce((sum, e) => sum + e.totalEvaluations, 0);
 
   function viewComplianceIncidents() {
     const params = new URLSearchParams({ status: "fail", scope: "managed" });
@@ -223,11 +199,7 @@ export function DashboardManager({
       ) : null}
 
       {/* KPI row — program health (no "Total Formularios"); columns match card count so the row fills evenly */}
-      <div
-        className={`grid gap-4 sm:grid-cols-2 ${
-          outcomeKpis.classifiedTotal > 0 ? "lg:grid-cols-3 xl:grid-cols-6" : "lg:grid-cols-5"
-        }`}
-      >
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard
           label={t("Evaluated Calls")}
           value={stats.responseCount}
@@ -295,23 +267,6 @@ export function DashboardManager({
           }
           index={4}
         />
-        {outcomeKpis.classifiedTotal > 0 ? (
-          <KpiCard
-            label={t("Resolution (FCR) · monitoring-derived")}
-            value={outcomeKpis.resolutionRate}
-            decimals={1}
-            suffix="%"
-            icon={Award}
-            tone={
-              outcomeKpis.resolutionRate >= 80
-                ? "emerald"
-                : outcomeKpis.resolutionRate >= 70
-                  ? "amber"
-                  : "rose"
-            }
-            index={5}
-          />
-        ) : null}
       </div>
 
       {/* CEA — the COPC differentiator */}
@@ -393,9 +348,9 @@ export function DashboardManager({
         </div>
       </Section>
 
-      {/* Campaigns + dispositions (summary → drill-down) */}
+      {/* Campaign summary → drill-down */}
       <Section delay={0.24}>
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+        <div>
           <Card className="flex overflow-hidden lg:h-[clamp(460px,55vh,620px)] lg:flex-col">
             <CardHeader className="pb-3">
               <CardTitle className="flex flex-wrap items-center gap-2 text-base">
@@ -504,95 +459,6 @@ export function DashboardManager({
                 </div>
               ) : (
                 <EmptyState label={t("No campaigns with evaluations")} />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="flex self-start lg:h-[clamp(460px,55vh,620px)] lg:flex-col">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                <Tag className="h-4 w-4 text-cyan-500" />
-                {t("Frequent Dispositions")}
-                <span className="ml-auto text-[10px] font-normal text-muted-foreground">
-                  {t("monitoring-derived")}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="min-h-0 flex-1">
-              {dispAnalytics.length > 0 ? (
-                <div className="flex h-full min-h-0 flex-col gap-3">
-                  <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                    <span>
-                      {t("Top {shown} of {total}", {
-                        shown: topDispositions.length,
-                        total: dispAnalytics.length,
-                      })}
-                    </span>
-                    <span className="tabular-nums">
-                      {t("{count} evaluations", { count: totalDispositionEvaluations })}
-                    </span>
-                  </div>
-                  <div className="grid min-h-0 flex-1 auto-rows-fr gap-2">
-                    {topDispositions.map((entry, i) => {
-                      const share =
-                        totalDispositionEvaluations > 0
-                          ? (entry.totalEvaluations / totalDispositionEvaluations) * 100
-                          : 0;
-                      return (
-                        <button
-                          type="button"
-                          key={entry.id}
-                          aria-disabled={!canOpenKpiDetails}
-                          className={`group flex min-h-0 w-full flex-col justify-center rounded-md border bg-card px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                            canOpenKpiDetails
-                              ? "cursor-pointer hover:bg-muted/40"
-                              : "cursor-default"
-                          }`}
-                          onClick={
-                            canOpenKpiDetails
-                              ? () => router.push(`/analytics/dispositions/${entry.id}`)
-                              : undefined
-                          }
-                          title={t("{name} · {count} evaluations", {
-                            name: entry.name,
-                            count: entry.totalEvaluations,
-                          })}
-                        >
-                          <div className="mb-2 flex items-center gap-3">
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground tabular-nums">
-                              {i + 1}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-medium">{entry.name}</div>
-                              <div className="truncate text-xs text-muted-foreground">
-                                {entry.categoryName ?? entry.code ?? t("Uncategorized")}
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-sm font-semibold tabular-nums">
-                                {entry.totalEvaluations}
-                              </div>
-                              <div className="text-xs text-muted-foreground tabular-nums">
-                                {share.toFixed(0)}%
-                              </div>
-                            </div>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${Math.max(4, (entry.totalEvaluations / maxDispositionTotal) * 100)}%`,
-                                backgroundColor: BAR_COLORS[i % BAR_COLORS.length],
-                              }}
-                            />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <EmptyState label={t("No Dispositions with evaluations")} />
               )}
             </CardContent>
           </Card>

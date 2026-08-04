@@ -11,7 +11,6 @@ import {
   MessageSquareText,
   Pencil,
   ShieldAlert,
-  Tag,
   User,
   Users,
 } from "lucide-react";
@@ -78,7 +77,6 @@ interface ResponseDetailData {
     campaignName: string;
   };
   evaluator: { id: string; name: string };
-  disposition: { id: string; name: string; code: string | null } | null;
   interaction: InteractionMediaContext | null;
   answers: Answer[];
 }
@@ -289,7 +287,7 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
 
       {data.interaction ? <InteractionMediaPanel interaction={data.interaction} /> : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <InfoCard
           icon={<User className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
           label={t("Agent")}
@@ -309,17 +307,6 @@ export function ResponseDetailClient({ responseId }: { responseId: string }) {
           onClick={
             data.canOpenAnalytics
               ? () => router.push(`/analytics/evaluators/${data.evaluator.id}`)
-              : undefined
-          }
-        />
-        <InfoCard
-          icon={<Tag className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />}
-          label={t("Disposition")}
-          title={data.disposition?.name ?? t("No disposition")}
-          detail={data.disposition?.code ? `#${data.disposition.code}` : null}
-          onClick={
-            data.disposition && data.canOpenAnalytics
-              ? () => router.push(`/analytics/dispositions/${data.disposition?.id}`)
               : undefined
           }
         />

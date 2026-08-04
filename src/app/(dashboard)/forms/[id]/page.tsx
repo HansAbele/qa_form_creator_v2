@@ -15,7 +15,6 @@ import {
   getInteractionForEvaluation,
   getInteractionForResponse,
 } from "@/server/queries/call-finder";
-import { hasCampaignPermissionForUser } from "@/server/queries/campaign-filter";
 import { hasAnyCampaignPermission } from "@/server/queries/ui-access";
 
 export default async function FormEvaluatePage({
@@ -70,10 +69,7 @@ export default async function FormEvaluatePage({
     );
   }
 
-  const [scoringSettings, canManageDispositions] = await Promise.all([
-    getCampaignScoringSettings(form.campaignId),
-    hasCampaignPermissionForUser(session.user, form.campaignId, "canManageDispositions"),
-  ]);
+  const scoringSettings = await getCampaignScoringSettings(form.campaignId);
   const viewerScoringPolicy = resolveResponseScoringPolicy(initialResponse, {
     ...scoringSettings,
     passThreshold: form.passThresholdOverride ?? scoringSettings.passThreshold,
@@ -90,7 +86,6 @@ export default async function FormEvaluatePage({
         form={form}
         passThreshold={viewerScoringPolicy.passThreshold}
         fatalZeroesScore={viewerScoringPolicy.fatalZeroesScore}
-        canManageDispositions={canManageDispositions}
         linkedInteraction={
           linkedInteraction
             ? {
@@ -136,20 +131,11 @@ export default async function FormEvaluatePage({
                 updatedAt: initialResponse.updatedAt.toISOString(),
                 status: initialResponse.status,
                 agentId: initialResponse.agentId,
-                dispositionId: initialResponse.dispositionId,
                 agent: {
                   id: initialResponse.agent.id,
                   name: initialResponse.agent.name,
                   agentCode: initialResponse.agent.agentCode,
                 },
-                disposition: initialResponse.disposition
-                  ? {
-                      id: initialResponse.disposition.id,
-                      name: initialResponse.disposition.name,
-                      code: initialResponse.disposition.code,
-                      category: null,
-                    }
-                  : null,
                 answers: initialResponse.answers.map((answer) => ({
                   questionId: answer.questionId,
                   value: answer.value,

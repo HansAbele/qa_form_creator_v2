@@ -12,7 +12,6 @@ import {
   Megaphone,
   ShieldAlert,
   SlidersHorizontal,
-  Tags,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -34,7 +33,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatOperationalTimestamp } from "@/lib/date-display";
-import { OUTCOME_LABELS_EN } from "@/lib/disposition-outcome";
 import { formDisplayName } from "@/lib/form-display-name";
 import { getMetricDisplay, type MetricDisplay } from "@/lib/metric-display";
 import { getReportData } from "@/server/queries/analytics";
@@ -45,7 +43,6 @@ type ReportResponse = ReportPage["items"][number];
 interface ReportsClientProps {
   campaigns: { id: string; name: string }[];
   forms: { id: string; title: string; campaignId: string }[];
-  dispositions: { id: string; name: string; campaignId: string; campaignName: string }[];
   canExport: boolean;
   initialCampaignId?: string;
   initialDateFrom?: string;
@@ -55,7 +52,6 @@ interface ReportsClientProps {
 export function ReportsClient({
   campaigns,
   forms,
-  dispositions,
   canExport,
   initialCampaignId,
   initialDateFrom,
@@ -76,15 +72,10 @@ export function ReportsClient({
   const [error, setError] = useState<string | null>(null);
   const [resultFilter, setResultFilter] = useState<"all" | "PASS" | "FAIL">("all");
   const [fatalOnly, setFatalOnly] = useState(false);
-  const [dispositionFilter, setDispositionFilter] = useState("all");
   const reportRequestGeneration = useRef(0);
   const router = useRouter();
 
   const filteredForms = campaignId ? forms.filter((f) => f.campaignId === campaignId) : forms;
-  const dispositionOptions = campaignId
-    ? dispositions.filter((disposition) => disposition.campaignId === campaignId)
-    : dispositions;
-
   const loadReports = useCallback(async () => {
     const requestId = ++reportRequestGeneration.current;
     setLoading(true);
@@ -95,7 +86,6 @@ export function ReportsClient({
         formId: formId || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
-        dispositionId: dispositionFilter === "all" ? undefined : dispositionFilter,
         resultStatus: resultFilter === "all" ? undefined : resultFilter,
         fatalOnly,
         page,
@@ -110,7 +100,7 @@ export function ReportsClient({
     } finally {
       if (requestId === reportRequestGeneration.current) setLoading(false);
     }
-  }, [campaignId, dateFrom, dateTo, dispositionFilter, fatalOnly, formId, page, resultFilter]);
+  }, [campaignId, dateFrom, dateTo, fatalOnly, formId, page, resultFilter]);
 
   useEffect(() => {
     void loadReports();
@@ -126,7 +116,6 @@ export function ReportsClient({
     setDateFrom("");
     setDateTo("");
     setResultFilter("all");
-    setDispositionFilter("all");
     setFatalOnly(false);
   };
 
@@ -137,7 +126,6 @@ export function ReportsClient({
     if (dateTo) params.set("dateTo", dateTo);
     if (resultFilter !== "all") params.set("status", resultFilter.toLowerCase());
     if (formId) params.set("formId", formId);
-    if (dispositionFilter !== "all") params.set("dispositionId", dispositionFilter);
     if (fatalOnly) params.set("fatalOnly", "true");
     router.push(`/evaluations?${params.toString()}`);
   };
@@ -150,7 +138,6 @@ export function ReportsClient({
       dateFrom ||
       dateTo ||
       resultFilter !== "all" ||
-      dispositionFilter !== "all" ||
       fatalOnly,
   );
   const campaignOptions = [
@@ -160,13 +147,6 @@ export function ReportsClient({
   const formOptions = [
     { value: "all", label: t("All forms") },
     ...filteredForms.map((form) => ({ value: form.id, label: formDisplayName(form.title) })),
-  ];
-  const dispositionSelectOptions = [
-    { value: "all", label: t("All dispositions") },
-    ...dispositionOptions.map((disposition) => ({
-      value: disposition.id,
-      label: `${disposition.name} · ${disposition.campaignName}`,
-    })),
   ];
   const metricStatus = loading
     ? "loading"
@@ -280,7 +260,7 @@ export function ReportsClient({
               </Button>
             ) : null}
           </div>
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
             {campaigns.length === 1 ? (
               <div className="space-y-1.5">
                 <p className="text-xs font-medium text-muted-foreground">{t("Campaign")}</p>
@@ -299,7 +279,6 @@ export function ReportsClient({
                   setPage(1);
                   setCampaignId(value === "all" ? "" : value);
                   setFormId("");
-                  setDispositionFilter("all");
                 }}
                 placeholder={t("All campaigns")}
                 icon={Megaphone}
@@ -343,19 +322,6 @@ export function ReportsClient({
                 setResultFilter(value as "all" | "PASS" | "FAIL");
               }}
               icon={CircleCheck}
-            />
-            <FilterSelect
-              id="reports-disposition"
-              label={t("Disposition")}
-              value={dispositionFilter}
-              options={dispositionSelectOptions}
-              onValueChange={(value) => {
-                setPage(1);
-                setDispositionFilter(value);
-              }}
-              placeholder={t("All dispositions")}
-              icon={Tags}
-              contentClassName="min-w-64"
             />
             <FilterCheckbox
               id="reports-fatal-only"
@@ -494,7 +460,6 @@ export function ReportsClient({
               <TableHead>{t("Form")}</TableHead>
               <TableHead>{t("Agent")}</TableHead>
               <TableHead>{t("Evaluator")}</TableHead>
-              <TableHead>{t("Disposition")}</TableHead>
               <TableHead>{t("Score")}</TableHead>
               <TableHead className="w-16">{t("Details")}</TableHead>
             </TableRow>
@@ -519,24 +484,6 @@ export function ReportsClient({
                   )}
                 </TableCell>
                 <TableCell>{r.evaluatorName}</TableCell>
-                <TableCell>
-                  {r.dispositionName ? (
-                    <div className="flex flex-col">
-                      <span className="max-w-[150px] truncate">{r.dispositionName}</span>
-                      {r.dispositionOutcome && (
-                        <span className="text-xs text-muted-foreground">
-                          {t(
-                            OUTCOME_LABELS_EN[
-                              r.dispositionOutcome as keyof typeof OUTCOME_LABELS_EN
-                            ] ?? r.dispositionOutcome,
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge variant={r.passesThreshold ? "default" : "destructive"}>

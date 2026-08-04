@@ -1147,7 +1147,7 @@ function getEffectivePermissionsV2(user: AccessUser): string[] {
   }
   if (hasAny("canViewReports")) permissions.push("Reports");
   if (hasAny("canExport")) permissions.push("Exports");
-  if (hasAny("canManageAgents") || hasAny("canManageDispositions")) {
+  if (hasAny("canManageAgents")) {
     permissions.push("Operations");
   }
 
@@ -1908,7 +1908,7 @@ function EvaluationRulesTab() {
         {
           key: "campaignConsistency",
           label: "Campaign consistency",
-          detail: "The form, agent, and disposition must belong to the same campaign.",
+          detail: "The form and agent must belong to the same campaign.",
           badge: "Enforced",
           locked: true,
         },

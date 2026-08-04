@@ -33,10 +33,7 @@ export default async function FormsPage() {
           f.campaign.active &&
           !isSupervisor &&
           (isAdmin || Boolean(f.campaign.users[0]?.canEvaluate)),
-        canEdit:
-          !isSupervisor &&
-          (isAdmin ||
-            (f.createdById === session.user.id && Boolean(f.campaign.users[0]?.canEditForms))),
+        canEdit: !isSupervisor && (isAdmin || Boolean(f.campaign.users[0]?.canEditForms)),
         canPublish:
           !isSupervisor &&
           (isAdmin ||

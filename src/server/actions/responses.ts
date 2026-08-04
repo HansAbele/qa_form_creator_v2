@@ -97,7 +97,9 @@ const responseMutationSchema = z
     clientResponseId: z.string().uuid().optional(),
     formId: z.string().trim().min(1),
     agentId: z.string().trim().min(1),
-    dispositionId: z.string().trim().min(1).nullable(),
+    // Accepted only for a short rolling-deploy compatibility window. Qore no
+    // longer assigns evaluation dispositions and never persists this value.
+    dispositionId: z.string().trim().min(1).nullable().optional(),
     interactionId: z.string().trim().min(1).nullable().optional(),
     evaluationActivityId: z.string().trim().min(1).max(100).optional(),
     answers: z.array(responseAnswerSchema).max(MAX_ANSWERS_PER_SUBMISSION),
@@ -296,9 +298,7 @@ function hasMutationResponseIntegrity(response: ExistingResponseForMutation) {
     response.answers.every((answer) => answer.question.formId === response.formId) &&
     (!response.interaction ||
       (response.interaction.campaignId === response.form.campaignId &&
-        (!response.interaction.agentId || response.interaction.agentId === response.agentId) &&
-        (!response.interaction.dispositionId ||
-          response.interaction.dispositionId === response.dispositionId)))
+        (!response.interaction.agentId || response.interaction.agentId === response.agentId)))
   );
 }
 
@@ -424,9 +424,7 @@ export async function getResponseById(id: string) {
     (response.disposition && response.disposition.campaignId !== response.form.campaignId) ||
     (response.interaction &&
       (response.interaction.campaignId !== response.form.campaignId ||
-        (response.interaction.agentId && response.interaction.agentId !== response.agentId) ||
-        (response.interaction.dispositionId &&
-          response.interaction.dispositionId !== response.dispositionId))) ||
+        (response.interaction.agentId && response.interaction.agentId !== response.agentId))) ||
     response.answers.some((answer) => answer.question.formId !== response.form.id)
   ) {
     failResponseUnavailable();
@@ -1047,7 +1045,7 @@ function isSameCreateContext(
     return sameStableIdentity;
   }
 
-  return response.agentId === input.agentId && response.dispositionId === input.dispositionId;
+  return response.agentId === input.agentId;
 }
 
 async function saveEvaluation(
@@ -1111,17 +1109,11 @@ async function saveEvaluation(
     failResponseAction("VALIDATION", "The evaluation contains invalid answers");
   }
 
-  const [agent, disposition, interaction, scoringSettings] = await Promise.all([
+  const [agent, interaction, scoringSettings] = await Promise.all([
     prisma.agent.findUnique({
       where: { id: input.agentId },
       select: { campaignId: true, active: true, name: true, agentCode: true },
     }),
-    input.dispositionId
-      ? prisma.disposition.findUnique({
-          where: { id: input.dispositionId },
-          select: { campaignId: true, active: true },
-        })
-      : Promise.resolve(null),
     input.interactionId
       ? prisma.interaction.findUnique({
           where: { id: input.interactionId },
@@ -1142,24 +1134,11 @@ async function saveEvaluation(
     failResponseAction("VALIDATION", "Invalid agent for this campaign");
   }
 
-  const keepsHistoricalDisposition =
-    isHistoricalCorrection && input.dispositionId === existing?.dispositionId;
-  if (
-    (!input.dispositionId && !keepsHistoricalDisposition) ||
-    (input.dispositionId &&
-      (!disposition ||
-        disposition.campaignId !== form.campaignId ||
-        (!disposition.active && !keepsHistoricalDisposition)))
-  ) {
-    failResponseAction("VALIDATION", "Invalid disposition for this campaign");
-  }
-
   if (
     input.interactionId &&
     (!interaction ||
       interaction.campaignId !== form.campaignId ||
       (interaction.agentId !== null && interaction.agentId !== input.agentId) ||
-      (interaction.dispositionId !== null && interaction.dispositionId !== input.dispositionId) ||
       (interaction.response !== null && interaction.response.id !== existing?.id))
   ) {
     failResponseAction("VALIDATION", "The selected call is unavailable for this evaluation");
@@ -1269,7 +1248,7 @@ async function saveEvaluation(
           formId: input.formId,
           agentId: input.agentId,
           evaluatorId: existing?.evaluatorId ?? session.user.id,
-          dispositionId: input.dispositionId,
+          dispositionId: null,
           interactionId: input.interactionId ?? null,
           score,
           formVersion:
@@ -1335,7 +1314,6 @@ async function saveEvaluation(
               id: savedResponse.id,
               formId: input.formId,
               agentId: input.agentId,
-              dispositionId: input.dispositionId,
               interactionId: input.interactionId ?? null,
               score,
               result,

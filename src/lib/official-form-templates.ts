@@ -1,7 +1,7 @@
 import type { CriticalType, QuestionType } from "@prisma/client";
 
 export const PARKER_DAVIS_SCORECARD_KEY = "PARKER_DAVIS_QA_SCORECARD";
-export const PARKER_DAVIS_SCORECARD_VERSION = "PD-QA-SCORECARD-2026-07-R2";
+export const PARKER_DAVIS_SCORECARD_VERSION = "PD-QA-SCORECARD-2026-08-R3";
 export const HAPUSA_SCORECARD_KEY = "HAPUSA_QA_SCORECARD";
 export const HAPUSA_SCORECARD_VERSION = "HAPUSA-QA-SCORECARD-2026-07";
 
@@ -153,160 +153,165 @@ export const PARKER_DAVIS_SCORECARD = {
   passThreshold: 95,
   gradingScale: PARKER_DAVIS_GRADING_SCALE,
   categories: PARKER_DAVIS_CATEGORIES,
-  questions: [
-    scoredQuestion(
-      "qa_pd_opening_verification",
-      "1. Properly opened the call and greeted the customer with the branding of the company.",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_opening_verification",
-      "2. Correctly verifies information: name, phone number, order number, invoice number etc.",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_communication_control",
-      "4. Did the agent listen without interrupting, acknowledge concerns, ask clarifying questions?",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_communication_control",
-      "5. Maintained control of the conversation, kept the customer on topic, used appropriate transitions.",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_communication_control",
-      "6. Tone is professional, calm, empathetic and respectful throughout the call.",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_communication_control",
-      "7. Clear speech, grammar, professionalism, empathy, confidence, positive language.",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_communication_control",
-      "8. Did the agent correctly place the customer on hold? Did the agent refreshed the call and/or avoided long periods of dead-air.",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_communication_control",
-      "9. Was the call properly transferred and to the correct department/extension?",
-      5,
-    ),
-    scoredQuestion(
-      "qa_pd_problem_resolution",
-      "10. Correctly identified the issue, provided the appropriate solution, resolved or escalated when necessary.",
-      15,
-    ),
-    checkpoint(
-      "qa_pd_problem_resolution",
-      "• Obtains order number and/or invoice number as applicable.",
-    ),
-    checkpoint(
-      "qa_pd_problem_resolution",
-      "• Obtains model number and serial number (barcode sticker — not data plate).",
-      { partsWarranty: true },
-    ),
-    checkpoint(
-      "qa_pd_problem_resolution",
-      "• Obtains registration number and invoice number for warranty calls.",
-    ),
-    scoredQuestion(
-      "qa_pd_policy_compliance",
-      "11. Followed company policies, legal requirements, disclosures.",
-      15,
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Will (P&W Supervisor) notified via Teams with case number after order is created.",
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Warranty orders set to $0; paid orders use listed pricing from product list.",
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Confirms unit is uninstalled before processing return.",
-      { fatal: true },
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Return submitted via correct portal: pdhvac.com/support/returns-refunds/request.",
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Amazon orders transferred immediately to CS queue (4110) — no attempt to handle independently.",
-      { fatal: true },
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Escalation keywords recognized and acted on immediately (Defective, Installed, Replacement, Supervisor, Legal, Chargeback).",
-      { fatal: true },
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Does NOT register product for customer over the phone — directs to self-registration portal.",
-      { fatal: true },
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Single-call rule enforced — customer asked to report ALL issues on the first call.",
-      { fatal: true },
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Photos requested for ALL damaged item claims before any resolution is offered.",
-      { fatal: true },
-    ),
-    checkpoint(
-      "qa_pd_policy_compliance",
-      "• Grounded compressor rule: main board(s) sent with every compressor replacement.",
-      { fatal: true },
-    ),
-    scoredQuestion(
-      "qa_pd_correct_information",
-      "12. Was the correct and complete information given to the customer?",
-      10,
-    ),
-    checkpoint("qa_pd_correct_information", "• Invoice sent to correct customer email address."),
-    checkpoint("qa_pd_correct_information", "• Customer advised email will come from HighSeer."),
-    checkpoint("qa_pd_correct_information", "• 45-day window confirmed before submitting return."),
-    checkpoint(
-      "qa_pd_correct_information",
-      "• Customer informed that returns are inspected; restocking fees may apply if used/damaged.",
-    ),
-    checkpoint(
-      "qa_pd_correct_information",
-      "• Customer advised to expect label by email within 24–48 hours.",
-    ),
-    scoredQuestion(
-      "qa_pd_correct_information",
-      "13. Were probing and necessary questions asked?",
-      10,
-    ),
-    checkpoint(
-      "qa_pd_correct_information",
-      "• Confirms unit is uninstalled before processing return",
-      { fatal: true },
-    ),
-    checkpoint("qa_pd_correct_information", "Identified customer’s issue correctly."),
-    checkpoint("qa_pd_correct_information", "Provided accurate information or solution."),
-    scoredQuestion("qa_pd_documentation", "14. Detailed account notes were provided.", 10),
-    checkpoint(
-      "qa_pd_documentation",
-      "• Correct case type selected: Part/Component, Return, or Claim.",
-    ),
-    checkpoint(
-      "qa_pd_documentation",
-      "• Correct case type selected: Part/Component, Return, or Claim.",
-    ),
-    checkpoint(
-      "qa_pd_documentation",
-      "• Order type set FIRST before adding parts (warranty / spare parts / open box).",
-      { fatal: true },
-    ),
-  ] satisfies OfficialScorecardQuestion[],
+  questions: (
+    [
+      scoredQuestion(
+        "qa_pd_opening_verification",
+        "1. Properly opened the call and greeted the customer with the branding of the company.",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_opening_verification",
+        "2. Correctly verifies information: name, phone number, order number, invoice number etc.",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_communication_control",
+        "4. Did the agent listen without interrupting, acknowledge concerns, ask clarifying questions?",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_communication_control",
+        "5. Maintained control of the conversation, kept the customer on topic, used appropriate transitions.",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_communication_control",
+        "6. Tone is professional, calm, empathetic and respectful throughout the call.",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_communication_control",
+        "7. Clear speech, grammar, professionalism, empathy, confidence, positive language.",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_communication_control",
+        "8. Did the agent correctly place the customer on hold? Did the agent refreshed the call and/or avoided long periods of dead-air.",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_communication_control",
+        "9. Was the call properly transferred and to the correct department/extension?",
+        5,
+      ),
+      scoredQuestion(
+        "qa_pd_problem_resolution",
+        "10. Correctly identified the issue, provided the appropriate solution, resolved or escalated when necessary.",
+        15,
+      ),
+      checkpoint(
+        "qa_pd_problem_resolution",
+        "• Obtains order number and/or invoice number as applicable.",
+      ),
+      checkpoint(
+        "qa_pd_problem_resolution",
+        "• Obtains model number and serial number (barcode sticker — not data plate).",
+        { partsWarranty: true },
+      ),
+      checkpoint(
+        "qa_pd_problem_resolution",
+        "• Obtains registration number and invoice number for warranty calls.",
+      ),
+      scoredQuestion(
+        "qa_pd_policy_compliance",
+        "11. Followed company policies, legal requirements, disclosures.",
+        15,
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Will (P&W Supervisor) notified via Teams with case number after order is created.",
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Warranty orders set to $0; paid orders use listed pricing from product list.",
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Confirms unit is uninstalled before processing return.",
+        { fatal: true },
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Return submitted via correct portal: pdhvac.com/support/returns-refunds/request.",
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Amazon orders transferred immediately to CS queue (4110) — no attempt to handle independently.",
+        { fatal: true },
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Escalation keywords recognized and acted on immediately (Defective, Installed, Replacement, Supervisor, Legal, Chargeback).",
+        { fatal: true },
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Does NOT register product for customer over the phone — directs to self-registration portal.",
+        { fatal: true },
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Single-call rule enforced — customer asked to report ALL issues on the first call.",
+        { fatal: true },
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Photos requested for ALL damaged item claims before any resolution is offered.",
+        { fatal: true },
+      ),
+      checkpoint(
+        "qa_pd_policy_compliance",
+        "• Grounded compressor rule: main board(s) sent with every compressor replacement.",
+        { fatal: true },
+      ),
+      scoredQuestion(
+        "qa_pd_correct_information",
+        "12. Was the correct and complete information given to the customer?",
+        10,
+      ),
+      checkpoint("qa_pd_correct_information", "• Invoice sent to correct customer email address."),
+      checkpoint("qa_pd_correct_information", "• Customer advised email will come from HighSeer."),
+      checkpoint(
+        "qa_pd_correct_information",
+        "• 45-day window confirmed before submitting return.",
+      ),
+      checkpoint(
+        "qa_pd_correct_information",
+        "• Customer informed that returns are inspected; restocking fees may apply if used/damaged.",
+      ),
+      checkpoint(
+        "qa_pd_correct_information",
+        "• Customer advised to expect label by email within 24–48 hours.",
+      ),
+      scoredQuestion(
+        "qa_pd_correct_information",
+        "13. Were probing and necessary questions asked?",
+        10,
+      ),
+      checkpoint(
+        "qa_pd_correct_information",
+        "• Confirms unit is uninstalled before processing return",
+        { fatal: true },
+      ),
+      checkpoint("qa_pd_correct_information", "Identified customer’s issue correctly."),
+      checkpoint("qa_pd_correct_information", "Provided accurate information or solution."),
+      scoredQuestion("qa_pd_documentation", "14. Detailed account notes were provided.", 10),
+      checkpoint(
+        "qa_pd_documentation",
+        "• Correct case type selected: Part/Component, Return, or Claim.",
+      ),
+      checkpoint(
+        "qa_pd_documentation",
+        "• Correct case type selected: Part/Component, Return, or Claim.",
+      ),
+      checkpoint(
+        "qa_pd_documentation",
+        "• Order type set FIRST before adding parts (warranty / spare parts / open box).",
+        { fatal: true },
+      ),
+    ] satisfies OfficialScorecardQuestion[]
+  ).filter((question) => question.weight > 0),
 } as const;
 
 export const HAPUSA_GRADING_SCALE: ScorecardGradingBand[] = [

@@ -13,7 +13,6 @@ import {
   LoaderCircle,
   Megaphone,
   ShieldAlert,
-  Tags,
   UserRound,
   Users,
 } from "lucide-react";
@@ -100,7 +99,6 @@ export function EvaluationsListClient({
   initialAgentId,
   initialEvaluatorId,
   initialFormId,
-  initialDispositionId,
   initialFatalOnly = false,
   initialPage = 1,
 }: {
@@ -125,7 +123,6 @@ export function EvaluationsListClient({
   initialAgentId?: string;
   initialEvaluatorId?: string;
   initialFormId?: string;
-  initialDispositionId?: string;
   initialFatalOnly?: boolean;
   initialPage?: number;
 }) {
@@ -141,7 +138,6 @@ export function EvaluationsListClient({
   const [agentId, setAgentId] = useState(initialAgentId ?? "");
   const [evaluatorId, setEvaluatorId] = useState(initialEvaluatorId ?? "");
   const [formId, setFormId] = useState(initialFormId ?? "");
-  const [dispositionId, setDispositionId] = useState(initialDispositionId ?? "");
   const [fatalOnly, setFatalOnly] = useState(initialFatalOnly);
   const debouncedMinScore = useDebouncedValue(minScore, 350);
   const debouncedMaxScore = useDebouncedValue(maxScore, 350);
@@ -197,7 +193,6 @@ export function EvaluationsListClient({
         agentId,
         evaluatorId: scope === "managed" ? evaluatorId : "",
         formId,
-        dispositionId,
         fatalOnly,
         page,
       }),
@@ -206,7 +201,6 @@ export function EvaluationsListClient({
       campaignId,
       dateFrom,
       dateTo,
-      dispositionId,
       evaluatorId,
       fatalOnly,
       formId,
@@ -230,9 +224,6 @@ export function EvaluationsListClient({
   const formOptions = campaignId
     ? filterOptions.forms.filter((option) => option.campaignId === campaignId)
     : filterOptions.forms;
-  const dispositionOptions = campaignId
-    ? filterOptions.dispositions.filter((option) => option.campaignId === campaignId)
-    : filterOptions.dispositions;
   const evaluatorOptions = campaignId
     ? filterOptions.evaluators.filter((option) => option.campaignIds.includes(campaignId))
     : filterOptions.evaluators;
@@ -283,7 +274,6 @@ export function EvaluationsListClient({
         agentId: agentId || undefined,
         evaluatorId: scope === "managed" ? evaluatorId || undefined : undefined,
         formId: formId || undefined,
-        dispositionId: dispositionId || undefined,
         fatalOnly,
         page,
         pageSize: 25,
@@ -306,7 +296,6 @@ export function EvaluationsListClient({
     campaignId,
     dateFrom,
     dateTo,
-    dispositionId,
     evaluatorId,
     fatalOnly,
     formId,
@@ -338,7 +327,6 @@ export function EvaluationsListClient({
     if (agentId) params.set("agentId", agentId);
     if (scope === "managed" && evaluatorId) params.set("evaluatorId", evaluatorId);
     if (formId) params.set("formId", formId);
-    if (dispositionId) params.set("dispositionId", dispositionId);
     if (fatalOnly) params.set("fatalOnly", "true");
     if (page > 1) params.set("page", String(page));
     const query = params.toString();
@@ -350,7 +338,6 @@ export function EvaluationsListClient({
     canViewOwn,
     dateFrom,
     dateTo,
-    dispositionId,
     evaluatorId,
     fatalOnly,
     formId,
@@ -402,7 +389,6 @@ export function EvaluationsListClient({
     setAgentId("");
     setEvaluatorId("");
     setFormId("");
-    setDispositionId("");
     setFatalOnly(false);
   };
 
@@ -616,7 +602,6 @@ export function EvaluationsListClient({
                   setAgentId("");
                   setEvaluatorId("");
                   setFormId("");
-                  setDispositionId("");
                   setPage(1);
                 }}
                 icon={Megaphone}
@@ -691,25 +676,6 @@ export function EvaluationsListClient({
               }}
               icon={FileText}
               disabled={formOptions.length === 0}
-              contentClassName="min-w-64"
-            />
-            <FilterSelect
-              id="evaluations-disposition"
-              label={t("Disposition")}
-              value={dispositionId || "all"}
-              options={[
-                { value: "all", label: t("All dispositions") },
-                ...dispositionOptions.map((option) => ({
-                  value: option.id,
-                  label: campaignId ? option.name : `${option.name} · ${option.campaignName}`,
-                })),
-              ]}
-              onValueChange={(value) => {
-                setDispositionId(value === "all" ? "" : value);
-                setPage(1);
-              }}
-              icon={Tags}
-              disabled={dispositionOptions.length === 0}
               contentClassName="min-w-64"
             />
             <FilterSelect
@@ -842,7 +808,7 @@ export function EvaluationsListClient({
 
           {loadStatus === "loading" ? (
             <div className="space-y-2 pt-4">
-              {["agent", "evaluator", "form", "disposition", "score", "submitted"].map((field) => (
+              {["agent", "evaluator", "form", "score", "submitted"].map((field) => (
                 <Skeleton key={field} className="h-11 w-full" />
               ))}
             </div>
@@ -869,7 +835,6 @@ export function EvaluationsListClient({
                       <TableHead>{t("Campaign")}</TableHead>
                       {scope === "managed" ? <TableHead>{t("Evaluator")}</TableHead> : null}
                       <TableHead>{t("Form")}</TableHead>
-                      <TableHead>{t("Disposition")}</TableHead>
                       <TableHead className="text-center">{t("Score / status")}</TableHead>
                       <TableHead className="text-right">{t("Submitted")}</TableHead>
                       <TableHead className="text-right">{t("Action")}</TableHead>
@@ -913,9 +878,6 @@ export function EvaluationsListClient({
                         ) : null}
                         <TableCell className="max-w-[220px] truncate text-muted-foreground">
                           {formDisplayName(response.form.title)}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {response.disposition?.name ?? "—"}
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge
