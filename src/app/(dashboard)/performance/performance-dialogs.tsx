@@ -42,6 +42,7 @@ import {
   type PipTemplateKey,
   pipPlanDurationDays,
 } from "@/lib/performance-management";
+import { recoverFromServerActionVersionSkew } from "@/lib/server-action-version-skew";
 import {
   addPipReview,
   approvePipPlan,
@@ -64,8 +65,9 @@ function calendarIso(value: string) {
   return new Date(`${value}T12:00:00.000Z`).toISOString();
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+function showActionError(error: unknown, fallback: string) {
+  if (recoverFromServerActionVersionSkew(error)) return;
+  toast.error(error instanceof Error ? error.message : fallback);
 }
 
 function optionLabel(value: string) {
@@ -163,7 +165,7 @@ export function NewCoachingDialog({ data, onSaved }: { data: WorkspaceData; onSa
         setOpen(false);
         onSaved();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to create coaching")));
+        showActionError(error, t("Unable to create coaching"));
       }
     });
   }
@@ -347,7 +349,7 @@ export function AcknowledgementDialog({
         setOpen(false);
         onSaved();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to update the timer")));
+        showActionError(error, t("Unable to update the timer"));
       }
     });
   }
@@ -535,7 +537,7 @@ export function NewPipDialog({ data, onSaved }: { data: WorkspaceData; onSaved: 
         setOpen(false);
         onSaved();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to create PIP")));
+        showActionError(error, t("Unable to create PIP"));
       }
     });
   }
@@ -932,7 +934,7 @@ export function PipLifecycleButtons({
         toast.success(t(success));
         onSaved();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to update PIP")));
+        showActionError(error, t("Unable to update PIP"));
       }
     });
   }
@@ -1013,7 +1015,7 @@ export function PipAcknowledgementDialog({
         setOpen(false);
         onSaved();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to record acknowledgement")));
+        showActionError(error, t("Unable to record acknowledgement"));
       }
     });
   }
@@ -1143,7 +1145,7 @@ function PipReviewDialog({
         setOpen(false);
         onSaved();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to update PIP")));
+        showActionError(error, t("Unable to update PIP"));
       }
     });
   }
@@ -1276,7 +1278,7 @@ function PipCloseDialog({
         setOpen(false);
         onSaved();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to update PIP")));
+        showActionError(error, t("Unable to update PIP"));
       }
     });
   }

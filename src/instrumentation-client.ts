@@ -1,4 +1,5 @@
 import { reportClientError } from "@/lib/client-observability";
+import { recoverFromServerActionVersionSkew } from "@/lib/server-action-version-skew";
 
 declare global {
   interface Window {
@@ -11,6 +12,7 @@ if (!window.__qoreErrorInstrumentationInstalled) {
 
   window.addEventListener("error", (event) => {
     const error = event.error instanceof Error ? event.error : undefined;
+    if (recoverFromServerActionVersionSkew(error ?? event.message)) return;
     reportClientError({
       source: "client-runtime",
       name: error?.name ?? "WindowError",
@@ -21,6 +23,10 @@ if (!window.__qoreErrorInstrumentationInstalled) {
 
   window.addEventListener("unhandledrejection", (event) => {
     const error = event.reason instanceof Error ? event.reason : undefined;
+    if (recoverFromServerActionVersionSkew(error ?? event.reason)) {
+      event.preventDefault();
+      return;
+    }
     reportClientError({
       source: "client-runtime",
       name: error?.name ?? "UnhandledRejection",

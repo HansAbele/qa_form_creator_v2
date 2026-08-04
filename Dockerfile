@@ -12,6 +12,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+ARG NEXT_DEPLOYMENT_ID
+ENV NEXT_DEPLOYMENT_ID=$NEXT_DEPLOYMENT_ID
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm prisma generate && \
     mkdir -p node_modules/.prisma && \

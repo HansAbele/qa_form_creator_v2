@@ -54,6 +54,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatOperationalTimestamp } from "@/lib/date-display";
 import { formDisplayName } from "@/lib/form-display-name";
 import { formatTrackedDuration, QA_ACTIVITY_TYPES } from "@/lib/performance-management";
+import { recoverFromServerActionVersionSkew } from "@/lib/server-action-version-skew";
 import {
   finishQaActivity,
   pauseQaActivity,
@@ -83,8 +84,9 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+function showActionError(error: unknown, fallback: string) {
+  if (recoverFromServerActionVersionSkew(error)) return;
+  toast.error(error instanceof Error ? error.message : fallback);
 }
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
@@ -210,7 +212,7 @@ function CurrentActivityCard({
         toast.success(t(action === "finish" ? "Activity completed" : "Timer updated"));
         onChanged();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to update the timer")));
+        showActionError(error, t("Unable to update the timer"));
       }
     });
   }
@@ -311,7 +313,7 @@ function CoachingCard({
         toast.success(t("Coaching timer started"));
         onChanged();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to start the timer")));
+        showActionError(error, t("Unable to start the timer"));
       }
     });
   }
@@ -481,7 +483,7 @@ function ActivityStarter({ data, onChanged }: { data: WorkspaceData; onChanged: 
         toast.success(t("Activity timer started"));
         onChanged();
       } catch (error) {
-        toast.error(errorMessage(error, t("Unable to start the timer")));
+        showActionError(error, t("Unable to start the timer"));
       }
     });
   }

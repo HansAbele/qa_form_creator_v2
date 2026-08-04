@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   outputFileTracingIncludes: {
     "/api/evaluations/hapusa-package": ["src/server/templates/hapusa-scorecard-template.xlsx"],
     "/api/evaluations/official-package": [

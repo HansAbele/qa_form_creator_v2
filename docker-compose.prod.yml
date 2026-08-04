@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_DEPLOYMENT_ID: ${IMAGE_TAG:-local}
     image: qa-form-creator:${IMAGE_TAG:-latest}
     container_name: qa_form_creator_app
     restart: unless-stopped
